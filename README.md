@@ -1,6 +1,6 @@
-# AIR
+# AI Relay (AIR)
 
-AIR is an AI-assisted software delivery orchestration project. Humans own approval, merge, deployment and mitigation; agents execute bounded work between decisions.
+AI Relay (AIR) is an AI-assisted software delivery orchestration project. Humans own approval, merge, deployment and mitigation; agents execute bounded work between decisions.
 
 ## Architecture
 
