@@ -1,0 +1,53 @@
+// Proposed strategic DDD view. These are logical responsibilities,
+// not independently deployable containers.
+specification {
+  element boundedContext {
+    style {
+      color primary
+    }
+  }
+  element supportingCapability {
+    style {
+      color secondary
+    }
+  }
+}
+
+model {
+  extend air {
+    delivery = boundedContext 'Delivery' {
+      description 'Core: controlled phase lifecycle, transitions and gates'
+    }
+    planning = boundedContext 'Planning (future)' {
+      description 'Work intake, qualification and human prioritization'
+    }
+    operations = boundedContext 'Operations (future)' {
+      description 'Incident lifecycle, investigations and proposals'
+    }
+    execution = supportingCapability 'Agent Execution' {
+      description 'Runs bounded phase work; no workflow decisions'
+    }
+    evidence = supportingCapability 'Evidence' {
+      description 'Produces revision-bound facts for deterministic gates'
+    }
+    governance = supportingCapability 'Governance' {
+      description 'Constraints, permissions and guard policies'
+    }
+  }
+
+  air.planning -> air.delivery 'Hands off approved work'
+  air.operations -> air.planning 'Proposes findings'
+  air.delivery -> air.execution 'Requests phase execution'
+  air.delivery -> air.evidence 'Requests verification facts'
+  air.governance -> air.delivery 'Constrains state changes'
+  air.governance -> air.execution 'Constrains agent permissions'
+  air.governance -> air.evidence 'Constrains data access'
+}
+
+views {
+  view air_domain_map of air {
+    title 'AI Relay — Candidate DDD Context Map'
+    include *
+    autoLayout LeftRight
+  }
+}
