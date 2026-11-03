@@ -47,11 +47,28 @@ AIR owns workflow rules, phase contracts, policies and gate evaluation. It does 
 
 See the [LikeC4 architecture model](likec4/model.c4) and [views](likec4/views.c4).
 
-## 4. Solution Strategy (planned)
-Strategic DDD discovery → bounded-context mapping → domain model → application use cases → ports and adapters. Avoid creating infrastructure abstractions without a demonstrated boundary.
+## 4. Solution Strategy — Strategic Domain Design (proposed)
 
-## 5. Building Block View (planned)
-Current hypotheses: Delivery (core domain); Planning and Operations (future domains); Agent Execution, Evidence and Governance (supporting capabilities). These are **not yet approved bounded contexts**.
+Model the SDLC as business responsibilities before selecting libraries, cloud services or packages. The proposed core bounded context is **Delivery**: one change with a controlled phase lifecycle, transition invariants and deterministic gate decisions. **Planning** and **Operations** are future bounded-context candidates corresponding to Plan and Operate. Agent Execution, Evidence and Governance are supporting capabilities until distinct languages and ownership boundaries are demonstrated.
+
+Inside Delivery, organize pure domain logic around phase transitions and gate policies, then application use cases around orchestration. Define outbound ports based on required capabilities and use GitHub, Claude Code, CI/CD and telemetry as adapters. MCP is an optional agent-tool protocol, not an authorization boundary.
+
+See [Strategic Domain Design](domain-model.md) and [candidate Context Map](likec4/domain-map.c4). The map is a hypothesis, not an approved package or service decomposition.
+
+## 5. Building Block View — Candidate Logical Boundaries
+
+| Logical area | Responsibilities | Status |
+| --- | --- | --- |
+| Delivery | Lifecycle of a change, phases, state transitions and gates | Core MVP, proposed bounded context |
+| Planning | Work intake, qualification and selection | Future bounded context candidate |
+| Operations | Incident lifecycle, investigation and Plan proposals | Future bounded context candidate |
+| Agent Execution | Carry out bounded work in a configured runtime | Supporting capability; local MVP |
+| Evidence | Collect revision-bound test, PR and deployment facts | Supporting capability; minimal MVP |
+| Governance | Human authority, policy constraints and access rules | Cross-cutting capability |
+
+**Boundaries:** domain services cannot import SDKs or protocol-specific packages. Application use cases call domain functions and outbound ports. Adapters own external I/O. Domain model concepts differ from persisted GitHub labels; concurrency and retries belong to application/infrastructure coordination.
+
+Before tactical design, resolve deployment-driven advancement from blocked states, concurrent label updates, stale evidence, and whether each issue maps to exactly one Delivery.
 
 ## 6. Runtime View (planned)
 Manual /air issue workflow, gates, deployment state changes, interrupted sessions and retries.
