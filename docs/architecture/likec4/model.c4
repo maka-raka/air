@@ -1,0 +1,40 @@
+specification {
+  element actor {
+    style {
+      shape person
+    }
+  }
+  element system
+}
+
+model {
+  engineer = actor 'Engineer / Reviewer' {
+    description 'Owns approvals, phase advancement, merges, releases and mitigation'
+  }
+
+  air = system 'AI Relay (AIR)' {
+    description 'Deterministic AI-assisted SDLC orchestration'
+  }
+
+  github = system 'GitHub' {
+    description 'Issues, labels, pull requests, checks and repository collaboration'
+  }
+
+  runtime = system 'Claude Code' {
+    description 'Manual agent execution for MVP'
+  }
+
+  cicd = system 'CI/CD' {
+    description 'Build checks and deployment events'
+  }
+
+  cloud = system 'Cloud and Data Sources' {
+    description 'Restricted stage/production evidence and telemetry'
+  }
+
+  engineer -> air 'Starts phases, approves and advances work'
+  air -> github 'Reads tasks, records state and artifacts'
+  air -> runtime 'Provides phase instructions and guardrails'
+  air -> cicd 'Checks verification and deployment status'
+  air -> cloud 'Collects allowed read-only evidence'
+}
