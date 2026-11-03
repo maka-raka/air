@@ -68,7 +68,7 @@ See [Strategic Domain Design](domain-model.md) and [candidate Context Map](likec
 
 **Boundaries:** domain services cannot import SDKs or protocol-specific packages. Application use cases call domain functions and outbound ports. Adapters own external I/O. Domain model concepts differ from persisted GitHub labels; concurrency and retries belong to application/infrastructure coordination.
 
-Before tactical design, resolve deployment-driven advancement from blocked states, concurrent label updates, stale evidence, and whether each issue maps to exactly one Delivery.
+Tactical Delivery proposals: [domain model, aggregate and invariants](delivery-domain.md) and [application use cases, ports and adapters](delivery-application.md). Before implementation, resolve deployment-driven advancement from blocked states, concurrent label updates, stale evidence, and whether each issue maps to exactly one Delivery.
 
 ## 6. Runtime View (planned)
 Manual /air issue workflow, gates, deployment state changes, interrupted sessions and retries.
