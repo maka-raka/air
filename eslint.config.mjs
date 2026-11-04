@@ -9,7 +9,7 @@ export default [
       'no-restricted-syntax': [
         'error',
         {
-          selector: 'IfStatement > BlockStatement.consequent IfStatement',
+          selector: 'IfStatement > BlockStatement.consequent > IfStatement',
           message: 'Avoid nested if statements; use guard clauses.',
         },
       ],
