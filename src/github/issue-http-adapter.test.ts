@@ -1,89 +1,244 @@
-import { StatusCodes } from 'http-status-codes';
-import {describe,it} from 'node:test';
 import assert from 'node:assert/strict';
-import {GitHubApiError,GitHubIssueHttpAdapter} from './issue-http-adapter.js';
-import type {HttpRequest} from './issue-http-adapter.js';
-import {GitHubDeliveryStateStore} from './delivery-state-store.js';
+import { describe, it } from 'node:test';
+import { StatusCodes } from 'http-status-codes';
 
-type Call={url:string;method:string;body?:string;auth?:string};
-function fixture(initial:{status?:number;labels?:string[];state?:'open'|'closed'}={}) {
-  const calls:Call[]=[];
-  let status=initial.status??200;
-  let labels=[...(initial.labels??['air:requirements:ready','priority:high'])];
-  let state=initial.state??'open';
-  const request:HttpRequest=async(url,init)=>{
-    calls.push({url,method:init.method,body:init.body,auth:init.headers.Authorization});
-    if(status!==200) return {ok:false,status,json:async()=>({message:'redacted'})};
-    if(init.method==='PUT') labels=(JSON.parse(init.body??'{}') as {labels:string[]}).labels;
-    if(init.method==='PATCH') state='closed';
-    return {ok:true,status:200,json:async()=>({labels:labels.map(name=>({name})),state})};
+import { GitHubDeliveryStateStore } from './delivery-state-store.js';
+import { GitHubApiError, GitHubIssueHttpAdapter } from './issue-http-adapter.js';
+import type { HttpRequest } from './issue-http-adapter.js';
+
+const ISSUE_NUMBER = 42;
+const ISSUE_URL = 'https://api.github.com/repos/example/air/issues/42';
+const TOKEN = 'test-secret';
+const INITIAL_LABELS = ['air:requirements:ready', 'priority:high'];
+
+type RequestRecord = {
+  url: string;
+  method: string;
+  authorization: string;
+  body?: string;
+};
+
+type MockIssue = {
+  labels: string[];
+  state: 'open' | 'closed';
+};
+
+function createClient(request: HttpRequest): GitHubIssueHttpAdapter {
+  return new GitHubIssueHttpAdapter({
+    owner: 'example',
+    repo: 'air',
+    token: TOKEN,
+    request,
+  });
+}
+
+function createIssueServer(
+  options: { status?: number; issue?: MockIssue } = {},
+) {
+  const requests: RequestRecord[] = [];
+  const issue: MockIssue = options.issue ?? {
+    labels: [...INITIAL_LABELS],
+    state: 'open',
   };
-  const client=new GitHubIssueHttpAdapter({owner:'example',repo:'air',token:'test-secret',request});
-  return {client,calls,labels:()=>labels,state:()=>state,setStatus:(value:number)=>{status=value;}};
-}
-async function expectCategory(action:()=>Promise<unknown>,category:GitHubApiError['category']) {
-  await assert.rejects(action,error=>error instanceof GitHubApiError&&error.category===category);
-}
-describe('GitHubIssueHttpAdapter',()=>{
-  it('reads labels and closed state using an authenticated endpoint',async()=>{
-    // Arrange
-    const {client,calls}=fixture();
-    // Act
-    const result=await client.read(42);
-    // Assert
-    assert.deepEqual(result,{labels:['air:requirements:ready','priority:high'],closed:false});
-    assert.equal(calls[0].url,'https://api.github.com/repos/example/air/issues/42');
-    assert.equal(calls[0].auth,'Bearer test-secret');
-    assert.equal(calls[0].method,'GET');
-    assert.ok(!calls[0].url.includes('test-secret'));
-  });
-  it('persists a delivery transition while preserving unrelated labels',async()=>{
-    // Arrange
-    const {client,calls,labels}=fixture();
-    const store=new GitHubDeliveryStateStore(client);
-    // Act
-    const result=await store.apply(42,{action:'start',actor:'agent',facts:{preflightPassed:true,activeRun:false}});
-    // Assert
-    assert.equal(result.ok,true);
-    assert.deepEqual(labels(),['priority:high','air:requirements:working']);
-    assert.ok(calls.some(call=>call.method==='PUT'));
-  });
-  for(const [status,category] of [[StatusCodes.UNAUTHORIZED,'authentication'],[StatusCodes.FORBIDDEN,'forbidden'],[StatusCodes.NOT_FOUND,'not-found'],[StatusCodes.TOO_MANY_REQUESTS,'rate-limited'],[StatusCodes.SERVICE_UNAVAILABLE,'server-error']] as const) {
-    it('classifies HTTP '+status+' as '+category,async()=>{
-      // Arrange
-      const {client}=fixture({status});
-      // Act & Assert
-      await expectCategory(()=>client.read(42),category);
+
+  const request: HttpRequest = async (url, init) => {
+    requests.push({
+      url,
+      method: init.method,
+      authorization: init.headers.Authorization,
+      body: init.body,
     });
-  }
-  it('marks failed write with server response as ambiguous',async()=>{
-    // Arrange
-    const {client}=fixture({status:StatusCodes.SERVICE_UNAVAILABLE});
-    // Act & Assert
-    await assert.rejects(()=>client.replaceLabels(42,['test']),error=>
-      error instanceof GitHubApiError&&error.category==='server-error'&&error.ambiguousWrite);
+
+    const status = options.status ?? StatusCodes.OK;
+
+    if (status !== StatusCodes.OK) {
+      return {
+        ok: false,
+        status,
+        json: async () => ({ message: 'Request failed' }),
+      };
+    }
+
+    if (init.method === 'PUT') {
+      const payload = JSON.parse(init.body ?? '{}') as { labels: string[] };
+      issue.labels = payload.labels;
+    }
+
+    if (init.method === 'PATCH') {
+      issue.state = 'closed';
+    }
+
+    return {
+      ok: true,
+      status,
+      json: async () => ({
+        labels: issue.labels.map((name) => ({ name })),
+        state: issue.state,
+      }),
+    };
+  };
+
+  return { client: createClient(request), issue, requests };
+}
+
+function createFailingClient(): GitHubIssueHttpAdapter {
+  return createClient(async () => {
+    throw new Error('Network unavailable');
   });
-  it('classifies transport failures and treats writes as ambiguous',async()=>{
-    // Arrange
-    const client=new GitHubIssueHttpAdapter({owner:'example',repo:'air',token:'test-secret',
-      request:async()=>{throw new Error('network down');}});
-    // Act & Assert
-    await expectCategory(()=>client.read(1),'network-error');
-    await assert.rejects(()=>client.replaceLabels(1,['test']),error=>
-      error instanceof GitHubApiError&&error.category==='network-error'&&error.ambiguousWrite);
+}
+
+async function expectApiError(
+  action: () => Promise<unknown>,
+  category: GitHubApiError['category'],
+  ambiguousWrite = false,
+): Promise<void> {
+  await assert.rejects(action, (error: unknown) => {
+    assert.ok(error instanceof GitHubApiError);
+    assert.equal(error.category, category);
+    assert.equal(error.ambiguousWrite, ambiguousWrite);
+    return true;
   });
-  it('rejects malformed GitHub issue payloads',async()=>{
-    // Arrange
-    const client=new GitHubIssueHttpAdapter({owner:'example',repo:'air',token:'test-secret',
-      request:async()=>({ok:true,status:200,json:async()=>({labels:[{wrong:'name'}],state:'open'})})});
-    // Act & Assert
-    await expectCategory(()=>client.read(1),'invalid-response');
+}
+
+describe('GitHubIssueHttpAdapter', () => {
+  describe('read', () => {
+    it('returns labels and issue state', async () => {
+      // Arrange
+      const { client } = createIssueServer();
+
+      // Act
+      const issue = await client.read(ISSUE_NUMBER);
+
+      // Assert
+      assert.deepEqual(issue, {
+        labels: INITIAL_LABELS,
+        closed: false,
+      });
+    });
+
+    it('sends the token in the Authorization header, not the URL', async () => {
+      // Arrange
+      const { client, requests } = createIssueServer();
+
+      // Act
+      await client.read(ISSUE_NUMBER);
+
+      // Assert
+      assert.equal(requests.length, 1);
+      assert.equal(requests[0].url, ISSUE_URL);
+      assert.equal(requests[0].method, 'GET');
+      assert.equal(requests[0].authorization, `Bearer ${TOKEN}`);
+      assert.ok(!requests[0].url.includes(TOKEN));
+    });
+
+    it('rejects an invalid GitHub issue response', async () => {
+      // Arrange
+      const client = createClient(async () => ({
+        ok: true,
+        status: StatusCodes.OK,
+        json: async () => ({
+          labels: [{ wrong: 'name' }],
+          state: 'open',
+        }),
+      }));
+
+      // Act & Assert
+      await expectApiError(() => client.read(ISSUE_NUMBER), 'invalid-response');
+    });
   });
-  it('rejects duplicate labels before making a write',async()=>{
-    // Arrange
-    const {client,calls}=fixture();
-    // Act & Assert
-    await assert.rejects(()=>client.replaceLabels(1,['a','a']),/Invalid label set/);
-    assert.equal(calls.length,0);
+
+  describe('HTTP errors', () => {
+    const cases: ReadonlyArray<{
+      status: number;
+      category: GitHubApiError['category'];
+    }> = [
+      { status: StatusCodes.UNAUTHORIZED, category: 'authentication' },
+      { status: StatusCodes.FORBIDDEN, category: 'forbidden' },
+      { status: StatusCodes.NOT_FOUND, category: 'not-found' },
+      { status: StatusCodes.TOO_MANY_REQUESTS, category: 'rate-limited' },
+      { status: StatusCodes.SERVICE_UNAVAILABLE, category: 'server-error' },
+    ];
+
+    for (const { status, category } of cases) {
+      it(`maps HTTP ${status} to ${category}`, async () => {
+        // Arrange
+        const { client } = createIssueServer({ status });
+
+        // Act & Assert
+        await expectApiError(() => client.read(ISSUE_NUMBER), category);
+      });
+    }
+
+    it('marks failed writes as ambiguous when the server returns 503', async () => {
+      // Arrange
+      const { client } = createIssueServer({
+        status: StatusCodes.SERVICE_UNAVAILABLE,
+      });
+
+      // Act & Assert
+      await expectApiError(
+        () => client.replaceLabels(ISSUE_NUMBER, ['updated']),
+        'server-error',
+        true,
+      );
+    });
+
+    it('reports network failures on reads', async () => {
+      // Arrange
+      const client = createFailingClient();
+
+      // Act & Assert
+      await expectApiError(() => client.read(ISSUE_NUMBER), 'network-error');
+    });
+
+    it('marks network failures on writes as ambiguous', async () => {
+      // Arrange
+      const client = createFailingClient();
+
+      // Act & Assert
+      await expectApiError(
+        () => client.replaceLabels(ISSUE_NUMBER, ['updated']),
+        'network-error',
+        true,
+      );
+    });
+  });
+
+  describe('mutations', () => {
+    it('rejects duplicate labels without sending an HTTP request', async () => {
+      // Arrange
+      const { client, requests } = createIssueServer();
+
+      // Act & Assert
+      await assert.rejects(
+        () => client.replaceLabels(ISSUE_NUMBER, ['duplicate', 'duplicate']),
+        /Invalid label set/,
+      );
+      assert.equal(requests.length, 0);
+    });
+
+    it('preserves unrelated labels when advancing delivery state', async () => {
+      // Arrange
+      const { client, issue, requests } = createIssueServer();
+      const store = new GitHubDeliveryStateStore(client);
+
+      // Act
+      const result = await store.apply(ISSUE_NUMBER, {
+        action: 'start',
+        actor: 'agent',
+        facts: {
+          preflightPassed: true,
+          activeRun: false,
+        },
+      });
+
+      // Assert
+      assert.equal(result.ok, true);
+      assert.deepEqual(issue.labels, [
+        'priority:high',
+        'air:requirements:working',
+      ]);
+      assert.ok(requests.some(({ method }) => method === 'PUT'));
+    });
   });
 });
