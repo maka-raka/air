@@ -71,10 +71,7 @@ export function resolvePolicy(baseline: Policy, local: Policy): Policy {
     ];
     const hasMinimumRuns =
       previous.minimumRuns !== undefined || extra.minimumRuns !== undefined;
-    const minimumRuns = Math.max(
-      previous.minimumRuns ?? 0,
-      extra.minimumRuns ?? 0,
-    );
+    const minimumRuns = Math.max(previous.minimumRuns ?? 0, extra.minimumRuns ?? 0);
 
     rules.set(extra.id, {
       id: extra.id,
