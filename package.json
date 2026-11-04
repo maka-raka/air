@@ -1,0 +1,13 @@
+{
+  "name": "@air/delivery-core",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "test": "npm run build && node dist/src/delivery/state-machine.test.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
