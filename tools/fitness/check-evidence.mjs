@@ -4,21 +4,18 @@ import { fileURLToPath } from "node:url";
 
 export class FitnessEvidenceValidator {
   validate(report, expectedSha, requiredIds) {
-    if (
-      typeof expectedSha !== "string" ||
-      !/^[a-f0-9]{40}$/.test(expectedSha) ||
-      !Array.isArray(requiredIds) ||
-      requiredIds.length === 0 ||
-      requiredIds.some((id) => typeof id !== "string" || !id.trim()) ||
-      new Set(requiredIds).size !== requiredIds.length
-    ) {
+    const configurationError = this.configurationError(
+      expectedSha,
+      requiredIds,
+    );
+    if (configurationError) {
       return {
         accepted: false,
         findings: [
           {
             id: "evidence.configuration",
             status: "UNKNOWN",
-            reason: "Expected a commit SHA and distinct nonempty required IDs",
+            reason: configurationError,
           },
         ],
       };
@@ -29,6 +26,21 @@ export class FitnessEvidenceValidator {
       this.checkResult(results, expectedSha, id),
     );
     return { accepted: findings.length === 0, findings };
+  }
+
+  configurationError(expectedSha, requiredIds) {
+    if (typeof expectedSha !== "string") return "Expected a commit SHA string";
+    if (!/^[a-f0-9]{40}$/.test(expectedSha))
+      return "Expected a 40-character commit SHA";
+    if (!Array.isArray(requiredIds)) return "Expected an array of required IDs";
+    if (requiredIds.length === 0) return "Expected at least one required ID";
+    if (requiredIds.some((id) => typeof id !== "string"))
+      return "Expected string required IDs";
+    if (requiredIds.some((id) => !id.trim()))
+      return "Expected nonempty required IDs";
+    if (new Set(requiredIds).size !== requiredIds.length)
+      return "Expected distinct required IDs";
+    return null;
   }
 
   checkResult(results, expectedSha, id) {
