@@ -106,6 +106,32 @@ async function expectApiError(
   });
 }
 
+describe("GitHubIssueHttpAdapter configuration", () => {
+  it("rejects an empty GitHub token", () => {
+    // Arrange
+    const options = { owner: "example", repo: "air", token: "   " };
+
+    // Act & Assert
+    assert.throws(() => new GitHubIssueHttpAdapter(options), /GitHub token is required/);
+  });
+
+  it("rejects an invalid repository owner", () => {
+    // Arrange
+    const options = { owner: "../other", repo: "air", token: TOKEN };
+
+    // Act & Assert
+    assert.throws(() => new GitHubIssueHttpAdapter(options), /Invalid owner/);
+  });
+
+  it("rejects non-positive request timeouts", () => {
+    // Arrange
+    const options = { owner: "example", repo: "air", token: TOKEN, timeoutMs: 0 };
+
+    // Act & Assert
+    assert.throws(() => new GitHubIssueHttpAdapter(options), /Invalid timeout/);
+  });
+});
+
 describe("GitHubIssueHttpAdapter", () => {
   describe("read", () => {
     it("returns labels and issue state", async () => {
