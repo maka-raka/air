@@ -70,8 +70,8 @@ See [Strategic Domain Design](domain-model.md) and [candidate Context Map](likec
 
 Tactical Delivery proposals: [domain model, aggregate and invariants](delivery-domain.md) and [application use cases, ports and adapters](delivery-application.md). Before implementation, resolve deployment-driven advancement from blocked states, concurrent label updates, stale evidence, and whether each issue maps to exactly one Delivery.
 
-## 6. Runtime View (planned)
-Manual /air issue workflow, gates, deployment state changes, interrupted sessions and retries.
+## 6. Runtime View — Delivery MVP (proposed)
+The [Delivery State Machine](delivery-state-machine.md) specifies phase transitions, actor authority, gate preconditions, deployment-driven advancement, errors and recovery for the manual MVP. The GitHub state-store tradeoff is captured in [ADR-0002](adr/0002-github-labels-as-mvp-delivery-state.md). Runtime dynamic views and implementation-level execution design remain to be completed.
 
 ## 7. Deployment View (planned)
 Local execution in MVP; isolated CI-based execution after MVP.
