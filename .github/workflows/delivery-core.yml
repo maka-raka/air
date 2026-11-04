@@ -16,6 +16,7 @@ jobs:
         with:
           node-version: '22'
       - run: npm install --no-audit --no-fund
+      - run: npm run policy:check
       - run: npm run architecture:check
       - run: npm run typecheck
       - run: npm test
