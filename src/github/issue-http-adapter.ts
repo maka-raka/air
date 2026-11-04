@@ -20,11 +20,20 @@ export type GitHubIssueClientOptions = {
   baseUrl?:string;
   timeoutMs?:number;
 };
+export type GitHubApiErrorCategory =
+  | 'authentication'
+  | 'forbidden'
+  | 'not-found'
+  | 'rate-limited'
+  | 'server-error'
+  | 'client-error'
+  | 'network-error'
+  | 'invalid-response';
+
 export class GitHubApiError extends Error {
   constructor(
     readonly status:number | null,
-    readonly category:'authentication'|'forbidden'|'not-found'|'rate-limited'|
-      'server-error'|'client-error'|'network-error'|'invalid-response',
+    readonly category: GitHubApiErrorCategory,
     message:string,
     readonly ambiguousWrite:boolean=false,
   ) { super(message); this.name='GitHubApiError'; }
