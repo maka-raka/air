@@ -5,12 +5,13 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc",
-    "test": "npm run build && node dist/src/delivery/state-machine.test.js && node dist/src/github/delivery-state-store.test.js && node dist/src/github/issues-http-adapter.test.js && node dist/src/policy/domain/policy.test.js",
+    "test": "npm run build && node dist/src/delivery/state-machine.test.js && node dist/src/github/delivery-state-store.test.js && node dist/src/github/issues-http-adapter.test.js && node dist/src/policy/domain/policy.test.js && node dist/src/delivery/state-machine.property.test.js",
     "architecture:check": "depcruise --config .dependency-cruiser.cjs --ts-config tsconfig.json --ts-pre-compilation-deps src",
     "policy:check": "node tools/policy/check.mjs && node tools/policy/check.test.mjs"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
-    "dependency-cruiser": "^18.0.0"
+    "dependency-cruiser": "^18.0.0",
+    "fast-check": "^4.0.0"
   }
 }
