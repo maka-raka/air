@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "components": [
+    {
+      "id": "delivery-domain",
+      "paths": [
+        "src/delivery/**"
+      ],
+      "dependencies": []
+    },
+    {
+      "id": "github-infrastructure",
+      "paths": [
+        "src/github/**"
+      ],
+      "dependencies": [
+        "delivery-domain"
+      ]
+    },
+    {
+      "id": "policy-domain",
+      "paths": [
+        "src/policy/domain/**"
+      ],
+      "dependencies": []
+    },
+    {
+      "id": "policy-application",
+      "paths": [
+        "src/policy/application/**"
+      ],
+      "dependencies": [
+        "policy-domain"
+      ]
+    },
+    {
+      "id": "policy-adapters",
+      "paths": [
+        "src/policy/adapters/**"
+      ],
+      "dependencies": [
+        "policy-domain",
+        "policy-application"
+      ]
+    },
+    {
+      "id": "policy-composition",
+      "paths": [
+        "src/policy/composition/**"
+      ],
+      "dependencies": [
+        "policy-domain",
+        "policy-application",
+        "policy-adapters"
+      ]
+    }
+  ]
+}
