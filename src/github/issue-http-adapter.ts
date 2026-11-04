@@ -129,13 +129,14 @@ export class GitHubIssueHttpAdapter implements IssueLabelsPort {
     if(!Number.isFinite(this.timeoutMs)||this.timeoutMs<=0) throw new Error('Invalid timeout');
   }
   private async call(issue:number,method:HttpMethod,suffix:string,body?:unknown):Promise<unknown> {
+    const issueNumber = validateIssue(issue);
     const write=method!=='GET';
     const controller=new AbortController();
     const timeout=setTimeout(()=>controller.abort(),this.timeoutMs);
     let response:HttpResponse;
     try {
       response=await this.request(
-        this.endpoint+validateIssue(issue)+suffix,
+        this.endpoint+issueNumber+suffix,
         createRequestInit(method, this.token, controller.signal, body),
       );
     } catch {
