@@ -62,7 +62,7 @@ for(const phase of phases) for(const status of statuses) {
       (action==='retry'&&status==='blocked')||
       (action==='rework'&&status==='waiting')||
       (action==='recover'&&status==='working')||
-      (action==='advance'&&status==='waiting'&&phase==='requirements')||
+      (action==='advance'&&status==='waiting'&&['requirements','design','build'].includes(phase))||
       (action==='deploy-stage'&&status==='waiting'&&phase==='review')||
       (action==='deploy-prod'&&status==='waiting'&&phase==='accept')||
       (action==='close'&&status==='waiting'&&phase==='observe');
