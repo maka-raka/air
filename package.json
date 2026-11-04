@@ -7,7 +7,7 @@
     "build": "tsc",
     "test": "npm run build && node dist/src/delivery/state-machine.test.js && node dist/src/github/delivery-state-store.test.js && node dist/src/github/issue-http-adapter.test.js",
     "code:check": "eslint src --max-warnings 0",
-    "format:check": "prettier --check eslint.config.mjs",
+    "format:check": "prettier --check 'src/**/*.ts' 'tools/**/*.mjs' eslint.config.mjs",
     "quality:check": "npm run code:check && npm run code:test && npm run format:check && npm run typecheck && npm test",
     "code:test": "node --test tools/code/lint-rules.test.mjs",
     "format:write": "prettier --write 'src/**/*.ts' 'tools/**/*.mjs' eslint.config.mjs"
