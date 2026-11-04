@@ -8,16 +8,18 @@
     "test": "npm run build && node dist/src/delivery/state-machine.test.js && node dist/src/github/delivery-state-store.test.js && node dist/src/github/issue-http-adapter.test.js",
     "code:check": "eslint src --max-warnings 0",
     "format:check": "prettier --check 'src/**/*.ts' 'tools/**/*.mjs' eslint.config.mjs",
-    "quality:check": "npm run code:check && npm run code:test && npm run format:check && npm run typecheck && npm test",
+    "quality:check": "npm run code:check && npm run code:test && npm run format:check && npm run typecheck && npm test && npm run architecture:check",
     "code:test": "node --test tools/code/lint-rules.test.mjs",
-    "format:write": "prettier --write 'src/**/*.ts' 'tools/**/*.mjs' eslint.config.mjs"
+    "format:write": "prettier --write 'src/**/*.ts' 'tools/**/*.mjs' eslint.config.mjs",
+    "architecture:check": "depcruise --config .dependency-cruiser.cjs --ts-config tsconfig.json --ts-pre-compilation-deps src"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
     "@types/node": "^22.15.0",
     "eslint": "^9.39.0",
     "@typescript-eslint/parser": "^8.46.0",
-    "prettier": "^3.6.2"
+    "prettier": "^3.6.2",
+    "dependency-cruiser": "^18.0.0"
   },
   "dependencies": {
     "http-status-codes": "^2.3.0"
