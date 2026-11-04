@@ -32,10 +32,10 @@ export type GitHubApiErrorCategory =
 
 export class GitHubApiError extends Error {
   constructor(
-    readonly status:number | null,
+    readonly status: number | null,
     readonly category: GitHubApiErrorCategory,
-    message:string,
-    readonly ambiguousWrite:boolean=false,
+    message: string,
+    readonly ambiguousWrite: boolean = false,
   ) { super(message); this.name='GitHubApiError'; }
 }
 function object(value:unknown):value is Record<string,unknown> {
@@ -49,12 +49,26 @@ function validateIssue(issue:number):number {
   if(!Number.isSafeInteger(issue)||issue<1) throw new Error('Invalid issue number');
   return issue;
 }
-function classify(status:number,write:boolean):GitHubApiError {
-  const category = status===StatusCodes.UNAUTHORIZED?'authentication':status===StatusCodes.FORBIDDEN?'forbidden':
-    status===StatusCodes.NOT_FOUND?'not-found':status===StatusCodes.TOO_MANY_REQUESTS?'rate-limited':
-    status>=StatusCodes.INTERNAL_SERVER_ERROR?'server-error':'client-error';
-  return new GitHubApiError(status,category,'GitHub API request failed ('+status+')',
-    write && (status===StatusCodes.TOO_MANY_REQUESTS || status>=StatusCodes.INTERNAL_SERVER_ERROR));
+function classify(status: number, write: boolean): GitHubApiError {
+  const category: GitHubApiErrorCategory =
+    status === StatusCodes.UNAUTHORIZED ? 'authentication'
+    : status === StatusCodes.FORBIDDEN ? 'forbidden'
+    : status === StatusCodes.NOT_FOUND ? 'not-found'
+    : status === StatusCodes.TOO_MANY_REQUESTS ? 'rate-limited'
+    : status >= StatusCodes.INTERNAL_SERVER_ERROR ? 'server-error'
+    : 'client-error';
+
+  const ambiguousWrite = write && (
+    status === StatusCodes.TOO_MANY_REQUESTS ||
+    status >= StatusCodes.INTERNAL_SERVER_ERROR
+  );
+
+  return new GitHubApiError(
+    status,
+    category,
+    `GitHub API request failed (${status})`,
+    ambiguousWrite,
+  );
 }
 /**
  * Infrastructure-only GitHub REST adapter. Token must be supplied by a trusted
@@ -91,23 +105,23 @@ export class GitHubIssueHttpAdapter implements IssueLabelsPort {
         },
         ...(body===undefined?{}:{body:JSON.stringify(body)}),
       });
-    } catch(error) {
-      throw new GitHubApiError(null,'network-error','GitHub API transport failure: '+String(error),write);
+    } catch {
+      throw new GitHubApiError(null,'network-error','GitHub API transport failure',write);
     } finally { clearTimeout(timeout); }
     if(!response.ok) throw classify(response.status,write);
     try { return await response.json(); }
     catch(error) {
-      throw new GitHubApiError(response.status,'invalid-response','GitHub API response is not JSON: '+String(error),write);
+      throw new GitHubApiError(response.status,'invalid-response','GitHub API response is not JSON',write);
     }
   }
   async read(issue:number):Promise<ReadIssue> {
     const data=await this.call(issue,'GET','');
     if(!object(data)||!Array.isArray(data.labels)||
       typeof data.state!=='string'||!['open','closed'].includes(data.state))
-      throw new GitHubApiError(200,'invalid-response','Invalid GitHub Issue payload');
+      throw new GitHubApiError(StatusCodes.OK,'invalid-response','Invalid GitHub Issue payload');
     const labels=data.labels.map((label:unknown)=>{
       if(!object(label)||typeof label.name!=='string')
-        throw new GitHubApiError(200,'invalid-response','Invalid GitHub label payload');
+        throw new GitHubApiError(StatusCodes.OK,'invalid-response','Invalid GitHub label payload');
       return label.name;
     });
     return {labels,closed:data.state==='closed'};
