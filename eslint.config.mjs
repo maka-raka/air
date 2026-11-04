@@ -12,6 +12,10 @@ export default [
           selector: "IfStatement > BlockStatement IfStatement",
           message: "Avoid nested if statements; use guard clauses.",
         },
+        {
+          selector: "IfStatement > IfStatement.consequent",
+          message: "Avoid nested if statements without braces; use guard clauses.",
+        },
       ],
     },
   },
