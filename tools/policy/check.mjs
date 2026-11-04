@@ -5,9 +5,10 @@ const root=resolve(fileURLToPath(new URL('../../',import.meta.url)));
 export function checkScriptNames(scripts) {
   const violations=[];
   const legacy=new Set(['build','test','typecheck']);
+  const actions=new Set(['check','test','build','fix','watch','run','lint','generate']);
   for(const key of Object.keys(scripts)) {
     if(legacy.has(key)) continue;
-    if(!/^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$/.test(key))
+    if(!/^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$/.test(key) || !actions.has(key.split(':')[1]))
       violations.push({ruleId:'scripts.naming',message:'Expected entity:action',script:key});
   }
   return violations;
