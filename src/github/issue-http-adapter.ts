@@ -1,3 +1,4 @@
+import { StatusCodes } from 'http-status-codes';
 import type { IssueLabelsPort, ReadIssue } from './delivery-state-store.js';
 
 export type HttpResponse = {
@@ -40,11 +41,11 @@ function validateIssue(issue:number):number {
   return issue;
 }
 function classify(status:number,write:boolean):GitHubApiError {
-  const category = status===401?'authentication':status===403?'forbidden':
-    status===404?'not-found':status===429?'rate-limited':
-    status>=500?'server-error':'client-error';
+  const category = status===StatusCodes.UNAUTHORIZED?'authentication':status===StatusCodes.FORBIDDEN?'forbidden':
+    status===StatusCodes.NOT_FOUND?'not-found':status===StatusCodes.TOO_MANY_REQUESTS?'rate-limited':
+    status>=StatusCodes.INTERNAL_SERVER_ERROR?'server-error':'client-error';
   return new GitHubApiError(status,category,'GitHub API request failed ('+status+')',
-    write && (status===429 || status>=500));
+    write && (status===StatusCodes.TOO_MANY_REQUESTS || status>=StatusCodes.INTERNAL_SERVER_ERROR));
 }
 /**
  * Infrastructure-only GitHub REST adapter. Token must be supplied by a trusted
