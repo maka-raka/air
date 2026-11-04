@@ -131,6 +131,16 @@ describe('GitHubIssueHttpAdapter', () => {
       assert.ok(!requests[0].url.includes(TOKEN));
     });
 
+    it('rejects invalid issue numbers without making an HTTP request', async () => {
+      // Arrange
+      const { client, requests } = createIssueServer();
+
+      // Act & Assert
+      await assert.rejects(() => client.read(0), /Invalid issue number/);
+      await assert.rejects(() => client.read(Number.NaN), /Invalid issue number/);
+      assert.equal(requests.length, 0);
+    });
+
     it('rejects an invalid GitHub issue response', async () => {
       // Arrange
       const client = createClient(async () => ({
