@@ -112,7 +112,10 @@ describe("GitHubIssueHttpAdapter configuration", () => {
     const options = { owner: "example", repo: "air", token: "   " };
 
     // Act & Assert
-    assert.throws(() => new GitHubIssueHttpAdapter(options), /GitHub token is required/);
+    assert.throws(
+      () => new GitHubIssueHttpAdapter(options),
+      /GitHub token is required/,
+    );
   });
 
   it("rejects an invalid repository owner", () => {
