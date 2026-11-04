@@ -77,6 +77,39 @@ function classify(status: number, write: boolean): GitHubApiError {
     ambiguousWrite,
   );
 }
+type HttpMethod = 'GET' | 'PUT' | 'PATCH';
+
+function createIssueEndpoint(options: GitHubIssueClientOptions): string {
+  const baseUrl = (options.baseUrl ?? 'https://api.github.com').replace(/\/$/, '');
+  const owner = validateName(options.owner, 'owner');
+  const repo = validateName(options.repo, 'repo');
+
+  return `${baseUrl}/repos/${owner}/${repo}/issues/`;
+}
+
+function createRequestInit(
+  method: HttpMethod,
+  token: string,
+  signal: AbortSignal,
+  body?: unknown,
+): Parameters<HttpRequest>[1] {
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github+json',
+    Authorization: `Bearer ${token}`,
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+
+  if (method !== 'GET') {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  if (body === undefined) {
+    return { method, headers, signal };
+  }
+
+  return { method, headers, signal, body: JSON.stringify(body) };
+}
+
 /**
  * Infrastructure-only GitHub REST adapter. Token must be supplied by a trusted
  * caller; do not pass user-provided role claims as authentication.
@@ -88,30 +121,23 @@ export class GitHubIssueHttpAdapter implements IssueLabelsPort {
   private readonly token:string;
   private readonly timeoutMs:number;
   constructor(options:GitHubIssueClientOptions) {
-    this.endpoint=(options.baseUrl??'https://api.github.com').replace(/\/$/,'')+
-      '/repos/'+validateName(options.owner,'owner')+'/'+validateName(options.repo,'repo')+'/issues/';
+    this.endpoint=createIssueEndpoint(options);
     if(!options.token.trim()) throw new Error('GitHub token is required');
     this.token=options.token;
     this.request=options.request??((url,init)=>fetch(url,init));
     this.timeoutMs=options.timeoutMs??15000;
     if(!Number.isFinite(this.timeoutMs)||this.timeoutMs<=0) throw new Error('Invalid timeout');
   }
-  private async call(issue:number,method:'GET'|'PUT'|'PATCH',suffix:string,body?:unknown):Promise<unknown> {
+  private async call(issue:number,method:HttpMethod,suffix:string,body?:unknown):Promise<unknown> {
     const write=method!=='GET';
     const controller=new AbortController();
     const timeout=setTimeout(()=>controller.abort(),this.timeoutMs);
     let response:HttpResponse;
     try {
-      response=await this.request(this.endpoint+validateIssue(issue)+suffix,{
-        method,signal:controller.signal,
-        headers:{
-          'Accept':'application/vnd.github+json',
-          'Authorization':'Bearer '+this.token,
-          'X-GitHub-Api-Version':'2022-11-28',
-          ...(write?{'Content-Type':'application/json'}:{}),
-        },
-        ...(body===undefined?{}:{body:JSON.stringify(body)}),
-      });
+      response=await this.request(
+        this.endpoint+validateIssue(issue)+suffix,
+        createRequestInit(method, this.token, controller.signal, body),
+      );
     } catch {
       throw new GitHubApiError(null,'network-error','GitHub API transport failure',write);
     } finally { clearTimeout(timeout); }
