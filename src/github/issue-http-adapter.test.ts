@@ -128,7 +128,12 @@ describe("GitHubIssueHttpAdapter configuration", () => {
 
   it("rejects non-positive request timeouts", () => {
     // Arrange
-    const options = { owner: "example", repo: "air", token: TOKEN, timeoutMs: 0 };
+    const options = {
+      owner: "example",
+      repo: "air",
+      token: TOKEN,
+      timeoutMs: 0,
+    };
 
     // Act & Assert
     assert.throws(() => new GitHubIssueHttpAdapter(options), /Invalid timeout/);
