@@ -76,16 +76,9 @@ export class FitnessEvidenceRunner {
 
   run(args) {
     const [reportPath, expectedSha, ...requiredIds] = args;
-    if (
-      !reportPath ||
-      !/^[a-f0-9]{40}$/.test(expectedSha ?? "") ||
-      requiredIds.length === 0
-    ) {
-      process.stderr.write(
-        "Usage: node check-evidence.mjs report.json <40-char-sha> <required-id>...\n",
-      );
-      return 2;
-    }
+    if (!reportPath) return this.usage();
+    if (!/^[a-f0-9]{40}$/.test(expectedSha ?? "")) return this.usage();
+    if (requiredIds.length === 0) return this.usage();
     try {
       const report = JSON.parse(readFileSync(reportPath, "utf8"));
       const result = this.validator.validate(report, expectedSha, requiredIds);
@@ -95,6 +88,13 @@ export class FitnessEvidenceRunner {
       process.stderr.write(`Evidence unavailable: ${String(error)}\n`);
       return 2;
     }
+  }
+
+  usage() {
+    process.stderr.write(
+      "Usage: node check-evidence.mjs report.json <40-char-sha> <required-id>...\n",
+    );
+    return 2;
   }
 }
 

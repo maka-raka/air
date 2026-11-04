@@ -83,3 +83,11 @@ These are review-enforced conventions today. Do not claim the current policy
 validator statically proves AAA structure, singular naming, or functional style.
 
 - Use named HTTP status constants from `http-status-codes` instead of raw numeric status literals in application and adapter logic.
+
+- Keep each `if` condition to at most two checks joined by `&&` or `||`.
+  Split larger conditions into focused guard clauses or meaningful named
+  predicates. Parentheses, negation, and TypeScript assertions do not reset
+  the count. `air/no-complex-condition` enforces this in `src/**/*.ts` and
+  `tools/**/*.mjs`, including tests, through `code:check`. The rule checks the
+  condition expression itself; it does not inspect called predicate bodies.
+  It provides no automatic fix because splitting conditions can change behavior.

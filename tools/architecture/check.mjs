@@ -67,11 +67,8 @@ export class ArchitectureCheckRunner {
       throw new Error("Invalid architecture model");
     const ids = new Set();
     for (const c of model.components) {
-      if (
-        ids.has(c.id) ||
-        !Array.isArray(c.paths) ||
-        !Array.isArray(c.dependencies)
-      )
+      if (ids.has(c.id)) throw new Error("Invalid component");
+      if (!Array.isArray(c.paths) || !Array.isArray(c.dependencies))
         throw new Error("Invalid component");
       ids.add(c.id);
     }

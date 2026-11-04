@@ -62,33 +62,37 @@ export class PolicyResolver {
   }
 
   private validate(policy: Policy): void {
-    if (policy.schemaVersion !== 1 || !policy.policyId || !policy.version) {
+    if (policy.schemaVersion !== 1) {
+      throw new PolicyResolutionError("Invalid policy identity");
+    }
+    if (!policy.policyId || !policy.version) {
       throw new PolicyResolutionError("Invalid policy identity");
     }
 
     const ids = new Set<string>();
 
     for (const rule of policy.rules) {
-      if (
-        !/^[a-z][a-z0-9.-]*$/.test(rule.id) ||
-        rule.mode !== "enforced" ||
-        ids.has(rule.id)
-      ) {
+      if (!/^[a-z][a-z0-9.-]*$/.test(rule.id) || rule.mode !== "enforced") {
         throw new PolicyResolutionError("Invalid or duplicate rule");
       }
 
+      if (ids.has(rule.id)) {
+        throw new PolicyResolutionError("Invalid or duplicate rule");
+      }
       ids.add(rule.id);
 
-      if (
-        rule.minimumRuns !== undefined &&
-        (!Number.isSafeInteger(rule.minimumRuns) || rule.minimumRuns < 1)
-      ) {
-        throw new PolicyResolutionError("Invalid minimumRuns");
-      }
+      this.validateMinimumRuns(rule.minimumRuns);
 
       if (rule.forbidden?.some((value) => !value.trim())) {
         throw new PolicyResolutionError("Empty forbidden constraint");
       }
+    }
+  }
+
+  private validateMinimumRuns(minimumRuns: number | undefined): void {
+    if (minimumRuns === undefined) return;
+    if (!Number.isSafeInteger(minimumRuns) || minimumRuns < 1) {
+      throw new PolicyResolutionError("Invalid minimumRuns");
     }
   }
 }

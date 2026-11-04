@@ -179,12 +179,19 @@ export class GitHubIssueHttpAdapter implements IssueLabelsPort {
   }
   async read(issue: number): Promise<ReadIssue> {
     const data = await this.call(issue, "GET", "");
-    if (
-      !object(data) ||
-      !Array.isArray(data.labels) ||
-      typeof data.state !== "string" ||
-      !["open", "closed"].includes(data.state)
-    )
+    if (!object(data))
+      throw new GitHubApiError(
+        StatusCodes.OK,
+        "invalid-response",
+        "Invalid GitHub Issue payload",
+      );
+    if (!Array.isArray(data.labels) || typeof data.state !== "string")
+      throw new GitHubApiError(
+        StatusCodes.OK,
+        "invalid-response",
+        "Invalid GitHub Issue payload",
+      );
+    if (!["open", "closed"].includes(data.state))
       throw new GitHubApiError(
         StatusCodes.OK,
         "invalid-response",
