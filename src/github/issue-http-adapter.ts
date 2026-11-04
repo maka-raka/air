@@ -49,15 +49,22 @@ function validateIssue(issue:number):number {
   if(!Number.isSafeInteger(issue)||issue<1) throw new Error('Invalid issue number');
   return issue;
 }
-function classify(status: number, write: boolean): GitHubApiError {
-  const category: GitHubApiErrorCategory =
-    status === StatusCodes.UNAUTHORIZED ? 'authentication'
-    : status === StatusCodes.FORBIDDEN ? 'forbidden'
-    : status === StatusCodes.NOT_FOUND ? 'not-found'
-    : status === StatusCodes.TOO_MANY_REQUESTS ? 'rate-limited'
-    : status >= StatusCodes.INTERNAL_SERVER_ERROR ? 'server-error'
-    : 'client-error';
+const HTTP_ERROR_CATEGORY: Partial<Record<number, GitHubApiErrorCategory>> = {
+  [StatusCodes.UNAUTHORIZED]: 'authentication',
+  [StatusCodes.FORBIDDEN]: 'forbidden',
+  [StatusCodes.NOT_FOUND]: 'not-found',
+  [StatusCodes.TOO_MANY_REQUESTS]: 'rate-limited',
+};
 
+function getErrorCategory(status: number): GitHubApiErrorCategory {
+  if (status >= StatusCodes.INTERNAL_SERVER_ERROR) {
+    return 'server-error';
+  }
+
+  return HTTP_ERROR_CATEGORY[status] ?? 'client-error';
+}
+
+function classify(status: number, write: boolean): GitHubApiError {
   const ambiguousWrite = write && (
     status === StatusCodes.TOO_MANY_REQUESTS ||
     status >= StatusCodes.INTERNAL_SERVER_ERROR
@@ -65,7 +72,7 @@ function classify(status: number, write: boolean): GitHubApiError {
 
   return new GitHubApiError(
     status,
-    category,
+    getErrorCategory(status),
     `GitHub API request failed (${status})`,
     ambiguousWrite,
   );
