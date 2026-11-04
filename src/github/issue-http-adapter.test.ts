@@ -1,3 +1,4 @@
+import { StatusCodes } from 'http-status-codes';
 import {describe,it} from 'node:test';
 import assert from 'node:assert/strict';
 import {GitHubApiError,GitHubIssueHttpAdapter} from './issue-http-adapter.js';
@@ -47,7 +48,7 @@ describe('GitHubIssueHttpAdapter',()=>{
     assert.deepEqual(labels(),['priority:high','air:requirements:working']);
     assert.ok(calls.some(call=>call.method==='PUT'));
   });
-  for(const [status,category] of [[401,'authentication'],[403,'forbidden'],[404,'not-found'],[429,'rate-limited'],[503,'server-error']] as const) {
+  for(const [status,category] of [[StatusCodes.UNAUTHORIZED,'authentication'],[StatusCodes.FORBIDDEN,'forbidden'],[StatusCodes.NOT_FOUND,'not-found'],[StatusCodes.TOO_MANY_REQUESTS,'rate-limited'],[StatusCodes.SERVICE_UNAVAILABLE,'server-error']] as const) {
     it('classifies HTTP '+status+' as '+category,async()=>{
       // Arrange
       const {client}=fixture({status});
@@ -57,7 +58,7 @@ describe('GitHubIssueHttpAdapter',()=>{
   }
   it('marks failed write with server response as ambiguous',async()=>{
     // Arrange
-    const {client}=fixture({status:503});
+    const {client}=fixture({status:StatusCodes.SERVICE_UNAVAILABLE});
     // Act & Assert
     await assert.rejects(()=>client.replaceLabels(42,['test']),error=>
       error instanceof GitHubApiError&&error.category==='server-error'&&error.ambiguousWrite);
