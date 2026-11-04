@@ -71,8 +71,5 @@ test("rejects nested if statements without braces", async () => {
 });
 
 test("allows else-if chains without braces", async () => {
-  assert.deepEqual(
-    await violations("if (a) work(); else if (b) other();"),
-    [],
-  );
+  assert.deepEqual(await violations("if (a) work(); else if (b) other();"), []);
 });
