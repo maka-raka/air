@@ -1,0 +1,66 @@
+name: Security scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: Gitleaks — repository history and files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 (verified GitHub tag)
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6 (verified GitHub tag)
+        with:
+          go-version: '1.25.x'
+
+      - name: Install Gitleaks v8.30.1
+        run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
+
+      - name: Scan all checked-out Git history
+        run: |
+          "$(go env GOPATH)/bin/gitleaks" git --redact --log-opts="--all" .
+
+      - name: Scan working directory
+        run: |
+          "$(go env GOPATH)/bin/gitleaks" dir --redact .
+
+  action-policy:
+    name: Check workflow action pinning
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Reject unpinned external actions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          failed = []
+          for file in Path(".github/workflows").glob("*.yml"):
+              for lineno, line in enumerate(file.read_text().splitlines(), 1):
+                  match = re.search(r'^\s*-?\s*uses:\s*([^\s#]+)', line)
+                  if not match:
+                      continue
+                  action = match.group(1)
+                  if action.startswith("./") or action.startswith("docker://"):
+                      continue
+                  if not re.fullmatch(r'[^\s@]+@[0-9a-f]{40}', action):
+                      failed.append(f"{file}:{lineno}: {action}")
+          if failed:
+              raise SystemExit("Actions must be pinned to full commit SHA:\n" + "\n".join(failed))
+          print("External actions pinned to full commit SHA")
+          PY
