@@ -64,3 +64,15 @@ test("rejects ternaries nested in the true branch", async () => {
   const messages = await violations("const value = a ? (b ? c : d) : e;");
   assert.ok(messages.some(({ ruleId }) => ruleId === "no-nested-ternary"));
 });
+
+test("rejects nested if statements without braces", async () => {
+  const messages = await violations("if (a) if (b) work();");
+  assert.ok(messages.some(({ ruleId }) => ruleId === "no-restricted-syntax"));
+});
+
+test("allows else-if chains without braces", async () => {
+  assert.deepEqual(
+    await violations("if (a) work(); else if (b) other();"),
+    [],
+  );
+});
