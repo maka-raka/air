@@ -1,0 +1,72 @@
+name: LikeC4 architecture
+
+on:
+  pull_request:
+    paths:
+      - 'docs/architecture/likec4/**'
+      - '.github/workflows/likec4-architecture.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/architecture/likec4/**'
+      - '.github/workflows/likec4-architecture.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: likec4-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Validate and build diagrams
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install LikeC4 CLI (pinned)
+        run: npm install --global likec4@1.60.0
+
+      - name: Validate LikeC4
+        working-directory: docs/architecture/likec4
+        run: likec4 validate
+
+      - name: Build static website
+        working-directory: docs/architecture/likec4
+        run: likec4 build -o "$GITHUB_WORKSPACE/dist" --base /air/ --use-hash-history
+
+      - name: Upload build for private review
+        uses: actions/upload-artifact@v4
+        with:
+          name: air-likec4-site
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload GitHub Pages artifact only when explicitly enabled
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.AIR_PAGES_PUBLICATION_ENABLED == 'true'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/
+
+  deploy:
+    name: Publish GitHub Pages (explicit opt-in only)
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.AIR_PAGES_PUBLICATION_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
