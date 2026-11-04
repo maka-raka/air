@@ -38,14 +38,11 @@ fc.assert(
     const request = { action, actor };
     const decision = decideTransition(current, request);
     if (JSON.stringify(current) !== before) return false;
-    if (decision.allowed && decision.next) {
-      if (
-        !phases.includes(decision.next.phase) ||
-        !statuses.includes(decision.next.status)
-      )
-        return false;
-    }
-    return true;
+    if (!decision.allowed || !decision.next) return true;
+    return (
+      phases.includes(decision.next.phase) &&
+      statuses.includes(decision.next.status)
+    );
   }),
   { numRuns: 500, seed: 20261104 },
 );
