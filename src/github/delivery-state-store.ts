@@ -30,7 +30,7 @@ export function parseSnapshot(issue:ReadIssue): Snapshot {
   const malformed=issue.labels.filter(label =>
     label.startsWith('air:') && !label.startsWith('air:deployed:') &&
     !label.startsWith('air:plan:') && !label.startsWith('air:incident:') &&
-    activePattern.test(label) && !active.includes(label));
+    !active.includes(label));
   if(active.length>1 || malformed.length>0 || new Set(issue.labels).size!==issue.labels.length)
     throw new Error('invalid-state');
   if(issue.closed && active.length>0) throw new Error('invalid-state');
