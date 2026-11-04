@@ -5,9 +5,10 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc",
-    "test": "npm run build && node dist/src/delivery/state-machine.test.js && node dist/src/github/delivery-state-store.test.js && node dist/src/github/issues-http-adapter.test.js"
+    "test": "npm run build && node dist/src/delivery/state-machine.test.js && node dist/src/github/delivery-state-store.test.js && node dist/src/github/issue-http-adapter.test.js"
   },
   "devDependencies": {
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "@types/node": "^22.15.0"
   }
 }
