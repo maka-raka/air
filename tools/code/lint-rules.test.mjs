@@ -30,3 +30,18 @@ test("allows else-if chains", async () => {
 test("allows simple ternaries", async () => {
   assert.deepEqual(await violations("const value = active ? enabled : disabled;"), []);
 });
+
+test("rejects nested if inside else blocks", async () => {
+  const messages = await violations("if (a) { work(); } else { if (b) { other(); } }");
+  assert.ok(messages.some(({ ruleId }) => ruleId === "no-restricted-syntax"));
+});
+
+test("rejects nested if through an intermediate block", async () => {
+  const messages = await violations("if (a) { for (const item of items) { if (item) { work(); } } }");
+  assert.ok(messages.some(({ ruleId }) => ruleId === "no-restricted-syntax"));
+});
+
+test("rejects ternaries nested in the true branch", async () => {
+  const messages = await violations("const value = a ? (b ? c : d) : e;");
+  assert.ok(messages.some(({ ruleId }) => ruleId === "no-nested-ternary"));
+});
