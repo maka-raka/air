@@ -83,7 +83,11 @@ export class GitHubDeliveryStateStore {
       : [...first.labels];
     try {
       if(next) await this.port.replaceLabels(issue,labels);
-      else await this.port.closeIssue(issue);
+      else {
+        await this.port.replaceLabels(issue,labels.filter(label=>!activeLabels([label]).length));
+        try { await this.port.closeIssue(issue); }
+        catch(e) { return fail('partial-completion','Active label removed but issue close failed or is uncertain: '+String(e)); }
+      }
     } catch(e) {
       // A transport failure may occur after GitHub accepted the write.
       return fail('uncertain-write',String(e));
@@ -91,7 +95,7 @@ export class GitHubDeliveryStateStore {
     let after:Snapshot;
     try { after=parseSnapshot(await this.port.read(issue)); }
     catch(e) { return fail('uncertain-write','Cannot verify write: '+String(e)); }
-    const expected:Snapshot={labels,position:next,closed:next===null};
+    const expected:Snapshot={labels:next ? labels : labels.filter(label=>!activeLabels([label]).length),position:next,closed:next===null};
     if(!matches(after,expected)) return fail('uncertain-write','Read-back state mismatch');
     if(next && !equal([...after.labels].sort(),[...labels].sort()))
       return fail('state-conflict','Concurrent label modification detected after write');
