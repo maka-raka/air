@@ -33,12 +33,10 @@ const resolver = new PolicyResolver();
 const inputsBefore = JSON.stringify([base, local]);
 const resolved = resolver.resolve(base, local);
 const rule = resolved.rules[0];
-if (
-  rule.forbidden?.length !== 2 ||
-  rule.minimumRuns !== 250 ||
-  resolved.rules.length !== 2
-)
+if (rule.forbidden?.length !== 2 || rule.minimumRuns !== 250)
   throw new Error("Monotonic extension violated");
+if (resolved.rules.length !== 2)
+  throw new Error("Local rule extension was lost");
 const weakening = resolver.resolve(base, {
   ...base,
   rules: [{ id: "architecture.dependencies", mode: "enforced" }],

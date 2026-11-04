@@ -1,6 +1,8 @@
+import noComplexCondition from "./rules/no-complex-condition.mjs";
+import tsParser from "@typescript-eslint/parser";
 import assert from "node:assert/strict";
-import { test } from "node:test";
-import { ESLint } from "eslint";
+import { describe, it, test } from "node:test";
+import { ESLint, RuleTester } from "eslint";
 
 const eslint = new ESLint();
 
@@ -72,4 +74,50 @@ test("rejects nested if statements without braces", async () => {
 
 test("allows else-if chains without braces", async () => {
   assert.deepEqual(await violations("if (a) work(); else if (b) other();"), []);
+});
+
+RuleTester.describe = describe;
+RuleTester.it = it;
+const ruleTester = new RuleTester({ languageOptions: { parser: tsParser } });
+ruleTester.run("air/no-complex-condition", noComplexCondition, {
+  valid: [
+    "if (ready) work();",
+    "if (a || b) work();",
+    "if (a && b) work();",
+    "if (a) work(); else if (b || c) other();",
+    "if (!(a || b)) work();",
+    "if (isValid(value)) work();",
+    "if (a ?? b) work();",
+    "if ((a || b) as boolean) work();",
+  ],
+  invalid: [
+    "if (a || b || c) work();",
+    "if (a && (b || c)) work();",
+    "if ((a && b) || c) work();",
+    "if (!(a || b || c)) work();",
+    "if (a) work(); else if (b || c || d) other();",
+    "if ((a || b || c) as boolean) work();",
+    "if ((a || b || c)!) work();",
+    "if (<boolean>(a || b || c)) work();",
+  ].map((code) => ({
+    code,
+    errors: [{ messageId: "tooComplex", data: { count: 3 } }],
+    output: null,
+  })),
+});
+
+test("enforces complex-condition rule for TypeScript and tools", async () => {
+  for (const filePath of [
+    "src/policy-fixture.ts",
+    "tools/policy-fixture.mjs",
+  ]) {
+    const [result] = await eslint.lintText("if (a || b || c) work();", {
+      filePath,
+    });
+    assert.ok(
+      result.messages.some(
+        ({ ruleId }) => ruleId === "air/no-complex-condition",
+      ),
+    );
+  }
 });

@@ -67,11 +67,9 @@ export function parseSnapshot(issue: ReadIssue): Snapshot {
       !label.startsWith("air:incident:") &&
       !active.includes(label),
   );
-  if (
-    active.length > 1 ||
-    malformed.length > 0 ||
-    new Set(issue.labels).size !== issue.labels.length
-  )
+  if (active.length > 1 || malformed.length > 0)
+    throw new Error("invalid-state");
+  if (new Set(issue.labels).size !== issue.labels.length)
     throw new Error("invalid-state");
   if (issue.closed && active.length > 0) throw new Error("invalid-state");
   const match = active[0] ? activePattern.exec(active[0]) : null;

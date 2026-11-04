@@ -6,13 +6,14 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "test": "npm run build && node dist/src/delivery/state-machine.test.js && node dist/src/github/delivery-state-store.test.js && node dist/src/github/issue-http-adapter.test.js && node dist/src/policy/domain/policy.test.js && node dist/src/delivery/state-machine.property.test.js",
-    "code:check": "eslint src --max-warnings 0",
+    "code:check": "eslint src tools --max-warnings 0",
     "format:check": "prettier --check 'src/**/*.ts' 'tools/**/*.mjs' eslint.config.mjs",
-    "quality:check": "npm run policy:check && npm run code:check && npm run code:test && npm run format:check && npm run typecheck && npm test && npm run architecture:check",
+    "quality:check": "npm run policy:check && npm run code:check && npm run code:test && npm run format:check && npm run typecheck && npm test && npm run architecture:check && npm run fitness:test",
     "code:test": "node --test tools/code/lint-rules.test.mjs",
     "format:write": "prettier --write 'src/**/*.ts' 'tools/**/*.mjs' eslint.config.mjs",
     "architecture:check": "node tools/architecture/check.mjs && node tools/architecture/check.test.mjs && depcruise --config .dependency-cruiser.cjs --ts-config tsconfig.json --ts-pre-compilation-deps src",
-    "policy:check": "node tools/policy/check.mjs && node tools/policy/check.test.mjs"
+    "policy:check": "node tools/policy/check.mjs && node tools/policy/check.test.mjs",
+    "fitness:test": "node --test tools/fitness/check-evidence.test.mjs"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
