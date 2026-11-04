@@ -155,6 +155,8 @@ describe('GitHubIssueHttpAdapter', () => {
       { status: StatusCodes.UNAUTHORIZED, category: 'authentication' },
       { status: StatusCodes.FORBIDDEN, category: 'forbidden' },
       { status: StatusCodes.NOT_FOUND, category: 'not-found' },
+      { status: StatusCodes.UNPROCESSABLE_ENTITY, category: 'client-error' },
+      { status: StatusCodes.INTERNAL_SERVER_ERROR, category: 'server-error' },
       { status: StatusCodes.TOO_MANY_REQUESTS, category: 'rate-limited' },
       { status: StatusCodes.SERVICE_UNAVAILABLE, category: 'server-error' },
     ];
@@ -180,6 +182,34 @@ describe('GitHubIssueHttpAdapter', () => {
         () => client.replaceLabels(ISSUE_NUMBER, ['updated']),
         'server-error',
         true,
+      );
+    });
+
+    it('marks rate-limited writes as ambiguous', async () => {
+      // Arrange
+      const { client } = createIssueServer({
+        status: StatusCodes.TOO_MANY_REQUESTS,
+      });
+
+      // Act & Assert
+      await expectApiError(
+        () => client.replaceLabels(ISSUE_NUMBER, ['updated']),
+        'rate-limited',
+        true,
+      );
+    });
+
+    it('does not mark validation failures on writes as ambiguous', async () => {
+      // Arrange
+      const { client } = createIssueServer({
+        status: StatusCodes.UNPROCESSABLE_ENTITY,
+      });
+
+      // Act & Assert
+      await expectApiError(
+        () => client.replaceLabels(ISSUE_NUMBER, ['updated']),
+        'client-error',
+        false,
       );
     });
 
