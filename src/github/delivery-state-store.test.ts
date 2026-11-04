@@ -9,6 +9,7 @@ class Fake implements IssueLabelsPort {
   reads=0;
   beforeSecondRead?:()=>void;
   writeThenThrow=false;
+  closeThenThrow=false;
   afterWrite?:()=>void;
   constructor(labels:string[],closed=false) { this.issue={labels,closed}; }
   async read():Promise<ReadIssue> {
@@ -21,7 +22,7 @@ class Fake implements IssueLabelsPort {
     this.afterWrite?.();
     if(this.writeThenThrow) throw new Error('connection lost after write');
   }
-  async closeIssue() { this.issue={...this.issue,closed:true}; }
+  async closeIssue() { if(this.closeThenThrow) throw new Error('close unavailable'); this.issue={...this.issue,closed:true}; }
 }
 const start:Request={action:'start',actor:'agent',facts:{preflightPassed:true,activeRun:false}};
 async function success(fake:Fake,request:Request,expected:string|null) {
@@ -67,7 +68,14 @@ async function main() {
   const close=new Fake(['air:observe:waiting','air:deployed:prod']);
   await success(close,{action:'close',actor:'human',facts:{observeGo:true}},null);
   assert(close.issue.closed,'issue must close');
-  await failure(close,{action:'initialize',actor:'human'},'invalid-state');
+  assert(!close.issue.labels.includes('air:observe:waiting'),'terminal label must be removed');
+  const partial=new Fake(['air:observe:waiting','priority:high']);
+  partial.closeThenThrow=true;
+  await failure(partial,{action:'close',actor:'human',facts:{observeGo:true}},'partial-completion');
+  assert(!partial.issue.closed,'failed close leaves issue open');
+  assert(!partial.issue.labels.includes('air:observe:waiting'),'partial close removes active label');
+  assert(partial.issue.labels.includes('priority:high'),'partial close preserves unrelated labels');
+  await failure(close,{action:'initialize',actor:'human'},'invalid-transition');
   assert(parseSnapshot({labels:['air:deployed:prod'],closed:false}).position===null,'deployment marker is not active');
   console.log('GitHub DeliveryStateStore passed: '+checks+' assertions');
 }
