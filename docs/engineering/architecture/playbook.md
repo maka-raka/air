@@ -76,3 +76,5 @@ or C4 diagram synchronization. Those require additional validators and review.
 
 These are review-enforced conventions today. Do not claim the current policy
 validator statically proves AAA structure, singular naming, or functional style.
+
+- Use named HTTP status constants from `http-status-codes` instead of raw numeric status literals in application and adapter logic.
