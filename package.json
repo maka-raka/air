@@ -11,7 +11,7 @@
     "quality:check": "npm run policy:check && npm run code:check && npm run code:test && npm run format:check && npm run typecheck && npm test && npm run architecture:check",
     "code:test": "node --test tools/code/lint-rules.test.mjs",
     "format:write": "prettier --write 'src/**/*.ts' 'tools/**/*.mjs' eslint.config.mjs",
-    "architecture:check": "depcruise --config .dependency-cruiser.cjs --ts-config tsconfig.json --ts-pre-compilation-deps src",
+    "architecture:check": "node tools/architecture/check.mjs && node tools/architecture/check.test.mjs && depcruise --config .dependency-cruiser.cjs --ts-config tsconfig.json --ts-pre-compilation-deps src",
     "policy:check": "node tools/policy/check.mjs && node tools/policy/check.test.mjs"
   },
   "devDependencies": {
