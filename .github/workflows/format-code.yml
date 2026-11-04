@@ -1,6 +1,8 @@
 name: Format code
 
 on:
+  push:
+    branches: [feat/github-issues-http-adapter]
   workflow_dispatch:
 
 permissions:
@@ -8,7 +10,7 @@ permissions:
 
 jobs:
   format:
-    if: github.ref == 'refs/heads/feat/github-issues-http-adapter'
+    if: github.ref == 'refs/heads/feat/github-issues-http-adapter' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
