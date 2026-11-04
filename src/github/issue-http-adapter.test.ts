@@ -4,7 +4,7 @@ import { StatusCodes } from 'http-status-codes';
 
 import { GitHubDeliveryStateStore } from './delivery-state-store.js';
 import { GitHubApiError, GitHubIssueHttpAdapter } from './issue-http-adapter.js';
-import type { HttpRequest } from './issue-http-adapter.js';
+import type { GitHubApiErrorCategory, HttpRequest } from './issue-http-adapter.js';
 
 const ISSUE_NUMBER = 42;
 const ISSUE_URL = 'https://api.github.com/repos/example/air/issues/42';
@@ -89,7 +89,7 @@ function createFailingClient(): GitHubIssueHttpAdapter {
 
 async function expectApiError(
   action: () => Promise<unknown>,
-  category: GitHubApiError['category'],
+  category: GitHubApiErrorCategory,
   ambiguousWrite = false,
 ): Promise<void> {
   await assert.rejects(action, (error: unknown) => {
@@ -150,7 +150,7 @@ describe('GitHubIssueHttpAdapter', () => {
   describe('HTTP errors', () => {
     const cases: ReadonlyArray<{
       status: number;
-      category: GitHubApiError['category'];
+      category: GitHubApiErrorCategory;
     }> = [
       { status: StatusCodes.UNAUTHORIZED, category: 'authentication' },
       { status: StatusCodes.FORBIDDEN, category: 'forbidden' },
