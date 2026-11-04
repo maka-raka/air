@@ -56,3 +56,23 @@ const client = new Octokit();
 The current checker covers source-file ownership and static relative imports.
 It does not prove semantic SRP, runtime topology, deployment, dynamic imports,
 or C4 diagram synchronization. Those require additional validators and review.
+
+## Code and testing conventions
+
+- Name domain entities, value objects, adapters, and their files in the singular
+  (`GitHubIssueHttpAdapter`, not `GitHubIssuesHttpAdapter`). Plural names are
+  appropriate for collections and genuine aggregate collections.
+- Prefer functional composition for stateless transformations, orchestration,
+  and adapter factories. Avoid classes that only wrap functions.
+- Represent stateful domain entities with classes **when identity, lifecycle,
+  and invariant encapsulation require them**. Do not turn every DTO or value
+  into a class. Existing pure state-transition functions remain valid.
+- Keep I/O at adapter boundaries and inject transport dependencies.
+- Every test follows Arrange / Act / Assert, has isolated fixtures, and checks
+  observable behavior. Use `node:test` `describe`/`it` and `node:assert/strict`.
+  Avoid shared mutable test state and manually counted assertions.
+- Use a new dependency only when it solves a demonstrated problem. Evaluate
+  functional helper libraries separately; do not make one mandatory by default.
+
+These are review-enforced conventions today. Do not claim the current policy
+validator statically proves AAA structure, singular naming, or functional style.
