@@ -5,7 +5,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc",
-    "test": "npm run build && node dist/src/delivery/state-machine.test.js && node dist/src/github/delivery-state-store.test.js && node dist/src/github/issues-http-adapter.test.js",
+    "test": "npm run build && node dist/src/delivery/state-machine.test.js && node dist/src/github/delivery-state-store.test.js && node dist/src/github/issues-http-adapter.test.js && node dist/src/policy/domain/policy.test.js",
     "architecture:check": "depcruise --config .dependency-cruiser.cjs --ts-config tsconfig.json --ts-pre-compilation-deps src"
   },
   "devDependencies": {
