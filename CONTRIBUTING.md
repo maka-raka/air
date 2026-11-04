@@ -23,3 +23,13 @@ A secret appearing in a PR is a security incident even if the PR is closed or th
 ## Design principles
 
 DDD for domain boundaries, Hexagonal Architecture for dependency direction, arc42 for architecture narrative, LikeC4 for models and ADRs for significant decisions.
+
+AIR uses **OOP-first, FP-style methods**. Model architectural components (entities,
+services, use cases, and adapters) as classes with clear responsibilities. Use
+encapsulation, composition, and dependency inversion according to SOLID; keep
+domain logic independent of infrastructure.
+
+Inside methods, prefer pure, deterministic computations, immutable data, and
+minimal side effects. Functional Core, Imperative Shell organizes logic within
+this OOP design. For example, `PolicyResolver.resolve()` computes an effective
+policy without modifying its inputs or performing I/O.

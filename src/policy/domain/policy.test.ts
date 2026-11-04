@@ -1,4 +1,4 @@
-import { resolvePolicy, PolicyResolutionError } from "./policy.js";
+import { PolicyResolver, PolicyResolutionError } from "./policy.js";
 import type { Policy } from "./policy.js";
 const base: Policy = {
   schemaVersion: 1,
@@ -29,7 +29,9 @@ const local: Policy = {
     },
   ],
 };
-const resolved = resolvePolicy(base, local);
+const resolver = new PolicyResolver();
+const inputsBefore = JSON.stringify([base, local]);
+const resolved = resolver.resolve(base, local);
 const rule = resolved.rules[0];
 if (
   rule.forbidden?.length !== 2 ||
@@ -37,7 +39,7 @@ if (
   resolved.rules.length !== 2
 )
   throw new Error("Monotonic extension violated");
-const weakening = resolvePolicy(base, {
+const weakening = resolver.resolve(base, {
   ...base,
   rules: [{ id: "architecture.dependencies", mode: "enforced" }],
 });
@@ -47,9 +49,40 @@ if (
 )
   throw new Error("Local omission weakened baseline");
 try {
-  resolvePolicy(base, { ...local, version: "2.0.0" });
+  resolver.resolve(base, { ...local, version: "2.0.0" });
   throw new Error("Accepted version mismatch");
 } catch (e) {
   if (!(e instanceof PolicyResolutionError)) throw e;
 }
+if (JSON.stringify([base, local]) !== inputsBefore)
+  throw new Error("Resolver modified its inputs");
+if (JSON.stringify(resolver.resolve(base, local)) !== JSON.stringify(resolved))
+  throw new Error("Repeated resolution produced different results");
+const frozenBase: Policy = Object.freeze({
+  ...base,
+  rules: Object.freeze(
+    base.rules.map((entry) =>
+      Object.freeze({
+        ...entry,
+        forbidden: Object.freeze([...(entry.forbidden ?? [])]),
+      }),
+    ),
+  ),
+});
+const frozenLocal: Policy = Object.freeze({
+  ...local,
+  rules: Object.freeze(
+    local.rules.map((entry) =>
+      Object.freeze({
+        ...entry,
+        forbidden: Object.freeze([...(entry.forbidden ?? [])]),
+      }),
+    ),
+  ),
+});
+if (
+  JSON.stringify(resolver.resolve(frozenBase, frozenLocal)) !==
+  JSON.stringify(resolved)
+)
+  throw new Error("Frozen inputs changed resolution");
 console.log("Policy resolver invariants passed");
