@@ -141,6 +141,32 @@ describe('GitHubIssueHttpAdapter', () => {
       assert.equal(requests.length, 0);
     });
 
+    it('rejects malformed issue state', async () => {
+      // Arrange
+      const client = createClient(async () => ({
+        ok: true,
+        status: StatusCodes.OK,
+        json: async () => ({ labels: [], state: 'pending' }),
+      }));
+
+      // Act & Assert
+      await expectApiError(() => client.read(ISSUE_NUMBER), 'invalid-response');
+    });
+
+    it('rejects a non-JSON GitHub response', async () => {
+      // Arrange
+      const client = createClient(async () => ({
+        ok: true,
+        status: StatusCodes.OK,
+        json: async () => {
+          throw new SyntaxError('Unexpected token');
+        },
+      }));
+
+      // Act & Assert
+      await expectApiError(() => client.read(ISSUE_NUMBER), 'invalid-response');
+    });
+
     it('rejects an invalid GitHub issue response', async () => {
       // Arrange
       const client = createClient(async () => ({
