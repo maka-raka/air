@@ -1,15 +1,58 @@
 /** Pure Delivery transition policy. Authentication and evidence acquisition belong to adapters. */
-export type Phase =
-  "requirements" | "design" | "build" | "review" | "accept" | "observe";
-export type Status = "ready" | "working" | "blocked" | "waiting";
-export type Actor = "human" | "agent" | "gate" | "deployment-workflow";
+export const DeliveryPhase = {
+  Requirements: "requirements",
+  Design: "design",
+  Build: "build",
+  Review: "review",
+  Accept: "accept",
+  Observe: "observe",
+} as const;
+export const DeliveryStatus = {
+  Ready: "ready",
+  Working: "working",
+  Blocked: "blocked",
+  Waiting: "waiting",
+} as const;
+export const DeliveryActor = {
+  Human: "human",
+  Agent: "agent",
+  Gate: "gate",
+  DeploymentWorkflow: "deployment-workflow",
+} as const;
+export const DeliveryAction = {
+  Initialize: "initialize",
+  Start: "start",
+  Complete: "complete",
+  Block: "block",
+  Retry: "retry",
+  Rework: "rework",
+  Advance: "advance",
+  DeployStage: "deploy-stage",
+  DeployProd: "deploy-prod",
+  Close: "close",
+  Recover: "recover",
+} as const;
+export const DecisionReason = {
+  NotAuthorized: "not-authorized",
+  InvalidTransition: "invalid-transition",
+  GateRejected: "gate-rejected",
+  PreconditionFailed: "precondition-failed",
+} as const;
+export const DeliveryTaskSize = { Small: "S", Large: "L" } as const;
+export const DeliveryVerdict = { Go: "go", NoGo: "no-go" } as const;
+
+export type Phase = (typeof DeliveryPhase)[keyof typeof DeliveryPhase];
+export type Status = (typeof DeliveryStatus)[keyof typeof DeliveryStatus];
+export type Actor = (typeof DeliveryActor)[keyof typeof DeliveryActor];
+export type Action = (typeof DeliveryAction)[keyof typeof DeliveryAction];
+export type FailureReason = (typeof DecisionReason)[keyof typeof DecisionReason];
 export type Position = Readonly<{ phase: Phase; status: Status }>;
 export type Gate = Readonly<{
   passed: boolean;
   problems: readonly string[];
   evidenceRevision: string;
   expectedRevision: string;
-  verdict?: "go" | "no-go";
+  verdict?: (typeof DeliveryVerdict)[keyof typeof DeliveryVerdict];
 }>;
 export type Facts = Readonly<{
   preflightPassed?: boolean;
@@ -17,7 +60,7 @@ export type Facts = Readonly<{
   reportRecorded?: boolean;
   feedbackRecorded?: boolean;
   recoveryConfirmed?: boolean;
-  taskSize?: "S" | "L";
+  taskSize?: (typeof DeliveryTaskSize)[keyof typeof DeliveryTaskSize];
   miniDesignRecorded?: boolean;
   designApproved?: boolean;
   prExists?: boolean;
@@ -27,18 +70,6 @@ export type Facts = Readonly<{
   changeIncluded?: boolean;
   observeGo?: boolean;
 }>;
-export type Action =
-  | "initialize"
-  | "start"
-  | "complete"
-  | "block"
-  | "retry"
-  | "rework"
-  | "advance"
-  | "deploy-stage"
-  | "deploy-prod"
-  | "close"
-  | "recover";
 export type Request = Readonly<{
   action: Action;
   actor: Actor;
@@ -48,113 +79,149 @@ export type Request = Readonly<{
 }>;
 export type Decision =
   | { allowed: true; next: Position | null }
-  | {
-      allowed: false;
-      reason:
-        | "not-authorized"
-        | "invalid-transition"
-        | "gate-rejected"
-        | "precondition-failed";
-    };
+  | { allowed: false; reason: FailureReason };
+
+type Transition = Readonly<{
+  actor: Actor;
+  from?: Status;
+  phases?: readonly Phase[];
+  guard?: (current: Position, request: Request) => boolean;
+  rejected?: FailureReason;
+  next: (current: Position, request: Request) => Position | null;
+}>;
+
 const position = (phase: Phase, status: Status): Position => ({
   phase,
   status,
 });
-const denied = (
-  reason: Extract<Decision, { allowed: false }>["reason"],
-): Decision => ({ allowed: false, reason });
+const denied = (reason: FailureReason): Decision => ({
+  allowed: false,
+  reason,
+});
 const allowed = (next: Position | null): Decision => ({ allowed: true, next });
-export class DeliveryTransitionPolicy {
-  decide(current: Position | null, request: Request): Decision {
-    const f = request.facts ?? {};
-    const { action, actor } = request;
-    const roles: Record<Action, Actor> = {
-      initialize: "human",
-      start: "agent",
-      complete: "gate",
-      block: "agent",
-      retry: "human",
-      rework: "human",
-      advance: "human",
-      "deploy-stage": "deployment-workflow",
-      "deploy-prod": "deployment-workflow",
-      close: "human",
-      recover: "human",
-    };
-    if (actor !== roles[action]) return denied("not-authorized");
-    if (action === "initialize")
-      return current === null
-        ? allowed(position("requirements", "ready"))
-        : denied("invalid-transition");
-    if (!current) return denied("invalid-transition");
-    const { phase, status } = current;
-    switch (action) {
-      case "start":
-        if (status !== "ready") break;
-        return f.preflightPassed && f.activeRun === false
-          ? allowed(position(phase, "working"))
-          : denied("precondition-failed");
-      case "complete": {
-        if (status !== "working") break;
-        const g = request.gate;
-        return g &&
-          g.passed &&
-          g.problems.length === 0 &&
-          !!g.evidenceRevision &&
-          g.evidenceRevision === g.expectedRevision &&
-          g.verdict !== "no-go"
-          ? allowed(position(phase, "waiting"))
-          : denied("gate-rejected");
-      }
-      case "block":
-        if (status !== "working") break;
-        return f.reportRecorded
-          ? allowed(position(phase, "blocked"))
-          : denied("precondition-failed");
-      case "retry":
-        if (status !== "blocked") break;
-        return f.feedbackRecorded
-          ? allowed(position(phase, "ready"))
-          : denied("precondition-failed");
-      case "rework":
-        if (status !== "waiting") break;
-        return f.feedbackRecorded
-          ? allowed(position(phase, "ready"))
-          : denied("precondition-failed");
-      case "recover":
-        if (status !== "working") break;
-        return f.recoveryConfirmed && f.reportRecorded && f.activeRun === false
-          ? allowed(position(phase, "ready"))
-          : denied("precondition-failed");
-      case "advance": {
-        if (status !== "waiting") break;
+
+const { Requirements, Design, Build, Review, Accept, Observe } = DeliveryPhase;
+const { Ready, Working, Blocked, Waiting } = DeliveryStatus;
+const { Human, Agent, Gate, DeploymentWorkflow } = DeliveryActor;
+const { Start, Complete, Block, Retry, Rework, Recover, Advance, DeployStage, DeployProd, Close } = DeliveryAction;
+
+export class DeliveryStateMachine {
+  private readonly transitions: Readonly<Record<Exclude<Action, typeof DeliveryAction.Initialize>, Transition>> = {
+    [Start]: {
+      actor: Agent,
+      from: Ready,
+      guard: (_, request) => request.facts?.preflightPassed === true && request.facts.activeRun === false,
+      next: (current) => position(current.phase, Working),
+    },
+    [Complete]: {
+      actor: Gate,
+      from: Working,
+      rejected: DecisionReason.GateRejected,
+      guard: (_, request) => {
+        const gate = request.gate;
+        if (!gate?.passed || gate.problems.length !== 0) return false;
+        if (!gate.evidenceRevision) return false;
+        return gate.evidenceRevision === gate.expectedRevision && gate.verdict !== DeliveryVerdict.NoGo;
+      },
+      next: (current) => position(current.phase, Waiting),
+    },
+    [Block]: {
+      actor: Agent,
+      from: Working,
+      guard: (_, request) => request.facts?.reportRecorded === true,
+      next: (current) => position(current.phase, Blocked),
+    },
+    [Retry]: {
+      actor: Human,
+      from: Blocked,
+      guard: (_, request) => request.facts?.feedbackRecorded === true,
+      next: (current) => position(current.phase, Ready),
+    },
+    [Rework]: {
+      actor: Human,
+      from: Waiting,
+      guard: (_, request) => request.facts?.feedbackRecorded === true,
+      next: (current) => position(current.phase, Ready),
+    },
+    [Recover]: {
+      actor: Human,
+      from: Working,
+      guard: (_, request) => {
+        const facts = request.facts;
+        if (!facts?.recoveryConfirmed || !facts.reportRecorded) return false;
+        return facts.activeRun === false;
+      },
+      next: (current) => position(current.phase, Ready),
+    },
+    [Advance]: {
+      actor: Human,
+      from: Waiting,
+      phases: [Requirements, Design, Build],
+      guard: (current, request) => {
         const to = request.target;
-        const valid =
-          (phase === "requirements" &&
-            ((to === "design" && f.taskSize === "L") ||
-              (to === "build" &&
-                f.taskSize === "S" &&
-                f.miniDesignRecorded))) ||
-          (phase === "design" && to === "build" && f.designApproved) ||
-          (phase === "build" && to === "review" && f.prExists && f.checksGreen);
-        return valid && to
-          ? allowed(position(to, "ready"))
-          : denied("precondition-failed");
-      }
-      case "deploy-stage":
-        if (phase !== "review" || status !== "waiting") break;
-        return f.approvedMergedPr && f.deploymentVerified && f.changeIncluded
-          ? allowed(position("accept", "ready"))
-          : denied("precondition-failed");
-      case "deploy-prod":
-        if (phase !== "accept" || status !== "waiting") break;
-        return f.deploymentVerified && f.changeIncluded
-          ? allowed(position("observe", "ready"))
-          : denied("precondition-failed");
-      case "close":
-        if (phase !== "observe" || status !== "waiting") break;
-        return f.observeGo ? allowed(null) : denied("precondition-failed");
+        const facts = request.facts;
+        if (current.phase === Requirements) {
+          if (to === Design) return facts?.taskSize === DeliveryTaskSize.Large;
+          return to === Build && facts?.taskSize === DeliveryTaskSize.Small && facts.miniDesignRecorded === true;
+        }
+        if (current.phase === Design) return to === Build && facts?.designApproved === true;
+        return to === Review && facts?.prExists === true && facts.checksGreen === true;
+      },
+      next: (_, request) => position(request.target!, Ready),
+    },
+    [DeployStage]: {
+      actor: DeploymentWorkflow,
+      from: Waiting,
+      phases: [Review],
+      guard: (_, request) => {
+        const facts = request.facts;
+        if (!facts?.approvedMergedPr || !facts.deploymentVerified) return false;
+        return facts.changeIncluded === true;
+      },
+      next: () => position(Accept, Ready),
+    },
+    [DeployProd]: {
+      actor: DeploymentWorkflow,
+      from: Waiting,
+      phases: [Accept],
+      guard: (_, request) => request.facts?.deploymentVerified === true && request.facts.changeIncluded === true,
+      next: () => position(Observe, Ready),
+    },
+    [Close]: {
+      actor: Human,
+      from: Waiting,
+      phases: [Observe],
+      guard: (_, request) => request.facts?.observeGo === true,
+      next: () => null,
+    },
+  };
+
+  decide(current: Position | null, request: Request): Decision {
+    if (request.action === DeliveryAction.Initialize) {
+      if (request.actor !== Human) return denied(DecisionReason.NotAuthorized);
+      return current === null
+        ? allowed(position(Requirements, Ready))
+        : denied(DecisionReason.InvalidTransition);
     }
-    return denied("invalid-transition");
+    const transition = this.transitions[request.action];
+    if (!transition || request.actor !== transition.actor) {
+      return denied(DecisionReason.NotAuthorized);
+    }
+    if (!current) return denied(DecisionReason.InvalidTransition);
+    if (transition.from !== current.status) return denied(DecisionReason.InvalidTransition);
+    if (transition.phases && !transition.phases.includes(current.phase)) {
+      return denied(DecisionReason.InvalidTransition);
+    }
+    if (transition.guard && !transition.guard(current, request)) {
+      return denied(transition.rejected ?? DecisionReason.PreconditionFailed);
+    }
+    return allowed(transition.next(current, request));
+  }
+
+  actions(): readonly Action[] {
+    return Object.values(DeliveryAction);
   }
 }
+
+/** Compatibility alias for the earlier OOP policy API. */
+export class DeliveryTransitionPolicy extends DeliveryStateMachine {}
