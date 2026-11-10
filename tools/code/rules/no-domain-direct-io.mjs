@@ -25,9 +25,8 @@ export default {
   create(context) {
     function checkModule(node, source) {
       if (typeof source?.value !== "string") return;
-      const moduleName = source.value
-        .replace(/^node:/, "")
-        .split("/")[0];
+      const normalizedName = source.value.replace(/^node:/, "");
+      const moduleName = normalizedName.split("/")[0];
       if (!forbiddenModules.has(moduleName)) return;
       context.report({
         node,
