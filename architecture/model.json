@@ -23,7 +23,19 @@
         "src/delivery/adapters/**"
       ],
       "dependencies": [
-        "delivery-domain"
+        "delivery-domain",
+        "delivery-application"
+      ]
+    },
+    {
+      "id": "delivery-composition",
+      "paths": [
+        "src/delivery/composition/**"
+      ],
+      "dependencies": [
+        "delivery-domain",
+        "delivery-application",
+        "delivery-adapters"
       ]
     },
     {

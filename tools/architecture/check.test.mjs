@@ -64,7 +64,16 @@ const productionModel = {
     {
       id: "delivery-adapters",
       paths: ["src/delivery/adapters/**"],
-      dependencies: ["delivery-domain"],
+      dependencies: ["delivery-domain", "delivery-application"],
+    },
+    {
+      id: "delivery-composition",
+      paths: ["src/delivery/composition/**"],
+      dependencies: [
+        "delivery-domain",
+        "delivery-application",
+        "delivery-adapters",
+      ],
     },
     {
       id: "policy-domain",
@@ -91,6 +100,11 @@ const productionModel = {
 
 const allowedDependencies = [
   [
+    "src/delivery/adapters/github/store.ts",
+    "src/delivery/application/command.ts",
+  ],
+  ["src/delivery/composition/root.ts", "src/delivery/adapters/github/store.ts"],
+  [
     "src/delivery/application/command.ts",
     "src/delivery/domain/state-machine.ts",
   ],
@@ -109,6 +123,8 @@ for (const [source, target] of allowedDependencies) {
 }
 
 const forbiddenDependencies = [
+  ["src/delivery/adapters/github/store.ts", "src/delivery/composition/root.ts"],
+  ["src/delivery/application/command.ts", "src/delivery/composition/root.ts"],
   [
     "src/delivery/domain/state-machine.ts",
     "src/delivery/application/command.ts",
