@@ -1,5 +1,12 @@
 import fc from "fast-check";
-import { DeliveryTransitionPolicy, DeliveryPhase, DeliveryStatus, DeliveryActor, DeliveryAction, DecisionReason } from "./state-machine.js";
+import {
+  DeliveryTransitionPolicy,
+  DeliveryPhase,
+  DeliveryStatus,
+  DeliveryActor,
+  DeliveryAction,
+  DecisionReason,
+} from "./state-machine.js";
 import type { Action, Actor, Phase, Status } from "./state-machine.js";
 
 const transitionPolicy = new DeliveryTransitionPolicy();
@@ -12,7 +19,12 @@ const phases: Phase[] = [
   DeliveryPhase.Accept,
   DeliveryPhase.Observe,
 ];
-const statuses: Status[] = [DeliveryStatus.Ready, DeliveryStatus.Working, DeliveryStatus.Blocked, DeliveryStatus.Waiting];
+const statuses: Status[] = [
+  DeliveryStatus.Ready,
+  DeliveryStatus.Working,
+  DeliveryStatus.Blocked,
+  DeliveryStatus.Waiting,
+];
 const actions: Action[] = [
   DeliveryAction.Initialize,
   DeliveryAction.Start,
@@ -26,7 +38,12 @@ const actions: Action[] = [
   DeliveryAction.Close,
   DeliveryAction.Recover,
 ];
-const actors: Actor[] = [DeliveryActor.Human, DeliveryActor.Agent, DeliveryActor.Gate, DeliveryActor.DeploymentWorkflow];
+const actors: Actor[] = [
+  DeliveryActor.Human,
+  DeliveryActor.Agent,
+  DeliveryActor.Gate,
+  DeliveryActor.DeploymentWorkflow,
+];
 const arb = fc.record({
   phase: fc.constantFrom(...phases),
   status: fc.constantFrom(...statuses),
