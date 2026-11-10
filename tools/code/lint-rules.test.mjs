@@ -1,4 +1,5 @@
 import noComplexCondition from "./rules/no-complex-condition.mjs";
+import noWebhookMagicStrings from "./rules/no-webhook-magic-strings.mjs";
 import noDeliveryMagicStrings from "./rules/no-delivery-magic-strings.mjs";
 import tsParser from "@typescript-eslint/parser";
 import assert from "node:assert/strict";
@@ -157,6 +158,42 @@ test("enforces delivery magic-string rule only in production", async () => {
   assert.ok(
     !testFile.messages.some(
       ({ ruleId }) => ruleId === "air/no-delivery-magic-strings",
+    ),
+  );
+});
+
+ruleTester.run("air/no-webhook-magic-strings", noWebhookMagicStrings, {
+  valid: [
+    "if (envelope.event === GitHubWebhookEvent.Issues) work();",
+    "if (envelope.action !== GitHubIssueAction.Labeled) work();",
+    'const event = "issues";',
+    'if (other.event === "issues") work();',
+  ],
+  invalid: [
+    'if (envelope.event === "issues") work();',
+    'if ("labeled" !== envelope.action) work();',
+  ].map((code) => ({
+    code,
+    errors: [{ messageId: "magic" }],
+  })),
+});
+
+test("enforces webhook magic-string rule in application production only", async () => {
+  const code = 'if (envelope.event === "issues") work();';
+  const [production] = await eslint.lintText(code, {
+    filePath: "src/application/example.ts",
+  });
+  assert.ok(
+    production.messages.some(
+      ({ ruleId }) => ruleId === "air/no-webhook-magic-strings",
+    ),
+  );
+  const [testFile] = await eslint.lintText(code, {
+    filePath: "src/application/example.test.ts",
+  });
+  assert.ok(
+    !testFile.messages.some(
+      ({ ruleId }) => ruleId === "air/no-webhook-magic-strings",
     ),
   );
 });
