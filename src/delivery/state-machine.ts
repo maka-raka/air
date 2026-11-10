@@ -161,8 +161,9 @@ export class DeliveryStateMachine {
         const to = request.target;
         const facts = request.facts;
         if (current.phase === Requirements) {
-          if (to === Design) return facts?.taskSize === DeliveryTaskSize.Large;
-          return to === Build && facts?.taskSize === DeliveryTaskSize.Small && facts.miniDesignRecorded === true;
+          const viaDesign = to === Design && facts?.taskSize === DeliveryTaskSize.Large;
+          const directBuild = to === Build && facts?.taskSize === DeliveryTaskSize.Small && facts.miniDesignRecorded === true;
+          return viaDesign || directBuild;
         }
         if (current.phase === Design) return to === Build && facts?.designApproved === true;
         return to === Review && facts?.prExists === true && facts.checksGreen === true;
@@ -197,8 +198,10 @@ export class DeliveryStateMachine {
   };
 
   decide(current: Position | null, request: Request): Decision {
+    if (request.action === DeliveryAction.Initialize && request.actor !== Human) {
+      return denied(DecisionReason.NotAuthorized);
+    }
     if (request.action === DeliveryAction.Initialize) {
-      if (request.actor !== Human) return denied(DecisionReason.NotAuthorized);
       return current === null
         ? allowed(position(Requirements, Ready))
         : denied(DecisionReason.InvalidTransition);
