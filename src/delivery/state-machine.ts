@@ -45,7 +45,8 @@ export type Phase = (typeof DeliveryPhase)[keyof typeof DeliveryPhase];
 export type Status = (typeof DeliveryStatus)[keyof typeof DeliveryStatus];
 export type Actor = (typeof DeliveryActor)[keyof typeof DeliveryActor];
 export type Action = (typeof DeliveryAction)[keyof typeof DeliveryAction];
-export type FailureReason = (typeof DecisionReason)[keyof typeof DecisionReason];
+export type FailureReason =
+  (typeof DecisionReason)[keyof typeof DecisionReason];
 export type Position = Readonly<{ phase: Phase; status: Status }>;
 export type Gate = Readonly<{
   passed: boolean;
@@ -103,14 +104,29 @@ const allowed = (next: Position | null): Decision => ({ allowed: true, next });
 const { Requirements, Design, Build, Review, Accept, Observe } = DeliveryPhase;
 const { Ready, Working, Blocked, Waiting } = DeliveryStatus;
 const { Human, Agent, Gate, DeploymentWorkflow } = DeliveryActor;
-const { Start, Complete, Block, Retry, Rework, Recover, Advance, DeployStage, DeployProd, Close } = DeliveryAction;
+const {
+  Start,
+  Complete,
+  Block,
+  Retry,
+  Rework,
+  Recover,
+  Advance,
+  DeployStage,
+  DeployProd,
+  Close,
+} = DeliveryAction;
 
 export class DeliveryStateMachine {
-  private readonly transitions: Readonly<Record<Exclude<Action, typeof DeliveryAction.Initialize>, Transition>> = {
+  private readonly transitions: Readonly<
+    Record<Exclude<Action, typeof DeliveryAction.Initialize>, Transition>
+  > = {
     [Start]: {
       actor: Agent,
       from: Ready,
-      guard: (_, request) => request.facts?.preflightPassed === true && request.facts.activeRun === false,
+      guard: (_, request) =>
+        request.facts?.preflightPassed === true &&
+        request.facts.activeRun === false,
       next: (current) => position(current.phase, Working),
     },
     [Complete]: {
@@ -121,7 +137,10 @@ export class DeliveryStateMachine {
         const gate = request.gate;
         if (!gate?.passed || gate.problems.length !== 0) return false;
         if (!gate.evidenceRevision) return false;
-        return gate.evidenceRevision === gate.expectedRevision && gate.verdict !== DeliveryVerdict.NoGo;
+        return (
+          gate.evidenceRevision === gate.expectedRevision &&
+          gate.verdict !== DeliveryVerdict.NoGo
+        );
       },
       next: (current) => position(current.phase, Waiting),
     },
@@ -161,12 +180,21 @@ export class DeliveryStateMachine {
         const to = request.target;
         const facts = request.facts;
         if (current.phase === Requirements) {
-          const viaDesign = to === Design && facts?.taskSize === DeliveryTaskSize.Large;
-          const directBuild = to === Build && facts?.taskSize === DeliveryTaskSize.Small && facts.miniDesignRecorded === true;
+          const viaDesign =
+            to === Design && facts?.taskSize === DeliveryTaskSize.Large;
+          const directBuild =
+            to === Build &&
+            facts?.taskSize === DeliveryTaskSize.Small &&
+            facts.miniDesignRecorded === true;
           return viaDesign || directBuild;
         }
-        if (current.phase === Design) return to === Build && facts?.designApproved === true;
-        return to === Review && facts?.prExists === true && facts.checksGreen === true;
+        if (current.phase === Design)
+          return to === Build && facts?.designApproved === true;
+        return (
+          to === Review &&
+          facts?.prExists === true &&
+          facts.checksGreen === true
+        );
       },
       next: (_, request) => position(request.target!, Ready),
     },
@@ -185,7 +213,9 @@ export class DeliveryStateMachine {
       actor: DeploymentWorkflow,
       from: Waiting,
       phases: [Accept],
-      guard: (_, request) => request.facts?.deploymentVerified === true && request.facts.changeIncluded === true,
+      guard: (_, request) =>
+        request.facts?.deploymentVerified === true &&
+        request.facts.changeIncluded === true,
       next: () => position(Observe, Ready),
     },
     [Close]: {
@@ -198,7 +228,10 @@ export class DeliveryStateMachine {
   };
 
   decide(current: Position | null, request: Request): Decision {
-    if (request.action === DeliveryAction.Initialize && request.actor !== Human) {
+    if (
+      request.action === DeliveryAction.Initialize &&
+      request.actor !== Human
+    ) {
       return denied(DecisionReason.NotAuthorized);
     }
     if (request.action === DeliveryAction.Initialize) {
@@ -211,7 +244,8 @@ export class DeliveryStateMachine {
       return denied(DecisionReason.NotAuthorized);
     }
     if (!current) return denied(DecisionReason.InvalidTransition);
-    if (transition.from !== current.status) return denied(DecisionReason.InvalidTransition);
+    if (transition.from !== current.status)
+      return denied(DecisionReason.InvalidTransition);
     if (transition.phases && !transition.phases.includes(current.phase)) {
       return denied(DecisionReason.InvalidTransition);
     }
