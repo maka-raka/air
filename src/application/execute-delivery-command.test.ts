@@ -1,7 +1,15 @@
 import { ExecuteDeliveryCommand } from "./execute-delivery-command.js";
 import { GitHubDeliveryStateStore } from "../github/delivery-state-store.js";
-import type { IssueLabelsPort, ReadIssue } from "../github/delivery-state-store.js";
-import { DeliveryAction, DeliveryActor, DeliveryPhase, DeliveryStatus } from "../delivery/state-machine.js";
+import type {
+  IssueLabelsPort,
+  ReadIssue,
+} from "../github/delivery-state-store.js";
+import {
+  DeliveryAction,
+  DeliveryActor,
+  DeliveryPhase,
+  DeliveryStatus,
+} from "../delivery/state-machine.js";
 import type { Request } from "../delivery/state-machine.js";
 
 function assert(condition: boolean, message: string): void {
@@ -25,7 +33,10 @@ class FakeGitHubIssue implements IssueLabelsPort {
     return { labels: [...this.issue.labels], closed: this.issue.closed };
   }
 
-  async replaceLabels(_issue: number, labels: readonly string[]): Promise<void> {
+  async replaceLabels(
+    _issue: number,
+    labels: readonly string[],
+  ): Promise<void> {
     this.writes++;
     this.issue = { ...this.issue, labels: [...labels] };
     if (this.writeFailure) throw new Error("Transport lost after write");
@@ -55,7 +66,9 @@ async function main(): Promise<void> {
     "air:requirements:ready",
     "priority:high",
   ]);
-  const useCase = new ExecuteDeliveryCommand(new GitHubDeliveryStateStore(issue));
+  const useCase = new ExecuteDeliveryCommand(
+    new GitHubDeliveryStateStore(issue),
+  );
   const result = await useCase.execute({ issue: 42, request });
   assert(result.ok, "Expected successful delivery transition");
   assert(
@@ -64,7 +77,10 @@ async function main(): Promise<void> {
       result.snapshot.position.status === DeliveryStatus.Working,
     "Unexpected state after transition",
   );
-  assert(issue.labels.includes("priority:high"), "Must preserve unrelated labels");
+  assert(
+    issue.labels.includes("priority:high"),
+    "Must preserve unrelated labels",
+  );
   assert(issue.writes === 1, "Must write exactly once for successful command");
 
   const duplicate = await useCase.execute({ issue: 42, request });
@@ -75,7 +91,10 @@ async function main(): Promise<void> {
   assert(issue.writes === 1, "Duplicate command must not cause a write");
 
   const invalid = await useCase.execute({ issue: 0, request });
-  assert(!invalid.ok && invalid.reason === "invalid-state", "Invalid issue must fail");
+  assert(
+    !invalid.ok && invalid.reason === "invalid-state",
+    "Invalid issue must fail",
+  );
   assert(issue.writes === 1, "Invalid issue must not write");
 
   const unauthorized = new FakeGitHubIssue(["air:requirements:ready"]);
