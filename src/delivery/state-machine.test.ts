@@ -240,21 +240,33 @@ const actions = Object.keys(authority) as Action[];
 for (const action of actions)
   for (const actor of actors)
     if (actor !== authority[action])
-      rejected(at(DeliveryPhase.Requirements, DeliveryStatus.Ready), action, actor, DecisionReason.NotAuthorized);
+      rejected(
+        at(DeliveryPhase.Requirements, DeliveryStatus.Ready),
+        action,
+        actor,
+        DecisionReason.NotAuthorized,
+      );
 
 // Every action in every incompatible status/phase fails closed.
 for (const phase of phases)
   for (const status of statuses) {
     const p = at(phase, status);
     for (const action of actions) {
-      const result = run(p, action, authority[action], { target: DeliveryPhase.Build });
+      const result = run(p, action, authority[action], {
+        target: DeliveryPhase.Build,
+      });
       const possible =
         (action === DeliveryAction.Start && status === DeliveryStatus.Ready) ||
-        (action === DeliveryAction.Complete && status === DeliveryStatus.Working) ||
-        (action === DeliveryAction.Block && status === DeliveryStatus.Working) ||
-        (action === DeliveryAction.Retry && status === DeliveryStatus.Blocked) ||
-        (action === DeliveryAction.Rework && status === DeliveryStatus.Waiting) ||
-        (action === DeliveryAction.Recover && status === DeliveryStatus.Working) ||
+        (action === DeliveryAction.Complete &&
+          status === DeliveryStatus.Working) ||
+        (action === DeliveryAction.Block &&
+          status === DeliveryStatus.Working) ||
+        (action === DeliveryAction.Retry &&
+          status === DeliveryStatus.Blocked) ||
+        (action === DeliveryAction.Rework &&
+          status === DeliveryStatus.Waiting) ||
+        (action === DeliveryAction.Recover &&
+          status === DeliveryStatus.Working) ||
         (action === DeliveryAction.Advance &&
           status === DeliveryStatus.Waiting &&
           advancePhases.includes(phase)) ||
@@ -264,7 +276,9 @@ for (const phase of phases)
         (action === DeliveryAction.DeployProd &&
           status === DeliveryStatus.Waiting &&
           phase === DeliveryPhase.Accept) ||
-        (action === DeliveryAction.Close && status === DeliveryStatus.Waiting && phase === DeliveryPhase.Observe);
+        (action === DeliveryAction.Close &&
+          status === DeliveryStatus.Waiting &&
+          phase === DeliveryPhase.Observe);
       if (!possible)
         expect(
           result.allowed,
