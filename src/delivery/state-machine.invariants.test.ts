@@ -107,8 +107,7 @@ fc.assert(
       fc.pre(actor !== owners[action]);
       const decision = machine.decide(current, { action, actor });
       assert(
-        !decision.allowed &&
-          decision.reason === DecisionReason.NotAuthorized,
+        !decision.allowed && decision.reason === DecisionReason.NotAuthorized,
         "Unauthorized transition was not rejected",
       );
     },
