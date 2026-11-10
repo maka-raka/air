@@ -103,8 +103,7 @@ function matches(a: Snapshot, b: Snapshot): boolean {
 export class GitHubDeliveryStateStore {
   constructor(
     private readonly port: IssueLabelsPort,
-    private readonly transitionPolicy: DeliveryTransitionPolicy =
-      new DeliveryTransitionPolicy(),
+    private readonly transitionPolicy: DeliveryTransitionPolicy = new DeliveryTransitionPolicy(),
   ) {}
   async load(issue: number): Promise<StoreResult> {
     try {
