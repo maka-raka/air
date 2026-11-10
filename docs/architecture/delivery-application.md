@@ -47,6 +47,27 @@ The exact order of posting comment and updating labels must be chosen for crash 
 
 Ports should be scoped to the consuming use case rather than forcing a universal `Tracker` or `DataAccess` interface. GitHub integrations may share internal infrastructure clients while exposing separate application ports.
 
+## Webhook ingestion
+
+`IngestGitHubWebhook` admits an HMAC-verified GitHub webhook and owns its delivery-ID claim lifecycle.
+
+Order: supported event/action → trusted actor authorization → `DeliveryClaimPort.acquire` → `AdmittedWebhookHandlerPort.handle` → `complete`.
+
+| Port | Required behavior |
+| --- | --- |
+| `DeliveryClaimPort` | Durable and atomic across workers. `acquire` returns `acquired` (with a fenced lease), `in-progress` (live lease held elsewhere) or `completed`. Unsettled leases expire. Operations carrying a superseded token are ignored. |
+| `WebhookActorAuthorizationPort` | Resolves permissions from trusted GitHub identity, never from webhook payload claims. |
+| `AdmittedWebhookHandlerPort` | Downstream processing; must be idempotent. |
+
+Invariants:
+
+- Unsupported or unauthorized deliveries never touch the claim store, so they cannot consume a delivery ID.
+- A delivery becomes `completed` only after its handler succeeds.
+- A failed handler releases the lease and the original error propagates, so a redelivery can be processed again.
+- If `complete` fails after a successful handler, the lease expires and the delivery may be handled again: ingestion is **at-least-once**, not exactly-once.
+
+Not yet decided: lease TTL, the durable claim-store adapter, and the HTTP mapping of `in-progress` (GitHub does not retry failed deliveries automatically; redelivery is manual or API-driven).
+
 ## Evidence lifecycle
 
 - Every evidence bundle has `source`, `capturedAt`, `scope` and stable `revision` (PR head SHA, deployed artifact or equivalent).
