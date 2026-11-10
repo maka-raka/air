@@ -47,7 +47,11 @@ export class ExecuteDeliveryCommand {
 
   async execute(command: DeliveryCommand): Promise<DeliveryResult> {
     if (!Number.isSafeInteger(command.issue) || command.issue < 1) {
-      return { ok: false, reason: "invalid-state", detail: "Invalid issue number" };
+      return {
+        ok: false,
+        reason: "invalid-state",
+        detail: "Invalid issue number",
+      };
     }
 
     return this.state.apply(command.issue, command.request);
