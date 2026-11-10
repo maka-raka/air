@@ -1,6 +1,15 @@
 /** Guard against direct infrastructure access in domain modules. */
-const forbiddenModules =
-  /^(?:node:)?(?:fs(?:\/.*)?|http(?:\/.*)?|https(?:\/.*)?|net(?:\/.*)?|tls(?:\/.*)?|child_process|process|worker_threads)$/;
+const forbiddenModules = new Set([
+  "fs",
+  "http",
+  "https",
+  "net",
+  "tls",
+  "child_process",
+  "process",
+  "worker_threads",
+]);
+const forbiddenModulePath = /^(?:node:)?([^/]+)(?:\/.*)?$/;
 const forbiddenGlobals = new Set(["fetch", "setTimeout", "setInterval"]);
 const forbiddenObjects = new Set(["process", "console"]);
 
@@ -17,7 +26,9 @@ export default {
   create(context) {
     function checkModule(node, source) {
       if (typeof source?.value !== "string") return;
-      if (!forbiddenModules.test(source.value)) return;
+      const match = forbiddenModulePath.exec(source.value);
+      if (!match) return;
+      if (!forbiddenModules.has(match[1])) return;
       context.report({
         node,
         messageId: "module",
