@@ -1,6 +1,8 @@
 import fc from "fast-check";
-import { decideTransition } from "./state-machine.js";
+import { DeliveryTransitionPolicy } from "./state-machine.js";
 import type { Action, Actor, Phase, Status } from "./state-machine.js";
+
+const transitionPolicy = new DeliveryTransitionPolicy();
 
 const phases: Phase[] = [
   "requirements",
@@ -36,7 +38,7 @@ fc.assert(
     const current = { phase, status };
     const before = JSON.stringify(current);
     const request = { action, actor };
-    const decision = decideTransition(current, request);
+    const decision = transitionPolicy.decide(current, request);
     if (JSON.stringify(current) !== before) return false;
     if (!decision.allowed || !decision.next) return true;
     return (
@@ -50,7 +52,7 @@ fc.assert(
   fc.property(
     fc.constantFrom(...actors.filter((a) => a !== "human")),
     (actor) => {
-      const result = decideTransition(null, { action: "initialize", actor });
+      const result = transitionPolicy.decide(null, { action: "initialize", actor });
       return !result.allowed && result.reason === "not-authorized";
     },
   ),
