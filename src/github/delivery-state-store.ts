@@ -1,4 +1,10 @@
-import { DeliveryTransitionPolicy, DeliveryPhase, DeliveryStatus, DeliveryAction, DecisionReason } from "../delivery/state-machine.js";
+import {
+  DeliveryTransitionPolicy,
+  DeliveryPhase,
+  DeliveryStatus,
+  DeliveryAction,
+  DecisionReason,
+} from "../delivery/state-machine.js";
 import type {
   Decision,
   Phase,
@@ -118,7 +124,10 @@ export class GitHubDeliveryStateStore {
       return fail("invalid-state", String(e));
     }
     if (before.closed) return fail("invalid-transition", "Issue is closed");
-    if (before.position === null && request.action !== DeliveryAction.Initialize)
+    if (
+      before.position === null &&
+      request.action !== DeliveryAction.Initialize
+    )
       return fail("invalid-state", "Missing active state");
     const decision: Decision = this.transitionPolicy.decide(
       before.position,
