@@ -9,7 +9,7 @@
     "code:check": "eslint src tools --max-warnings 0",
     "format:check": "prettier --check 'src/**/*.ts' 'tools/**/*.mjs' eslint.config.mjs",
     "quality:check": "npm run policy:check && npm run code:check && npm run code:test && npm run format:check && npm run typecheck && npm test && npm run architecture:check && npm run fitness:test",
-    "code:test": "node --test tools/code/lint-rules.test.mjs",
+    "code:test": "node --test tools/code/*.test.mjs",
     "format:write": "prettier --write 'src/**/*.ts' 'tools/**/*.mjs' eslint.config.mjs",
     "architecture:check": "node tools/architecture/check.mjs && node tools/architecture/check.test.mjs && depcruise --config .dependency-cruiser.cjs --ts-config tsconfig.json --ts-pre-compilation-deps src",
     "policy:check": "node tools/policy/check.mjs && node tools/policy/check.test.mjs",
