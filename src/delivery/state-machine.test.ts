@@ -1,4 +1,4 @@
-import { DeliveryTransitionPolicy } from "./state-machine.js";
+import { DeliveryTransitionPolicy, DeliveryPhase, DeliveryStatus, DeliveryActor, DeliveryAction, DecisionReason } from "./state-machine.js";
 import type {
   Action,
   Actor,
@@ -13,19 +13,19 @@ import type {
 const transitionPolicy = new DeliveryTransitionPolicy();
 
 const phases: readonly Phase[] = [
-  "requirements",
-  "design",
-  "build",
-  "review",
-  "accept",
-  "observe",
+  DeliveryPhase.Requirements,
+  DeliveryPhase.Design,
+  DeliveryPhase.Build,
+  DeliveryPhase.Review,
+  DeliveryPhase.Accept,
+  DeliveryPhase.Observe,
 ];
-const statuses: readonly Status[] = ["ready", "working", "blocked", "waiting"];
+const statuses: readonly Status[] = [DeliveryStatus.Ready, DeliveryStatus.Working, DeliveryStatus.Blocked, DeliveryStatus.Waiting];
 const actors: readonly Actor[] = [
-  "human",
-  "agent",
-  "gate",
-  "deployment-workflow",
+  DeliveryActor.Human,
+  DeliveryActor.Agent,
+  DeliveryActor.Gate,
+  DeliveryActor.DeploymentWorkflow,
 ];
 const at = (phase: Phase, status: Status): Position => ({ phase, status });
 const facts: Facts = {
@@ -105,85 +105,85 @@ function rejected(
 }
 
 // T00–T13: every documented successful transition.
-next(null, "initialize", "human", at("requirements", "ready"));
+next(null, DeliveryAction.Initialize, DeliveryActor.Human, at(DeliveryPhase.Requirements, DeliveryStatus.Ready));
 for (const phase of phases) {
-  next(at(phase, "ready"), "start", "agent", at(phase, "working"));
-  next(at(phase, "working"), "complete", "gate", at(phase, "waiting"));
-  next(at(phase, "working"), "block", "agent", at(phase, "blocked"));
-  next(at(phase, "blocked"), "retry", "human", at(phase, "ready"));
-  next(at(phase, "waiting"), "rework", "human", at(phase, "ready"));
-  next(at(phase, "working"), "recover", "human", at(phase, "ready"));
+  next(at(phase, DeliveryStatus.Ready), DeliveryAction.Start, DeliveryActor.Agent, at(phase, DeliveryStatus.Working));
+  next(at(phase, DeliveryStatus.Working), DeliveryAction.Complete, DeliveryActor.Gate, at(phase, DeliveryStatus.Waiting));
+  next(at(phase, DeliveryStatus.Working), DeliveryAction.Block, DeliveryActor.Agent, at(phase, DeliveryStatus.Blocked));
+  next(at(phase, DeliveryStatus.Blocked), DeliveryAction.Retry, DeliveryActor.Human, at(phase, DeliveryStatus.Ready));
+  next(at(phase, DeliveryStatus.Waiting), DeliveryAction.Rework, DeliveryActor.Human, at(phase, DeliveryStatus.Ready));
+  next(at(phase, DeliveryStatus.Working), DeliveryAction.Recover, DeliveryActor.Human, at(phase, DeliveryStatus.Ready));
 }
-next(at("requirements", "waiting"), "advance", "human", at("design", "ready"), {
-  target: "design",
+next(at(DeliveryPhase.Requirements, DeliveryStatus.Waiting), DeliveryAction.Advance, DeliveryActor.Human, at(DeliveryPhase.Design, DeliveryStatus.Ready), {
+  target: DeliveryPhase.Design,
 });
-next(at("requirements", "waiting"), "advance", "human", at("build", "ready"), {
-  target: "build",
+next(at(DeliveryPhase.Requirements, DeliveryStatus.Waiting), DeliveryAction.Advance, DeliveryActor.Human, at(DeliveryPhase.Build, DeliveryStatus.Ready), {
+  target: DeliveryPhase.Build,
   facts: { ...facts, taskSize: "S" },
 });
-next(at("design", "waiting"), "advance", "human", at("build", "ready"), {
-  target: "build",
+next(at(DeliveryPhase.Design, DeliveryStatus.Waiting), DeliveryAction.Advance, DeliveryActor.Human, at(DeliveryPhase.Build, DeliveryStatus.Ready), {
+  target: DeliveryPhase.Build,
 });
-next(at("build", "waiting"), "advance", "human", at("review", "ready"), {
-  target: "review",
+next(at(DeliveryPhase.Build, DeliveryStatus.Waiting), DeliveryAction.Advance, DeliveryActor.Human, at(DeliveryPhase.Review, DeliveryStatus.Ready), {
+  target: DeliveryPhase.Review,
 });
 next(
-  at("review", "waiting"),
-  "deploy-stage",
-  "deployment-workflow",
-  at("accept", "ready"),
+  at(DeliveryPhase.Review, DeliveryStatus.Waiting),
+  DeliveryAction.DeployStage,
+  DeliveryActor.DeploymentWorkflow,
+  at(DeliveryPhase.Accept, DeliveryStatus.Ready),
 );
 next(
-  at("accept", "waiting"),
-  "deploy-prod",
-  "deployment-workflow",
-  at("observe", "ready"),
+  at(DeliveryPhase.Accept, DeliveryStatus.Waiting),
+  DeliveryAction.DeployProd,
+  DeliveryActor.DeploymentWorkflow,
+  at(DeliveryPhase.Observe, DeliveryStatus.Ready),
 );
-next(at("observe", "waiting"), "close", "human", null);
+next(at(DeliveryPhase.Observe, DeliveryStatus.Waiting), DeliveryAction.Close, DeliveryActor.Human, null);
 
 // Actor matrix: no actor can impersonate another role.
 const authority: Record<Action, Actor> = {
-  initialize: "human",
-  start: "agent",
-  complete: "gate",
-  block: "agent",
-  retry: "human",
-  rework: "human",
-  advance: "human",
-  "deploy-stage": "deployment-workflow",
-  "deploy-prod": "deployment-workflow",
-  close: "human",
-  recover: "human",
+  [DeliveryAction.Initialize]: DeliveryActor.Human,
+  [DeliveryAction.Start]: DeliveryActor.Agent,
+  [DeliveryAction.Complete]: DeliveryActor.Gate,
+  [DeliveryAction.Block]: DeliveryActor.Agent,
+  [DeliveryAction.Retry]: DeliveryActor.Human,
+  [DeliveryAction.Rework]: DeliveryActor.Human,
+  [DeliveryAction.Advance]: DeliveryActor.Human,
+  DeliveryAction.DeployStage: DeliveryActor.DeploymentWorkflow,
+  DeliveryAction.DeployProd: DeliveryActor.DeploymentWorkflow,
+  [DeliveryAction.Close]: DeliveryActor.Human,
+  [DeliveryAction.Recover]: DeliveryActor.Human,
 };
 const actions = Object.keys(authority) as Action[];
 for (const action of actions)
   for (const actor of actors)
     if (actor !== authority[action])
-      rejected(at("requirements", "ready"), action, actor, "not-authorized");
+      rejected(at(DeliveryPhase.Requirements, DeliveryStatus.Ready), action, actor, DecisionReason.NotAuthorized);
 
 // Every action in every incompatible status/phase fails closed.
 for (const phase of phases)
   for (const status of statuses) {
     const p = at(phase, status);
     for (const action of actions) {
-      const result = run(p, action, authority[action], { target: "build" });
+      const result = run(p, action, authority[action], { target: DeliveryPhase.Build });
       const possible =
-        (action === "start" && status === "ready") ||
-        (action === "complete" && status === "working") ||
-        (action === "block" && status === "working") ||
-        (action === "retry" && status === "blocked") ||
-        (action === "rework" && status === "waiting") ||
-        (action === "recover" && status === "working") ||
-        (action === "advance" &&
-          status === "waiting" &&
-          ["requirements", "design", "build"].includes(phase)) ||
-        (action === "deploy-stage" &&
-          status === "waiting" &&
-          phase === "review") ||
-        (action === "deploy-prod" &&
-          status === "waiting" &&
-          phase === "accept") ||
-        (action === "close" && status === "waiting" && phase === "observe");
+        (action === DeliveryAction.Start && status === DeliveryStatus.Ready) ||
+        (action === DeliveryAction.Complete && status === DeliveryStatus.Working) ||
+        (action === DeliveryAction.Block && status === DeliveryStatus.Working) ||
+        (action === DeliveryAction.Retry && status === DeliveryStatus.Blocked) ||
+        (action === DeliveryAction.Rework && status === DeliveryStatus.Waiting) ||
+        (action === DeliveryAction.Recover && status === DeliveryStatus.Working) ||
+        (action === DeliveryAction.Advance &&
+          status === DeliveryStatus.Waiting &&
+          [DeliveryPhase.Requirements, DeliveryPhase.Design, DeliveryPhase.Build].includes(phase)) ||
+        (action === DeliveryAction.DeployStage &&
+          status === DeliveryStatus.Waiting &&
+          phase === DeliveryPhase.Review) ||
+        (action === DeliveryAction.DeployProd &&
+          status === DeliveryStatus.Waiting &&
+          phase === DeliveryPhase.Accept) ||
+        (action === DeliveryAction.Close && status === DeliveryStatus.Waiting && phase === DeliveryPhase.Observe);
       if (!possible)
         expect(
           result.allowed,
@@ -191,46 +191,46 @@ for (const phase of phases)
           action + " must reject " + phase + ":" + status,
         );
     }
-    rejected(p, "initialize", "human", "invalid-transition");
+    rejected(p, DeliveryAction.Initialize, DeliveryActor.Human, DecisionReason.InvalidTransition);
   }
-for (const action of actions.filter((a) => a !== "initialize"))
-  rejected(null, action, authority[action], "invalid-transition");
+for (const action of actions.filter((a) => a !== DeliveryAction.Initialize))
+  rejected(null, action, authority[action], DecisionReason.InvalidTransition);
 
 // Task classification, mini-design and design approval.
 rejected(
-  at("requirements", "waiting"),
-  "advance",
-  "human",
-  "precondition-failed",
-  { target: "build" },
+  at(DeliveryPhase.Requirements, DeliveryStatus.Waiting),
+  DeliveryAction.Advance,
+  DeliveryActor.Human,
+  DecisionReason.PreconditionFailed,
+  { target: DeliveryPhase.Build },
 );
 rejected(
-  at("requirements", "waiting"),
-  "advance",
-  "human",
-  "precondition-failed",
+  at(DeliveryPhase.Requirements, DeliveryStatus.Waiting),
+  DeliveryAction.Advance,
+  DeliveryActor.Human,
+  DecisionReason.PreconditionFailed,
   {
-    target: "build",
+    target: DeliveryPhase.Build,
     facts: { ...facts, taskSize: "S", miniDesignRecorded: false },
   },
 );
 rejected(
-  at("requirements", "waiting"),
-  "advance",
-  "human",
-  "precondition-failed",
-  { target: "design", facts: { ...facts, taskSize: "S" } },
+  at(DeliveryPhase.Requirements, DeliveryStatus.Waiting),
+  DeliveryAction.Advance,
+  DeliveryActor.Human,
+  DecisionReason.PreconditionFailed,
+  { target: DeliveryPhase.Design, facts: { ...facts, taskSize: "S" } },
 );
-rejected(at("design", "waiting"), "advance", "human", "precondition-failed", {
-  target: "build",
+rejected(at(DeliveryPhase.Design, DeliveryStatus.Waiting), DeliveryAction.Advance, DeliveryActor.Human, DecisionReason.PreconditionFailed, {
+  target: DeliveryPhase.Build,
   facts: { ...facts, designApproved: false },
 });
-rejected(at("build", "waiting"), "advance", "human", "precondition-failed", {
-  target: "review",
+rejected(at(DeliveryPhase.Build, DeliveryStatus.Waiting), DeliveryAction.Advance, DeliveryActor.Human, DecisionReason.PreconditionFailed, {
+  target: DeliveryPhase.Review,
   facts: { ...facts, checksGreen: false },
 });
-rejected(at("build", "waiting"), "advance", "human", "precondition-failed", {
-  target: "review",
+rejected(at(DeliveryPhase.Build, DeliveryStatus.Waiting), DeliveryAction.Advance, DeliveryActor.Human, DecisionReason.PreconditionFailed, {
+  target: DeliveryPhase.Review,
   facts: { ...facts, prExists: false },
 });
 
@@ -243,52 +243,52 @@ for (const invalid of [
   { ...gate, expectedRevision: "" },
   { ...gate, verdict: "no-go" as const },
 ])
-  rejected(at("review", "working"), "complete", "gate", "gate-rejected", {
+  rejected(at(DeliveryPhase.Review, DeliveryStatus.Working), DeliveryAction.Complete, DeliveryActor.Gate, DecisionReason.GateRejected, {
     gate: invalid,
   });
-rejected(at("review", "working"), "complete", "gate", "gate-rejected", {
+rejected(at(DeliveryPhase.Review, DeliveryStatus.Working), DeliveryAction.Complete, DeliveryActor.Gate, DecisionReason.GateRejected, {
   gate: undefined,
 });
 
 // Required facts must be supplied by trusted adapters; absence fails closed.
-rejected(at("build", "ready"), "start", "agent", "precondition-failed", {
+rejected(at(DeliveryPhase.Build, DeliveryStatus.Ready), DeliveryAction.Start, DeliveryActor.Agent, DecisionReason.PreconditionFailed, {
   facts: {},
 });
-rejected(at("build", "ready"), "start", "agent", "precondition-failed", {
+rejected(at(DeliveryPhase.Build, DeliveryStatus.Ready), DeliveryAction.Start, DeliveryActor.Agent, DecisionReason.PreconditionFailed, {
   facts: { ...facts, activeRun: true },
 });
-rejected(at("build", "working"), "block", "agent", "precondition-failed", {
+rejected(at(DeliveryPhase.Build, DeliveryStatus.Working), DeliveryAction.Block, DeliveryActor.Agent, DecisionReason.PreconditionFailed, {
   facts: { ...facts, reportRecorded: false },
 });
-rejected(at("build", "blocked"), "retry", "human", "precondition-failed", {
+rejected(at(DeliveryPhase.Build, DeliveryStatus.Blocked), DeliveryAction.Retry, DeliveryActor.Human, DecisionReason.PreconditionFailed, {
   facts: { ...facts, feedbackRecorded: false },
 });
-rejected(at("build", "waiting"), "rework", "human", "precondition-failed", {
+rejected(at(DeliveryPhase.Build, DeliveryStatus.Waiting), DeliveryAction.Rework, DeliveryActor.Human, DecisionReason.PreconditionFailed, {
   facts: { ...facts, feedbackRecorded: false },
 });
-rejected(at("build", "working"), "recover", "human", "precondition-failed", {
+rejected(at(DeliveryPhase.Build, DeliveryStatus.Working), DeliveryAction.Recover, DeliveryActor.Human, DecisionReason.PreconditionFailed, {
   facts: { ...facts, activeRun: true },
 });
-rejected(at("build", "working"), "recover", "human", "precondition-failed", {
+rejected(at(DeliveryPhase.Build, DeliveryStatus.Working), DeliveryAction.Recover, DeliveryActor.Human, DecisionReason.PreconditionFailed, {
   facts: { ...facts, recoveryConfirmed: false },
 });
-rejected(at("build", "working"), "recover", "human", "precondition-failed", {
+rejected(at(DeliveryPhase.Build, DeliveryStatus.Working), DeliveryAction.Recover, DeliveryActor.Human, DecisionReason.PreconditionFailed, {
   facts: { ...facts, reportRecorded: false },
 });
 
 // Deployment events cannot override blocked state or bypass verified artifact identity.
 for (const phase of phases) {
   rejected(
-    at(phase, "blocked"),
-    "deploy-stage",
-    "deployment-workflow",
-    "invalid-transition",
+    at(phase, DeliveryStatus.Blocked),
+    DeliveryAction.DeployStage,
+    DeliveryActor.DeploymentWorkflow,
+    DecisionReason.InvalidTransition,
   );
   rejected(
-    at(phase, "blocked"),
-    "deploy-prod",
-    "deployment-workflow",
-    "invalid-transition",
+    at(phase, DeliveryStatus.Blocked),
+    DeliveryAction.DeployProd,
+    DeliveryActor.DeploymentWorkflow,
+    DecisionReason.InvalidTransition,
   );
 }
 for (const key of [
@@ -297,21 +297,21 @@ for (const key of [
   "changeIncluded",
 ] as const)
   rejected(
-    at("review", "waiting"),
-    "deploy-stage",
-    "deployment-workflow",
-    "precondition-failed",
+    at(DeliveryPhase.Review, DeliveryStatus.Waiting),
+    DeliveryAction.DeployStage,
+    DeliveryActor.DeploymentWorkflow,
+    DecisionReason.PreconditionFailed,
     { facts: { ...facts, [key]: false } },
   );
 for (const key of ["deploymentVerified", "changeIncluded"] as const)
   rejected(
-    at("accept", "waiting"),
-    "deploy-prod",
-    "deployment-workflow",
-    "precondition-failed",
+    at(DeliveryPhase.Accept, DeliveryStatus.Waiting),
+    DeliveryAction.DeployProd,
+    DeliveryActor.DeploymentWorkflow,
+    DecisionReason.PreconditionFailed,
     { facts: { ...facts, [key]: false } },
   );
-rejected(at("observe", "waiting"), "close", "human", "precondition-failed", {
+rejected(at(DeliveryPhase.Observe, DeliveryStatus.Waiting), DeliveryAction.Close, DeliveryActor.Human, DecisionReason.PreconditionFailed, {
   facts: { ...facts, observeGo: false },
 });
 console.log("Delivery transition matrix passed: " + assertions + " assertions");
