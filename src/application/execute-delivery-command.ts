@@ -1,16 +1,20 @@
 import type { Position, Request } from "../delivery/state-machine.js";
 
 /** Application-facing result; adapters implement this contract structurally. */
+export const DeliveryFailure = {
+  InvalidState: "invalid-state",
+  StateConflict: "state-conflict",
+  InvalidTransition: "invalid-transition",
+  NotAuthorized: "not-authorized",
+  GateRejected: "gate-rejected",
+  PreconditionFailed: "precondition-failed",
+  WriteFailed: "write-failed",
+  UncertainWrite: "uncertain-write",
+  PartialCompletion: "partial-completion",
+} as const;
+
 export type DeliveryFailure =
-  | "invalid-state"
-  | "state-conflict"
-  | "invalid-transition"
-  | "not-authorized"
-  | "gate-rejected"
-  | "precondition-failed"
-  | "write-failed"
-  | "uncertain-write"
-  | "partial-completion";
+  (typeof DeliveryFailure)[keyof typeof DeliveryFailure];
 
 export type DeliveryResult =
   | {
