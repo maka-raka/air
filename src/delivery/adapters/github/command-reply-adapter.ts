@@ -5,7 +5,16 @@ import type {
 } from "../../application/comment-command-handler.js";
 import { CommandParseError } from "../../application/comment-command-parser.js";
 import { DeliveryFailure } from "../../application/execute-delivery-command.js";
-import type { IssueCommentWriter } from "./issue-comment-http-adapter.js";
+import type {
+  IssueCommentReader,
+  IssueCommentWriter,
+} from "./issue-comment-http-adapter.js";
+import type { ProcessedCommandPort } from "../../application/comment-command-handler.js";
+
+/** Hidden operation marker: this reply answers command comment `commentId`. */
+export function replyMarker(commentId: number): string {
+  return `<!-- air:reply {"commentId":${commentId}} -->`;
+}
 
 const failureText: Readonly<Record<DeliveryFailure, string>> = {
   [DeliveryFailure.InvalidState]:
@@ -44,7 +53,10 @@ export class GitHubCommandReplyAdapter implements CommandReplyPort {
   constructor(private readonly comments: IssueCommentWriter) {}
 
   reply(issue: number, reply: CommandReply): Promise<void> {
-    return this.comments.post(issue, this.format(reply));
+    return this.comments.post(
+      issue,
+      `${this.format(reply)}\n\n${replyMarker(reply.commentId)}`,
+    );
   }
 
   format(reply: CommandReply): string {
@@ -68,5 +80,26 @@ export class GitHubCommandReplyAdapter implements CommandReplyPort {
 
   private lines(...parts: readonly (string | undefined)[]): string {
     return parts.filter((part) => part).join("\n\n");
+  }
+}
+
+/**
+ * A command is processed once AIR's own account replied to it. Markers from
+ * any other author are ignored, so nobody can pre-empt someone's command by
+ * posting a fake reply.
+ */
+export class GitHubProcessedCommands implements ProcessedCommandPort {
+  constructor(
+    private readonly comments: IssueCommentReader,
+    private readonly replierId: number,
+  ) {}
+
+  async wasProcessed(issue: number, commentId: number): Promise<boolean> {
+    const marker = replyMarker(commentId);
+    const comments = await this.comments.list(issue);
+    return comments.some(
+      ({ authorId, body }) =>
+        authorId === this.replierId && body.trimEnd().endsWith(marker),
+    );
   }
 }

@@ -53,6 +53,14 @@ export interface CommandReplyPort {
   reply(issue: number, reply: CommandReply): Promise<void>;
 }
 
+/**
+ * Whether AIR already replied to a command comment. The comment ID is the
+ * operation ID: a redelivery after a completed reply is a no-op.
+ */
+export interface ProcessedCommandPort {
+  wasProcessed(issue: number, commentId: number): Promise<boolean>;
+}
+
 export interface DeliveryCommandExecutor {
   execute(command: DeliveryCommand): Promise<DeliveryResult>;
 }
@@ -61,19 +69,23 @@ export interface DeliveryCommandExecutor {
  * Turns an admitted `/air` comment into a Human delivery command.
  * Business rejections are replied to, not thrown: throwing would release the
  * claim and make a redelivery repeat the same rejection (or an uncertain
- * write). Only infrastructure failures propagate.
+ * write). Only infrastructure failures propagate. A command that already has
+ * a reply is skipped; one that crashed between execution and reply may run
+ * again and is then typically rejected as invalid-transition.
  */
 export class CommentCommandHandler implements AdmittedWebhookHandlerPort {
   constructor(
     private readonly evidence: DeliveryEvidencePort,
     private readonly executor: DeliveryCommandExecutor,
     private readonly replies: CommandReplyPort,
+    private readonly processed: ProcessedCommandPort,
     private readonly parser: CommentCommandParser = new CommentCommandParser(),
   ) {}
 
   async handle(envelope: WebhookEnvelope): Promise<void> {
     const comment = envelope.comment;
     if (!comment) return;
+    if (await this.processed.wasProcessed(envelope.issue, comment.id)) return;
 
     const parsed = this.parser.parse(comment.body);
     if (!parsed.ok)

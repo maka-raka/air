@@ -9,7 +9,12 @@ import type {
   CommandReplyPort,
   DeliveryCommandExecutor,
   DeliveryEvidencePort,
+  ProcessedCommandPort,
 } from "./comment-command-handler.js";
+
+const notProcessed: ProcessedCommandPort = {
+  wasProcessed: async () => false,
+};
 import { CommandParseError } from "./comment-command-parser.js";
 import type { ParsedCommand } from "./comment-command-parser.js";
 import { DeliveryFailure } from "./execute-delivery-command.js";
@@ -78,7 +83,11 @@ const applied: DeliveryResult = {
 
 function fixture(
   body: string,
-  options: Readonly<{ result?: DeliveryResult; facts?: Facts }> = {},
+  options: Readonly<{
+    result?: DeliveryResult;
+    facts?: Facts;
+    processed?: ProcessedCommandPort;
+  }> = {},
 ) {
   const envelope: WebhookEnvelope = {
     deliveryId: "12345678-1234-1234-1234-123456789abc",
@@ -100,7 +109,12 @@ function fixture(
     evidence,
     executor,
     replies,
-    handler: new CommentCommandHandler(evidence, executor, replies),
+    handler: new CommentCommandHandler(
+      evidence,
+      executor,
+      replies,
+      options.processed ?? notProcessed,
+    ),
   };
 }
 
@@ -250,11 +264,38 @@ describe("CommentCommandHandler", () => {
       },
     };
     const { envelope } = fixture("/air advance review");
-    const handler = new CommentCommandHandler(evidence, executor, replies);
+    const handler = new CommentCommandHandler(
+      evidence,
+      executor,
+      replies,
+      notProcessed,
+    );
 
     const result = handler.handle(envelope);
 
     await assert.rejects(result, (error) => error === failure);
+    assert.deepEqual(executor.commands, []);
+    assert.deepEqual(replies.replies, []);
+  });
+
+  it("skips a command that already has a reply", async () => {
+    const asked: number[] = [];
+    const { envelope, evidence, executor, replies, handler } = fixture(
+      "/air rework\nAgain",
+      {
+        processed: {
+          wasProcessed: async (_issue, commentId) => {
+            asked.push(commentId);
+            return true;
+          },
+        },
+      },
+    );
+
+    await handler.handle(envelope);
+
+    assert.deepEqual(asked, [900]);
+    assert.deepEqual(evidence.requests, []);
     assert.deepEqual(executor.commands, []);
     assert.deepEqual(replies.replies, []);
   });
