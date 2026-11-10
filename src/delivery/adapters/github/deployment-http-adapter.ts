@@ -1,3 +1,9 @@
+import {
+  GitHubCompareContains,
+  GitHubDeploymentState,
+  GitHubReviewState,
+  values,
+} from "./github-protocol.js";
 import type {
   DeploymentEnvironment,
   DeploymentEvidencePort,
@@ -17,7 +23,7 @@ import {
 export type EnvironmentNames = Readonly<Record<DeploymentEnvironment, string>>;
 
 const SHA = /^[0-9a-f]{7,40}$/;
-const INCLUDED: readonly string[] = ["identical", "ahead"];
+const INCLUDED = values(GitHubCompareContains);
 
 function notFound(error: unknown): boolean {
   return (
@@ -65,7 +71,7 @@ export class GitHubDeploymentHttpAdapter
       ),
       "Invalid deployment statuses payload",
     );
-    return object(status) && status.state === "success";
+    return object(status) && status.state === GitHubDeploymentState.Success;
   }
 
   async pullRequest(pullRequest: number): Promise<MergedPullRequest | null> {
@@ -90,7 +96,8 @@ export class GitHubDeploymentHttpAdapter
     return {
       merged: data.merged === true,
       approved: reviews.some(
-        (review) => object(review) && review.state === "APPROVED",
+        (review) =>
+          object(review) && review.state === GitHubReviewState.Approved,
       ),
       mergeCommitSha:
         typeof mergeSha === "string" && SHA.test(mergeSha) ? mergeSha : null,
