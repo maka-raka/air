@@ -47,6 +47,7 @@ set -a; source .env; set +a      # or export the variables another way
 npx air start 42                 # T01 ready → working, records the run
 npx air report 42 requirements --summary-file report.md \
   --facts '{"taskSize":"S","miniDesign":true}'
+npx air gate 42                  # T02 working → waiting if the phase report passes
 npx air block 42 --question "Which API version should we target?"   # T03
 ```
 
@@ -59,7 +60,7 @@ Also set `AIR_AGENT_LOGIN` for `npm run local:run`, so `/air` comments written b
 | Command | Locally |
 | --- | --- |
 | `initialize` | ✅ |
-| `npx air start` / `block` / `report` (agent) | ✅ |
+| `npx air start` / `report` / `gate` / `block` (agent) | ✅ (gate rules: [ADR-0005](../architecture/adr/0005-phase-gate.md)) |
 | `unblock`, `rework` (with a reason) | ✅ |
 | `advance <phase>` | ✅ with `AIR_AGENT_LOGIN`: requirements facts come from the agent's `report`; `advance review` also needs the PR from the build report to be open or merged with all checks green |
 | `recover` | ✅ with `AIR_AGENT_LOGIN`, once no run is active (ended, or older than `AIR_RUN_TTL_MS`) |

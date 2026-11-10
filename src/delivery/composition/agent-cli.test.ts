@@ -68,24 +68,24 @@ const config: AgentConfig = {
 describe("agent CLI composition", () => {
   it("starts a ready phase and records the run on the issue", async () => {
     const github = new FakeGitHub();
-    const commands = await composeAgent(config, github.request);
+    const services = await composeAgent(config, github.request);
 
-    const result = await runAgent(commands, {
+    const outcome = await runAgent(services, {
       command: AgentCliCommand.Start,
       issue: 42,
     });
 
-    assert.equal(render(result), "ok: air:requirements:working");
+    assert.equal(render(outcome), "ok: air:requirements:working");
     assert.deepEqual(github.labels, ["air:requirements:working"]);
     assert.match(github.comments[0]!.body, /air:record \{"kind":"run-start"/);
   });
 
   it("refuses a second start while the run is active", async () => {
     const github = new FakeGitHub();
-    const commands = await composeAgent(config, github.request);
-    await runAgent(commands, { command: AgentCliCommand.Start, issue: 42 });
+    const services = await composeAgent(config, github.request);
+    await runAgent(services, { command: AgentCliCommand.Start, issue: 42 });
 
-    const second = await runAgent(commands, {
+    const { result: second } = await runAgent(services, {
       command: AgentCliCommand.Start,
       issue: 42,
     });
@@ -98,19 +98,93 @@ describe("agent CLI composition", () => {
 
   it("blocks a working phase with a recorded question", async () => {
     const github = new FakeGitHub();
-    const commands = await composeAgent(config, github.request);
-    await runAgent(commands, { command: AgentCliCommand.Start, issue: 42 });
+    const services = await composeAgent(config, github.request);
+    await runAgent(services, { command: AgentCliCommand.Start, issue: 42 });
 
-    const result = await runAgent(commands, {
+    const outcome = await runAgent(services, {
       command: AgentCliCommand.Block,
       issue: 42,
       question: { text: "Which API version?" },
     });
 
-    assert.equal(render(result), "ok: air:requirements:blocked");
+    assert.equal(render(outcome), "ok: air:requirements:blocked");
     assert.deepEqual(
       github.comments.map(({ body }) => /"kind":"([a-z-]+)"/.exec(body)?.[1]),
       ["run-start", "block", "run-end"],
+    );
+  });
+
+  it("gates a working phase on a report recorded during the run", async () => {
+    const github = new FakeGitHub();
+    const services = await composeAgent(config, github.request);
+    await runAgent(services, { command: AgentCliCommand.Start, issue: 42 });
+    await runAgent(services, {
+      command: AgentCliCommand.Report,
+      issue: 42,
+      phase: "requirements",
+      facts: { taskSize: "S", miniDesign: true },
+      summary: { text: "Criteria and mini-design." },
+    });
+
+    const outcome = await runAgent(services, {
+      command: AgentCliCommand.Gate,
+      issue: 42,
+    });
+
+    assert.equal(render(outcome), "ok: air:requirements:waiting");
+    assert.match(github.comments.at(-1)!.body, /"kind":"run-end".*"completed"/);
+  });
+
+  it("rejects the gate and lists problems without a report", async () => {
+    const github = new FakeGitHub();
+    const services = await composeAgent(config, github.request);
+    await runAgent(services, { command: AgentCliCommand.Start, issue: 42 });
+
+    const outcome = await runAgent(services, {
+      command: AgentCliCommand.Gate,
+      issue: 42,
+    });
+
+    assert.equal(
+      render(outcome),
+      "rejected: gate-rejected\n  - No requirements report",
+    );
+    assert.deepEqual(github.labels, ["air:requirements:working"]);
+  });
+
+  it("refuses a report recorded before the current run", async () => {
+    const github = new FakeGitHub();
+    const services = await composeAgent(config, github.request);
+    await runAgent(services, {
+      command: AgentCliCommand.Report,
+      issue: 42,
+      phase: "requirements",
+      facts: { taskSize: "S" },
+      summary: { text: "Old report." },
+    });
+    await new Promise((done) => setTimeout(done, 5));
+    await runAgent(services, { command: AgentCliCommand.Start, issue: 42 });
+
+    const outcome = await runAgent(services, {
+      command: AgentCliCommand.Gate,
+      issue: 42,
+    });
+
+    assert.match(render(outcome), /predates this run/);
+  });
+
+  it("refuses to gate a phase that is not working", async () => {
+    const github = new FakeGitHub();
+    const services = await composeAgent(config, github.request);
+
+    const { result } = await runAgent(services, {
+      command: AgentCliCommand.Gate,
+      issue: 42,
+    });
+
+    assert.equal(
+      !result.ok && result.reason,
+      DeliveryFailure.InvalidTransition,
     );
   });
 
@@ -168,6 +242,8 @@ describe("parseAgentArgs", () => {
     ["block", "42", "--question"],
     ["report", "42", "moon", "--summary", "x"],
     ["report", "42", "build", "--summary", "x", "--facts", "[1]"],
+    ["gate"],
+    ["gate", "42", "extra"],
   ]) {
     it(`rejects ${JSON.stringify(argv)}`, () => {
       assert.throws(() => parseAgentArgs(argv));
