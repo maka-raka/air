@@ -53,6 +53,15 @@
         "policy-application",
         "policy-adapters"
       ]
+    },
+    {
+      "id": "delivery-application",
+      "paths": [
+        "src/application/**"
+      ],
+      "dependencies": [
+        "delivery-domain"
+      ]
     }
   ]
 }
