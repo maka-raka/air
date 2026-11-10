@@ -17,6 +17,7 @@ import { GitHubRepositoryHttpAdapter } from "../adapters/github/repository-http-
 import { FilePollCursorStore } from "../adapters/local/file-poll-cursor-store.js";
 import { InMemoryDeliveryClaims } from "../adapters/local/in-memory-delivery-claims.js";
 import { UnavailableEvidence } from "../adapters/local/unavailable-evidence.js";
+import { GitHubUserHttpAdapter } from "../adapters/github/user-http-adapter.js";
 
 export type LocalConfig = Readonly<{
   owner: string;
@@ -25,6 +26,8 @@ export type LocalConfig = Readonly<{
   pollIntervalMs: number;
   stateDir: string;
   leaseMs: number;
+  /** Agent account whose comments must never run Human commands. */
+  agentLogin?: string;
 }>;
 
 const MIN_POLL_INTERVAL_MS = 5_000;
@@ -57,6 +60,7 @@ export function readLocalConfig(
     pollIntervalMs,
     stateDir: env.AIR_STATE_DIR || ".air",
     leaseMs: integer(env.AIR_LEASE_MS, 60_000),
+    ...(env.AIR_AGENT_LOGIN ? { agentLogin: env.AIR_AGENT_LOGIN } : {}),
   };
 }
 
@@ -73,6 +77,9 @@ export async function composeLocal(
   });
   const repository = new GitHubRepositoryHttpAdapter(client);
   const identity = await repository.identity();
+  const excluded = config.agentLogin
+    ? [(await new GitHubUserHttpAdapter(client).byLogin(config.agentLogin)).id]
+    : [];
   const comments = new GitHubIssueCommentHttpAdapter(client);
   const handler = new CommentCommandHandler(
     new UnavailableEvidence(),
@@ -83,7 +90,7 @@ export async function composeLocal(
   );
   const ingestion = new IngestGitHubWebhook(
     new InMemoryDeliveryClaims(config.leaseMs),
-    new GitHubCollaboratorAuthorization(repository, identity.id),
+    new GitHubCollaboratorAuthorization(repository, identity.id, excluded),
     handler,
   );
   return new GitHubCommentPoller(

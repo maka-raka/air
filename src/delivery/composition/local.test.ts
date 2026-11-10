@@ -37,6 +37,8 @@ class FakeGitHub {
     });
     const body = init.body ? JSON.parse(init.body) : undefined;
     if (path === "") return respond({ id: 123, full_name: "example/air" });
+    if (path === "/users/air-agent")
+      return respond({ id: 77, login: "air-agent" });
     if (path === "/issues/comments") return respond(this.comments);
     if (path === "/collaborators/octocat/permission")
       return respond({ permission: this.permission, user: { id: 7 } });
@@ -108,6 +110,24 @@ describe("local composition", () => {
     );
     assert.deepEqual(github.labels, ["priority:high"]);
     assert.deepEqual(github.posted, []);
+  });
+
+  it("never runs Human commands from the agent account", async () => {
+    const github = new FakeGitHub();
+    const poller = await composeLocal(
+      { ...config(join(stateDir, "agent")), agentLogin: "air-agent" },
+      github.request,
+    );
+    await poller.pollOnce();
+    github.addComment(4001, "/air initialize", 77);
+
+    const outcomes = await poller.pollOnce();
+
+    assert.deepEqual(
+      outcomes.map(({ decision }) => decision),
+      ["unauthorized"],
+    );
+    assert.deepEqual(github.labels, ["priority:high"]);
   });
 
   it("fails closed on evidence-gated commands", async () => {

@@ -36,11 +36,30 @@ every AIR_POLL_INTERVAL_MS:
 
 The first start records "now" as the cursor: existing comments are never replayed as commands. The cursor lives in `.air/cursor.json`; delete it to start from "now" again.
 
+## Agent CLI
+
+The agent (a Claude Code session) uses its **own** GitHub account ([ADR-0004](../architecture/adr/0004-agent-identity-and-issue-records.md)). Set `AIR_AGENT_TOKEN` and `AIR_AGENT_LOGIN` in `.env`, then:
+
+```bash
+npm run build
+set -a; source .env; set +a      # or export the variables another way
+
+npx air start 42                 # T01 ready → working, records the run
+npx air report 42 requirements --summary-file report.md \
+  --facts '{"taskSize":"S","miniDesign":true}'
+npx air block 42 --question "Which API version should we target?"   # T03
+```
+
+Exit codes: `0` applied or recorded, `2` rejected by policy (the reason is printed), `1` usage or configuration error. The CLI refuses to run when the token does not belong to `AIR_AGENT_LOGIN`.
+
+Also set `AIR_AGENT_LOGIN` for `npm run local:run`, so `/air` comments written by the agent account are refused as Human commands.
+
 ## What works locally
 
 | Command | Locally |
 | --- | --- |
 | `initialize` | ✅ |
+| `npx air start` / `block` / `report` (agent) | ✅ |
 | `unblock`, `rework` (with a reason) | ✅ |
 | `advance`, `recover`, `close` | ❌ `precondition-failed`: evidence adapters do not exist yet (`UnavailableEvidence` fails closed) |
 
