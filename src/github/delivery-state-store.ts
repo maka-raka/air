@@ -30,16 +30,18 @@ export interface IssueLabelsPort {
   replaceLabels(issue: number, labels: readonly string[]): Promise<void>;
   closeIssue(issue: number): Promise<void>;
 }
-export type StoreFailure =
-  | "invalid-state"
-  | "state-conflict"
-  | "invalid-transition"
-  | "not-authorized"
-  | "gate-rejected"
-  | "precondition-failed"
-  | "write-failed"
-  | "uncertain-write"
-  | "partial-completion";
+export const StoreFailure = {
+  InvalidState: "invalid-state",
+  StateConflict: "state-conflict",
+  InvalidTransition: "invalid-transition",
+  NotAuthorized: "not-authorized",
+  GateRejected: "gate-rejected",
+  PreconditionFailed: "precondition-failed",
+  WriteFailed: "write-failed",
+  UncertainWrite: "uncertain-write",
+  PartialCompletion: "partial-completion",
+} as const;
+export type StoreFailure = (typeof StoreFailure)[keyof typeof StoreFailure];
 export type StoreResult =
   | { ok: true; snapshot: Snapshot; replayed?: boolean }
   | { ok: false; reason: StoreFailure; detail?: string };
