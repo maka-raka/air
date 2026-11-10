@@ -46,6 +46,11 @@ export type DeliveryRecord =
     }>
   | Readonly<{ kind: typeof DeliveryRecordKind.Block; at: string }>;
 
+export type RunStartRecord = Extract<
+  DeliveryRecord,
+  { kind: typeof DeliveryRecordKind.RunStart }
+>;
+
 export type ReportRecord = Extract<
   DeliveryRecord,
   { kind: typeof DeliveryRecordKind.Report }
@@ -68,19 +73,26 @@ export class DeliveryRecordHistory {
     private readonly runTtlMs: number,
   ) {}
 
-  /** The latest run, if it has neither ended nor outlived its TTL. */
-  activeRunId(): string | null {
+  /** The latest run start, if that run has neither ended nor expired. */
+  activeRunStart(): RunStartRecord | null {
     const ended = new Set(
       this.records.flatMap((record) =>
         record.kind === DeliveryRecordKind.RunEnd ? [record.runId] : [],
       ),
     );
     const start = this.records
-      .filter((record) => record.kind === DeliveryRecordKind.RunStart)
+      .filter(
+        (record): record is RunStartRecord =>
+          record.kind === DeliveryRecordKind.RunStart,
+      )
       .at(-1);
     if (!start || ended.has(start.runId)) return null;
     const age = this.now.getTime() - Date.parse(start.at);
-    return age < this.runTtlMs ? start.runId : null;
+    return age < this.runTtlMs ? start : null;
+  }
+
+  activeRunId(): string | null {
+    return this.activeRunStart()?.runId ?? null;
   }
 
   activeRun(): boolean {

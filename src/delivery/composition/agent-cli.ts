@@ -5,6 +5,8 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AgentCommands } from "../application/agent-commands.js";
+import { EvaluatePhaseGate } from "../application/phase-gate.js";
+import { GitHubPullRequestHttpAdapter } from "../adapters/github/pull-request-http-adapter.js";
 import type { RecordResult } from "../application/agent-commands.js";
 import type { ReportFacts } from "../application/delivery-record.js";
 import { ExecuteDeliveryCommand } from "../application/execute-delivery-command.js";
@@ -26,10 +28,12 @@ export const AgentCliCommand = {
   Start: "start",
   Block: "block",
   Report: "report",
+  Gate: "gate",
 } as const;
 
 export type AgentInvocation =
   | Readonly<{ command: typeof AgentCliCommand.Start; issue: number }>
+  | Readonly<{ command: typeof AgentCliCommand.Gate; issue: number }>
   | Readonly<{
       command: typeof AgentCliCommand.Block;
       issue: number;
@@ -49,7 +53,8 @@ export type TextSource = Readonly<{ text: string } | { file: string }>;
 export const USAGE = `Usage:
   air start <issue>
   air block <issue> (--question <text> | --question-file <path>)
-  air report <issue> <phase> (--summary <text> | --summary-file <path>) [--facts <json>]`;
+  air report <issue> <phase> (--summary <text> | --summary-file <path>) [--facts <json>]
+  air gate <issue>`;
 
 const phases: readonly string[] = Object.values(DeliveryPhase);
 
@@ -82,6 +87,11 @@ function textSource(parsed: Map<string, string>, name: string): TextSource {
 function parseStart(issue: string | undefined, rest: readonly string[]) {
   if (rest.length > 0) throw new Error("start takes only an issue");
   return { command: AgentCliCommand.Start, issue: issueNumber(issue) } as const;
+}
+
+function parseGate(issue: string | undefined, rest: readonly string[]) {
+  if (rest.length > 0) throw new Error("gate takes only an issue");
+  return { command: AgentCliCommand.Gate, issue: issueNumber(issue) } as const;
 }
 
 function parseBlock(issue: string | undefined, rest: readonly string[]) {
@@ -123,6 +133,7 @@ const parsers: Readonly<
   [AgentCliCommand.Start]: parseStart,
   [AgentCliCommand.Block]: parseBlock,
   [AgentCliCommand.Report]: parseReport,
+  [AgentCliCommand.Gate]: parseGate,
 };
 
 /** Pure argv parsing; throws with a message suitable for the user. */
@@ -158,11 +169,16 @@ export function readAgentConfig(
   return { owner, repo, token, agentLogin, runTtlMs };
 }
 
+export type AgentServices = Readonly<{
+  commands: AgentCommands;
+  gate: EvaluatePhaseGate;
+}>;
+
 /** Wires agent commands; refuses to start unless the token is the agent's. */
 export async function composeAgent(
   config: AgentConfig,
   request?: HttpRequest,
-): Promise<AgentCommands> {
+): Promise<AgentServices> {
   const client = new GitHubRestClient({
     owner: config.owner,
     repo: config.repo,
@@ -175,47 +191,79 @@ export async function composeAgent(
     throw new Error(
       `AIR_AGENT_TOKEN belongs to ${viewer.login}, not ${config.agentLogin}`,
     );
-  return new AgentCommands(
-    new ExecuteDeliveryCommand(
-      new GitHubDeliveryStateStore(new GitHubIssueHttpAdapter(client)),
-    ),
-    new GitHubDeliveryRecordStore(
-      new GitHubIssueCommentHttpAdapter(client),
-      viewer.id,
-    ),
-    new AgentIdentityPreflight(users, viewer.id),
-    {
-      now: () => new Date(),
+  const state = new GitHubDeliveryStateStore(
+    new GitHubIssueHttpAdapter(client),
+  );
+  const executor = new ExecuteDeliveryCommand(state);
+  const records = new GitHubDeliveryRecordStore(
+    new GitHubIssueCommentHttpAdapter(client),
+    viewer.id,
+  );
+  const preflight = new AgentIdentityPreflight(users, viewer.id);
+  const now = () => new Date();
+  return {
+    commands: new AgentCommands(executor, records, preflight, {
+      now,
       newRunId: () => randomUUID().slice(0, 8),
       runTtlMs: config.runTtlMs,
-    },
-  );
+    }),
+    gate: new EvaluatePhaseGate(
+      state,
+      executor,
+      records,
+      new GitHubPullRequestHttpAdapter(client),
+      preflight,
+      { now, runTtlMs: config.runTtlMs },
+    ),
+  };
 }
 
 async function text(source: TextSource): Promise<string> {
   return "text" in source ? source.text : readFile(source.file, "utf8");
 }
 
-/** Executes one invocation and renders a single result line. */
+export type CliOutcome = Readonly<{
+  result: RecordResult | DeliveryResult;
+  problems?: readonly string[];
+}>;
+
+/** Executes one invocation. */
 export async function runAgent(
-  commands: AgentCommands,
+  services: AgentServices,
   invocation: AgentInvocation,
-): Promise<RecordResult | DeliveryResult> {
+): Promise<CliOutcome> {
+  const { commands } = services;
+  if (invocation.command === AgentCliCommand.Gate) {
+    const { result, gate } = await services.gate.run(invocation.issue);
+    return { result, problems: gate?.problems ?? [] };
+  }
   if (invocation.command === AgentCliCommand.Start)
-    return commands.start(invocation.issue);
+    return { result: await commands.start(invocation.issue) };
   if (invocation.command === AgentCliCommand.Block)
-    return commands.block(invocation.issue, await text(invocation.question));
-  return commands.report(
-    invocation.issue,
-    invocation.phase,
-    invocation.facts,
-    await text(invocation.summary),
-  );
+    return {
+      result: await commands.block(
+        invocation.issue,
+        await text(invocation.question),
+      ),
+    };
+  return {
+    result: await commands.report(
+      invocation.issue,
+      invocation.phase,
+      invocation.facts,
+      await text(invocation.summary),
+    ),
+  };
 }
 
-export function render(result: RecordResult | DeliveryResult): string {
+/** One summary line, plus one line per gate problem. */
+export function render({ result, problems = [] }: CliOutcome): string {
+  const lines = problems.map((problem) => `  - ${problem}`);
   if (!result.ok)
-    return `rejected: ${result.reason}${result.detail ? ` — ${result.detail}` : ""}`;
+    return [
+      `rejected: ${result.reason}${result.detail ? ` — ${result.detail}` : ""}`,
+      ...lines,
+    ].join("\n");
   if (!("snapshot" in result)) return "recorded";
   const position = result.snapshot.position;
   return position ? `ok: air:${position.phase}:${position.status}` : "ok";
@@ -232,10 +280,10 @@ async function main(): Promise<void> {
     process.exitCode = ExitCode.Error;
     return;
   }
-  const commands = await composeAgent(readAgentConfig(process.env));
-  const result = await runAgent(commands, invocation);
-  console.log(render(result));
-  process.exitCode = result.ok ? ExitCode.Ok : ExitCode.Rejected;
+  const services = await composeAgent(readAgentConfig(process.env));
+  const outcome = await runAgent(services, invocation);
+  console.log(render(outcome));
+  process.exitCode = outcome.result.ok ? ExitCode.Ok : ExitCode.Rejected;
 }
 
 // Compare real paths: an npm `bin` symlink must still run main().
