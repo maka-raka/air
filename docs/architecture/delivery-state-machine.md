@@ -123,7 +123,7 @@ The original MVP listed `air start`, `air gate`, `air block`, `air deployed` but
 
 ## 9. Remaining decisions
 
-- Accept or reject the conservative deployment transition rule in §4.
+- ~~Accept or reject the conservative deployment transition rule in §4.~~ Accepted for the MVP, see [ADR-0006](adr/0006-deployment-events.md).
 - ~~Choose actual implementation for human transition commands (CLI vs direct GitHub label edit with audit).~~ Proposed: `/air` issue comments, see [ADR-0003](adr/0003-github-comment-commands.md).
 - Specify the exact operationId storage and evidence revision format.
 - Reassess concurrency before unattended CI agents.
