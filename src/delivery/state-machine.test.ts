@@ -176,7 +176,7 @@ for (const phase of phases)
         (action === DeliveryAction.Recover && status === DeliveryStatus.Working) ||
         (action === DeliveryAction.Advance &&
           status === DeliveryStatus.Waiting &&
-          [DeliveryPhase.Requirements, DeliveryPhase.Design, DeliveryPhase.Build].includes(phase)) ||
+          ([DeliveryPhase.Requirements, DeliveryPhase.Design, DeliveryPhase.Build] as readonly Phase[]).includes(phase)) ||
         (action === DeliveryAction.DeployStage &&
           status === DeliveryStatus.Waiting &&
           phase === DeliveryPhase.Review) ||
