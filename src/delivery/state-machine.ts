@@ -64,10 +64,8 @@ const denied = (
   reason: Extract<Decision, { allowed: false }>["reason"],
 ): Decision => ({ allowed: false, reason });
 const allowed = (next: Position | null): Decision => ({ allowed: true, next });
-export function decideTransition(
-  current: Position | null,
-  request: Request,
-): Decision {
+export class DeliveryTransitionPolicy {
+  decide(current: Position | null, request: Request): Decision {
   const f = request.facts ?? {};
   const { action, actor } = request;
   const roles: Record<Action, Actor> = {
@@ -156,4 +154,5 @@ export function decideTransition(
       return f.observeGo ? allowed(null) : denied("precondition-failed");
   }
   return denied("invalid-transition");
+  }
 }
