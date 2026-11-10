@@ -1,4 +1,4 @@
-import { decideTransition } from "./state-machine.js";
+import { DeliveryTransitionPolicy } from "./state-machine.js";
 import type {
   Action,
   Actor,
@@ -9,6 +9,8 @@ import type {
   Request,
   Status,
 } from "./state-machine.js";
+
+const transitionPolicy = new DeliveryTransitionPolicy();
 
 const phases: readonly Phase[] = [
   "requirements",
@@ -67,7 +69,7 @@ function run(
   actor: Actor,
   overrides: Partial<Request> = {},
 ) {
-  return decideTransition(current, {
+  return transitionPolicy.decide(current, {
     action,
     actor,
     facts,
