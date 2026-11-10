@@ -16,6 +16,16 @@ class FakeGitHub {
   readonly posted: string[] = [];
   readonly comments: unknown[] = [];
   permission = "write";
+  checks = "success";
+
+  /** An agent-authored record comment (author 77). */
+  addRecord(id: number, record: unknown) {
+    this.addComment(
+      id,
+      `Report\n\n<!-- air:record ${JSON.stringify(record)} -->`,
+      77,
+    );
+  }
 
   addComment(id: number, body: string, userId = 7) {
     this.comments.push({
@@ -51,6 +61,15 @@ class FakeGitHub {
       this.labels = body.labels;
       return respond([]);
     }
+    if (path === "/issues/42/comments" && init.method === "GET")
+      return respond(this.comments);
+    if (path === "/pulls/57")
+      return respond({ state: "open", head: { sha: "abc123" } });
+    if (path === "/commits/abc123/check-runs")
+      return respond({
+        check_runs: [{ status: "completed", conclusion: this.checks }],
+      });
+    if (path === "/commits/abc123/status") return respond({ statuses: [] });
     if (path === "/issues/42/comments" && init.method === "POST") {
       this.posted.push(body.body);
       return respond({});
@@ -66,6 +85,7 @@ const config = (dir: string): LocalConfig => ({
   pollIntervalMs: 5_000,
   stateDir: dir,
   leaseMs: 60_000,
+  runTtlMs: 7_200_000,
 });
 
 describe("local composition", () => {
@@ -130,6 +150,58 @@ describe("local composition", () => {
     assert.deepEqual(github.labels, ["priority:high"]);
   });
 
+  it("advances on agent-recorded requirements facts", async () => {
+    const github = new FakeGitHub();
+    github.labels = ["air:requirements:waiting"];
+    const poller = await composeLocal(
+      { ...config(join(stateDir, "advance")), agentLogin: "air-agent" },
+      github.request,
+    );
+    await poller.pollOnce();
+    github.addRecord(5000, {
+      kind: "report",
+      phase: "requirements",
+      at: "2026-11-10T12:00:00Z",
+      facts: { taskSize: "S", miniDesign: true },
+    });
+    github.addComment(5001, "/air advance build\nSmall task");
+
+    await poller.pollOnce();
+
+    assert.deepEqual(github.labels, ["air:build:ready"]);
+    assert.match(github.posted.at(-1)!, /air:build:ready/);
+  });
+
+  for (const [checks, expected] of [
+    ["success", "air:review:ready"],
+    ["failure", "air:build:waiting"],
+  ] as const) {
+    it(`gates review on CI checks (${checks})`, async () => {
+      const github = new FakeGitHub();
+      github.labels = ["air:build:waiting"];
+      github.checks = checks;
+      const poller = await composeLocal(
+        {
+          ...config(join(stateDir, `review-${checks}`)),
+          agentLogin: "air-agent",
+        },
+        github.request,
+      );
+      await poller.pollOnce();
+      github.addRecord(6000, {
+        kind: "report",
+        phase: "build",
+        at: "2026-11-10T12:00:00Z",
+        facts: { pullRequest: 57 },
+      });
+      github.addComment(6001, "/air advance review");
+
+      await poller.pollOnce();
+
+      assert.deepEqual(github.labels, [expected]);
+    });
+  }
+
   it("fails closed on evidence-gated commands", async () => {
     const github = new FakeGitHub();
     github.labels = ["air:requirements:waiting"];
@@ -161,6 +233,7 @@ describe("readLocalConfig", () => {
       pollIntervalMs: 20_000,
       stateDir: ".air",
       leaseMs: 60_000,
+      runTtlMs: 7_200_000,
     });
   });
 

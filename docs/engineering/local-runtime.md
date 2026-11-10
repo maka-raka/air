@@ -61,7 +61,10 @@ Also set `AIR_AGENT_LOGIN` for `npm run local:run`, so `/air` comments written b
 | `initialize` | ✅ |
 | `npx air start` / `block` / `report` (agent) | ✅ |
 | `unblock`, `rework` (with a reason) | ✅ |
-| `advance`, `recover`, `close` | ❌ `precondition-failed`: evidence adapters do not exist yet (`UnavailableEvidence` fails closed) |
+| `advance <phase>` | ✅ with `AIR_AGENT_LOGIN`: requirements facts come from the agent's `report`; `advance review` also needs the PR from the build report to be open or merged with all checks green |
+| `recover` | ✅ with `AIR_AGENT_LOGIN`, once no run is active (ended, or older than `AIR_RUN_TTL_MS`) |
+| `close` | ✅ with `AIR_AGENT_LOGIN`, when the latest observe report has `"verdict":"go"` |
+| any of the above without `AIR_AGENT_LOGIN` | ❌ `precondition-failed`: no trusted records, evidence fails closed |
 
 ## Limitations
 

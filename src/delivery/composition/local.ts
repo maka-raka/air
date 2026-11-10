@@ -17,6 +17,9 @@ import { GitHubRepositoryHttpAdapter } from "../adapters/github/repository-http-
 import { FilePollCursorStore } from "../adapters/local/file-poll-cursor-store.js";
 import { InMemoryDeliveryClaims } from "../adapters/local/in-memory-delivery-claims.js";
 import { UnavailableEvidence } from "../adapters/local/unavailable-evidence.js";
+import { RecordedDeliveryEvidence } from "../application/recorded-delivery-evidence.js";
+import { GitHubDeliveryRecordStore } from "../adapters/github/delivery-record-store.js";
+import { GitHubPullRequestHttpAdapter } from "../adapters/github/pull-request-http-adapter.js";
 import { GitHubUserHttpAdapter } from "../adapters/github/user-http-adapter.js";
 
 export type LocalConfig = Readonly<{
@@ -26,7 +29,11 @@ export type LocalConfig = Readonly<{
   pollIntervalMs: number;
   stateDir: string;
   leaseMs: number;
-  /** Agent account whose comments must never run Human commands. */
+  runTtlMs: number;
+  /**
+   * Agent account: its comments never run Human commands, and its records
+   * are the only trusted evidence. Without it, evidence fails closed.
+   */
   agentLogin?: string;
 }>;
 
@@ -60,6 +67,7 @@ export function readLocalConfig(
     pollIntervalMs,
     stateDir: env.AIR_STATE_DIR || ".air",
     leaseMs: integer(env.AIR_LEASE_MS, 60_000),
+    runTtlMs: integer(env.AIR_RUN_TTL_MS, 2 * 60 * 60 * 1000),
     ...(env.AIR_AGENT_LOGIN ? { agentLogin: env.AIR_AGENT_LOGIN } : {}),
   };
 }
@@ -77,12 +85,20 @@ export async function composeLocal(
   });
   const repository = new GitHubRepositoryHttpAdapter(client);
   const identity = await repository.identity();
-  const excluded = config.agentLogin
-    ? [(await new GitHubUserHttpAdapter(client).byLogin(config.agentLogin)).id]
-    : [];
+  const agent = config.agentLogin
+    ? await new GitHubUserHttpAdapter(client).byLogin(config.agentLogin)
+    : null;
   const comments = new GitHubIssueCommentHttpAdapter(client);
+  const evidence = agent
+    ? new RecordedDeliveryEvidence(
+        new GitHubDeliveryRecordStore(comments, agent.id),
+        new GitHubPullRequestHttpAdapter(client),
+        () => new Date(),
+        config.runTtlMs,
+      )
+    : new UnavailableEvidence();
   const handler = new CommentCommandHandler(
-    new UnavailableEvidence(),
+    evidence,
     new ExecuteDeliveryCommand(
       new GitHubDeliveryStateStore(new GitHubIssueHttpAdapter(client)),
     ),
@@ -90,7 +106,11 @@ export async function composeLocal(
   );
   const ingestion = new IngestGitHubWebhook(
     new InMemoryDeliveryClaims(config.leaseMs),
-    new GitHubCollaboratorAuthorization(repository, identity.id, excluded),
+    new GitHubCollaboratorAuthorization(
+      repository,
+      identity.id,
+      agent ? [agent.id] : [],
+    ),
     handler,
   );
   return new GitHubCommentPoller(
