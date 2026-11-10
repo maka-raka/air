@@ -58,7 +58,9 @@ describe("AdmitGitHubWebhook", () => {
     const decision = await useCase.execute(envelope);
 
     assert.equal(decision, IngestionDecision.Accepted);
-    assert.deepEqual(authorization.requests, [{ repositoryId: 123, senderId: 7 }]);
+    assert.deepEqual(authorization.requests, [
+      { repositoryId: 123, senderId: 7 },
+    ]);
     assert.deepEqual(claims.deliveries, [envelope.deliveryId]);
   });
 
@@ -75,7 +77,10 @@ describe("AdmitGitHubWebhook", () => {
     const { envelope, useCase } = fixture();
 
     const first = await useCase.execute(envelope);
-    const second = await useCase.execute({ ...envelope, deliveryId: "another-id" });
+    const second = await useCase.execute({
+      ...envelope,
+      deliveryId: "another-id",
+    });
 
     assert.equal(first, IngestionDecision.Accepted);
     assert.equal(second, IngestionDecision.Accepted);
@@ -131,6 +136,8 @@ describe("AdmitGitHubWebhook", () => {
     const result = useCase.execute(envelope);
 
     await assert.rejects(result, (error) => error === failure);
-    assert.deepEqual(authorization.requests, [{ repositoryId: 123, senderId: 7 }]);
+    assert.deepEqual(authorization.requests, [
+      { repositoryId: 123, senderId: 7 },
+    ]);
   });
 });
