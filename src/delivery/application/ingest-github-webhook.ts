@@ -9,6 +9,8 @@ export type WebhookEnvelope = Readonly<{
   issue: number;
   repository: Readonly<{ id: number; fullName: string }>;
   senderId: number;
+  /** Mutable display name; authorization must confirm it maps to senderId. */
+  senderLogin: string;
   senderIsBot: boolean;
   /** GitHub delivers pull request comments as issue_comment too. */
   pullRequest: boolean;
@@ -65,12 +67,18 @@ export interface DeliveryClaimPort {
   release(lease: DeliveryLease): Promise<void>;
 }
 
+export type WebhookSender = Readonly<{
+  repositoryId: number;
+  senderId: number;
+  senderLogin: string;
+}>;
+
 export interface WebhookActorAuthorizationPort {
   /**
    * Resolve permissions from trusted GitHub identity, never webhook claims.
    * Must require at least write access: an admitted sender acts as Human.
    */
-  canIngest(repositoryId: number, senderId: number): Promise<boolean>;
+  canIngest(sender: WebhookSender): Promise<boolean>;
 }
 
 /** Downstream processing. May run more than once per delivery: be idempotent. */
@@ -101,10 +109,11 @@ export class IngestGitHubWebhook {
       return IngestionDecision.Unsupported;
     if (!this.isIssueCommand(envelope)) return IngestionDecision.Unsupported;
 
-    const authorized = await this.authorization.canIngest(
-      envelope.repository.id,
-      envelope.senderId,
-    );
+    const authorized = await this.authorization.canIngest({
+      repositoryId: envelope.repository.id,
+      senderId: envelope.senderId,
+      senderLogin: envelope.senderLogin,
+    });
     if (!authorized) return IngestionDecision.Unauthorized;
 
     const claim = await this.claims.acquire(envelope.deliveryId);

@@ -13,7 +13,8 @@
     "format:write": "prettier --write 'src/**/*.ts' 'tools/**/*.mjs' eslint.config.mjs",
     "architecture:check": "node tools/architecture/check.mjs && node tools/architecture/check.test.mjs && depcruise --config .dependency-cruiser.cjs --ts-config tsconfig.json --ts-pre-compilation-deps src",
     "policy:check": "node tools/policy/check.mjs && node tools/policy/check.test.mjs",
-    "fitness:test": "node --test tools/fitness/check-evidence.test.mjs"
+    "fitness:test": "node --test tools/fitness/check-evidence.test.mjs",
+    "local:run": "npm run build && node --env-file-if-exists=.env dist/src/delivery/composition/local.js"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

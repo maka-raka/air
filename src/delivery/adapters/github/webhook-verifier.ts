@@ -102,6 +102,9 @@ export class GitHubWebhookVerifier {
     if (!positiveId(issue.number) || !positiveId(sender.id)) {
       return { ok: false, reason: WebhookRejection.InvalidPayload };
     }
+    if (typeof sender.login !== "string" || !sender.login) {
+      return { ok: false, reason: WebhookRejection.InvalidPayload };
+    }
     if (typeof repository.full_name !== "string") {
       return { ok: false, reason: WebhookRejection.InvalidPayload };
     }
@@ -121,6 +124,7 @@ export class GitHubWebhookVerifier {
         issue: issue.number,
         repository: { id: repository.id, fullName: repository.full_name },
         senderId: sender.id,
+        senderLogin: sender.login,
         senderIsBot: sender.type === "Bot",
         pullRequest: issue.pull_request !== undefined,
         comment,

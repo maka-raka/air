@@ -12,7 +12,7 @@ const payload = {
   action: "created",
   issue: { number: 42 },
   comment: { id: 900, body: "/air rework" },
-  sender: { id: 7, type: "User" },
+  sender: { id: 7, login: "octocat", type: "User" },
   repository: { id: 123, full_name: "owner/repo" },
 };
 const signed = (value: unknown) => Buffer.from(JSON.stringify(value));
@@ -30,6 +30,7 @@ assert(verified.ok, "Valid signed event must pass");
 if (verified.ok) {
   assert(verified.envelope.issue === 42, "Must extract issue");
   assert(verified.envelope.senderId === 7, "Must extract sender");
+  assert(verified.envelope.senderLogin === "octocat", "Must extract login");
   assert(verified.envelope.comment?.id === 900, "Must extract comment id");
   assert(
     verified.envelope.comment?.body === "/air rework",
@@ -38,7 +39,10 @@ if (verified.ok) {
   assert(!verified.envelope.senderIsBot, "User sender is not a bot");
   assert(!verified.envelope.pullRequest, "Issue comment is not on a PR");
 }
-const botBody = signed({ ...payload, sender: { id: 7, type: "Bot" } });
+const botBody = signed({
+  ...payload,
+  sender: { id: 7, login: "air[bot]", type: "Bot" },
+});
 const bot = verifier.verify(botBody, headers(botBody));
 assert(bot.ok && bot.envelope.senderIsBot, "Must flag bot senders");
 const prBody = signed({
@@ -61,6 +65,12 @@ for (const comment of [{ id: 900 }, { id: 0, body: "x" }, "text"]) {
     "Malformed comment must fail: " + JSON.stringify(comment),
   );
 }
+const noLoginBody = signed({ ...payload, sender: { id: 7, type: "User" } });
+const noLogin = verifier.verify(noLoginBody, headers(noLoginBody));
+assert(
+  !noLogin.ok && noLogin.reason === WebhookRejection.InvalidPayload,
+  "Sender login is required",
+);
 const issuesEvent = verifier.verify(body, headers(body, "issues"));
 assert(
   !issuesEvent.ok && issuesEvent.reason === WebhookRejection.UnsupportedEvent,
