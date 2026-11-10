@@ -18,8 +18,10 @@ export default {
     docs: { description: "Keep direct I/O out of domain modules" },
     schema: [],
     messages: {
-      module: "Domain modules must not import infrastructure module '{{ name }}'.",
-      global: "Domain modules must not access side-effecting global '{{ name }}'.",
+      module:
+        "Domain modules must not import infrastructure module '{{ name }}'.",
+      global:
+        "Domain modules must not access side-effecting global '{{ name }}'.",
     },
   },
   create(context) {
