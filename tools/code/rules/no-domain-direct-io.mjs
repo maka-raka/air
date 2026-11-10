@@ -1,5 +1,6 @@
 /** Guard against direct infrastructure access in domain modules. */
-const forbiddenModules = /^(?:node:)?(?:fs(?:\/.*)?|http(?:\/.*)?|https(?:\/.*)?|net(?:\/.*)?|tls(?:\/.*)?|child_process|process|worker_threads)$/;
+const forbiddenModules =
+  /^(?:node:)?(?:fs(?:\/.*)?|http(?:\/.*)?|https(?:\/.*)?|net(?:\/.*)?|tls(?:\/.*)?|child_process|process|worker_threads)$/;
 const forbiddenGlobals = new Set(["fetch", "setTimeout", "setInterval"]);
 const forbiddenObjects = new Set(["process", "console"]);
 
@@ -17,7 +18,11 @@ export default {
     function checkModule(node, source) {
       if (typeof source?.value !== "string") return;
       if (!forbiddenModules.test(source.value)) return;
-      context.report({ node, messageId: "module", data: { name: source.value } });
+      context.report({
+        node,
+        messageId: "module",
+        data: { name: source.value },
+      });
     }
     function isForbiddenCall(node) {
       if (node.type !== "CallExpression") return false;
@@ -31,17 +36,33 @@ export default {
     }
     function checkReference(node) {
       if (isForbiddenCall(node)) {
-        context.report({ node: node.callee, messageId: "global", data: { name: node.callee.name } });
+        context.report({
+          node: node.callee,
+          messageId: "global",
+          data: { name: node.callee.name },
+        });
       }
       if (isForbiddenMember(node)) {
-        context.report({ node: node.object, messageId: "global", data: { name: node.object.name } });
+        context.report({
+          node: node.object,
+          messageId: "global",
+          data: { name: node.object.name },
+        });
       }
     }
     return {
-      ImportDeclaration(node) { checkModule(node, node.source); },
-      ExportNamedDeclaration(node) { checkModule(node, node.source); },
-      ExportAllDeclaration(node) { checkModule(node, node.source); },
-      ImportExpression(node) { checkModule(node, node.source); },
+      ImportDeclaration(node) {
+        checkModule(node, node.source);
+      },
+      ExportNamedDeclaration(node) {
+        checkModule(node, node.source);
+      },
+      ExportAllDeclaration(node) {
+        checkModule(node, node.source);
+      },
+      ImportExpression(node) {
+        checkModule(node, node.source);
+      },
       CallExpression: checkReference,
       MemberExpression: checkReference,
     };
