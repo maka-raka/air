@@ -125,7 +125,7 @@ test("enforces complex-condition rule for TypeScript and tools", async () => {
 
 ruleTester.run("air/no-delivery-magic-strings", noDeliveryMagicStrings, {
   valid: [
-    'if (status === DeliveryStatus.Ready) work();',
+    "if (status === DeliveryStatus.Ready) work();",
     'const value = "ready";',
     'if (status === "custom-status") work();',
   ],
@@ -140,12 +140,23 @@ ruleTester.run("air/no-delivery-magic-strings", noDeliveryMagicStrings, {
 });
 
 test("enforces delivery magic-string rule only in production", async () => {
-  const [production] = await eslint.lintText('if (status === "ready") work();', {
-    filePath: "src/delivery/example.ts",
-  });
-  assert.ok(production.messages.some(({ ruleId }) => ruleId === "air/no-delivery-magic-strings"));
+  const [production] = await eslint.lintText(
+    'if (status === "ready") work();',
+    {
+      filePath: "src/delivery/example.ts",
+    },
+  );
+  assert.ok(
+    production.messages.some(
+      ({ ruleId }) => ruleId === "air/no-delivery-magic-strings",
+    ),
+  );
   const [testFile] = await eslint.lintText('if (status === "ready") work();', {
     filePath: "src/delivery/example.test.ts",
   });
-  assert.ok(!testFile.messages.some(({ ruleId }) => ruleId === "air/no-delivery-magic-strings"));
+  assert.ok(
+    !testFile.messages.some(
+      ({ ruleId }) => ruleId === "air/no-delivery-magic-strings",
+    ),
+  );
 });
