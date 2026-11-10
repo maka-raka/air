@@ -5,7 +5,14 @@ import tsParser from "@typescript-eslint/parser";
 export default [
   {
     files: ["src/**/*.ts", "tools/**/*.mjs"],
-    plugins: { air: { rules: { "no-complex-condition": noComplexCondition, "no-delivery-magic-strings": noDeliveryMagicStrings } } },
+    plugins: {
+      air: {
+        rules: {
+          "no-complex-condition": noComplexCondition,
+          "no-delivery-magic-strings": noDeliveryMagicStrings,
+        },
+      },
+    },
     rules: { "air/no-complex-condition": "error" },
   },
   {
