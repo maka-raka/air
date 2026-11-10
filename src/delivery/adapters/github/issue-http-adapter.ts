@@ -1,3 +1,4 @@
+import { GitHubIssueState, values } from "./github-protocol.js";
 import type { IssueLabelsPort, ReadIssue } from "./delivery-state-store.js";
 import {
   GitHubRestClient,
@@ -46,14 +47,14 @@ export class GitHubIssueHttpAdapter implements IssueLabelsPort {
     if (!object(data)) throw invalidResponse("Invalid GitHub Issue payload");
     if (!Array.isArray(data.labels) || typeof data.state !== "string")
       throw invalidResponse("Invalid GitHub Issue payload");
-    if (!["open", "closed"].includes(data.state))
+    if (!values(GitHubIssueState).includes(data.state))
       throw invalidResponse("Invalid GitHub Issue payload");
     const labels = data.labels.map((label: unknown) => {
       if (!object(label) || typeof label.name !== "string")
         throw invalidResponse("Invalid GitHub label payload");
       return label.name;
     });
-    return { labels, closed: data.state === "closed" };
+    return { labels, closed: data.state === GitHubIssueState.Closed };
   }
 
   async replaceLabels(issue: number, labels: readonly string[]): Promise<void> {

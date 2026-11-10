@@ -96,6 +96,8 @@ validator statically proves AAA structure, singular naming, or functional style.
 
 - Use named HTTP status constants from `http-status-codes` instead of raw numeric status literals in application and adapter logic.
 
+- Compare against named constants, never inline string literals, in production code: domain vocabulary from `src/delivery/domain`, GitHub REST vocabulary from `src/delivery/adapters/github/github-protocol.ts`. `air/no-magic-string-comparisons` enforces this for `===`/`!==`/`switch` in `src/**/*.ts` (excluding tests). The empty string and `typeof` checks are allowed.
+
 - Keep each `if` condition to at most two checks joined by `&&` or `||`.
   Split larger conditions into focused guard clauses or meaningful named
   predicates. Parentheses, negation, and TypeScript assertions do not reset

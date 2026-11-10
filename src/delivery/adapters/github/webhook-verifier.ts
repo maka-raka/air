@@ -1,3 +1,4 @@
+import { GitHubUserType } from "./github-protocol.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { GitHubWebhookEvent } from "../../application/ingest-github-webhook.js";
 import type {
@@ -125,7 +126,7 @@ export class GitHubWebhookVerifier {
         repository: { id: repository.id, fullName: repository.full_name },
         senderId: sender.id,
         senderLogin: sender.login,
-        senderIsBot: sender.type === "Bot",
+        senderIsBot: sender.type === GitHubUserType.Bot,
         pullRequest: issue.pull_request !== undefined,
         comment,
       },
