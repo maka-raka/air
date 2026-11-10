@@ -68,7 +68,7 @@ Order: supported event/action → `/air` issue comment from a non-bot → truste
 Invariants:
 
 - Irrelevant, unsupported or unauthorized deliveries never touch the claim store, so they cannot consume a delivery ID.
-- Comment text can only set `feedbackRecorded`, `reportRecorded` and `recoveryConfirmed`.
+- Comment text can only set `feedbackRecorded`, `reportRecorded`, `recoveryConfirmed` and `designApproved`.
 - Business rejections are replied to and completed; only infrastructure failures propagate.
 - A delivery becomes `completed` only after its handler succeeds.
 - A failed handler releases the lease and the original error propagates, so a redelivery can be processed again.

@@ -130,6 +130,8 @@ export class CommentCommandHandler implements AdmittedWebhookHandlerPort {
       feedbackRecorded: recorded,
       reportRecorded: recorded,
       recoveryConfirmed: command.action === DeliveryAction.Recover,
+      // ADR-0003: a write-access Human advancing out of design approves it.
+      designApproved: command.action === DeliveryAction.Advance,
     };
   }
 }

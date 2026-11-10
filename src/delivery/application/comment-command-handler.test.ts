@@ -135,6 +135,7 @@ describe("CommentCommandHandler", () => {
             feedbackRecorded: true,
             reportRecorded: true,
             recoveryConfirmed: false,
+            designApproved: true,
           },
         },
       },
@@ -179,7 +180,11 @@ describe("CommentCommandHandler", () => {
 
   it("does not let evidence claim comment-derived facts", async () => {
     const { envelope, executor, handler } = fixture("/air unblock", {
-      facts: { feedbackRecorded: true, recoveryConfirmed: true },
+      facts: {
+        feedbackRecorded: true,
+        recoveryConfirmed: true,
+        designApproved: true,
+      },
     });
 
     await handler.handle(envelope);
@@ -187,6 +192,7 @@ describe("CommentCommandHandler", () => {
     const facts = executor.commands[0]?.request.facts;
     assert.equal(facts?.feedbackRecorded, false);
     assert.equal(facts?.recoveryConfirmed, false);
+    assert.equal(facts?.designApproved, false);
   });
 
   it("replies with the rejection instead of throwing", async () => {
