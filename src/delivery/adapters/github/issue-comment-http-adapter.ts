@@ -21,6 +21,12 @@ export interface IssueCommentWriter {
   post(issue: number, body: string): Promise<void>;
 }
 
+/** Adapter-internal seam used by the record store. */
+export interface IssueCommentReader {
+  /** All comments on one issue, oldest first. */
+  list(issue: number): Promise<readonly IssueComment[]>;
+}
+
 /** Adapter-internal seam used by the polling inbound adapter. */
 export interface IssueCommentFeed {
   /** Repository issue and PR comments updated at or after `updatedAt`. */
@@ -66,7 +72,7 @@ function parseComment(value: unknown): IssueComment {
 
 /** GitHub issue comment REST mapping only. */
 export class GitHubIssueCommentHttpAdapter
-  implements IssueCommentWriter, IssueCommentFeed
+  implements IssueCommentWriter, IssueCommentReader, IssueCommentFeed
 {
   constructor(private readonly client: GitHubRestClient) {}
 
@@ -78,34 +84,46 @@ export class GitHubIssueCommentHttpAdapter
     });
   }
 
+  async list(issue: number): Promise<readonly IssueComment[]> {
+    if (!positive(issue)) throw new Error("Invalid issue number");
+    return this.pages(`/issues/${issue}/comments`, {});
+  }
+
   async since(updatedAt: string): Promise<readonly IssueComment[]> {
     if (Number.isNaN(Date.parse(updatedAt)))
       throw new Error("Invalid since timestamp");
+    return this.pages("/issues/comments", {
+      since: updatedAt,
+      sort: "updated",
+      direction: "asc",
+    });
+  }
+
+  private async pages(
+    path: string,
+    filters: Readonly<Record<string, string>>,
+  ): Promise<readonly IssueComment[]> {
     const comments: IssueComment[] = [];
     for (let page = 1; page <= MAX_PAGES; page++) {
-      const batch = await this.page(updatedAt, page);
+      const batch = await this.page(path, filters, page);
       comments.push(...batch);
       if (batch.length < PAGE_SIZE) return comments;
     }
-    // Bounded per poll; the caller's cursor resumes from the newest seen.
+    // Bounded per call; callers must tolerate a truncated tail.
     return comments;
   }
 
   private async page(
-    updatedAt: string,
+    path: string,
+    filters: Readonly<Record<string, string>>,
     page: number,
   ): Promise<readonly IssueComment[]> {
     const query = new URLSearchParams({
-      since: updatedAt,
-      sort: "updated",
-      direction: "asc",
+      ...filters,
       per_page: String(PAGE_SIZE),
       page: String(page),
     });
-    const data = await this.client.call(
-      HttpMethod.Get,
-      `/issues/comments?${query}`,
-    );
+    const data = await this.client.call(HttpMethod.Get, `${path}?${query}`);
     if (!Array.isArray(data)) throw invalidResponse("Expected comment list");
     return data.map(parseComment);
   }
