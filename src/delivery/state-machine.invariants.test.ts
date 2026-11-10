@@ -105,22 +105,27 @@ fc.assert(
   { numRuns: 1000, seed: 20261110 },
 );
 
-for (const action of actions) {
-  for (const actor of actors) {
-    if (actor === owners[action]) continue;
-    for (const phase of phases) {
-      for (const status of statuses) {
-        const current: Position = { phase, status };
-        const decision = machine.decide(current, { action, actor });
-        assert(
-          !decision.allowed &&
-            decision.reason === DecisionReason.NotAuthorized,
-          "Unauthorized transition was not rejected",
-        );
-      }
-    }
-  }
-}
+const unauthorizedCases = actions.flatMap((action) =>
+  actors
+    .filter((actor) => actor !== owners[action])
+    .flatMap((actor) =>
+      phases.flatMap((phase) =>
+        statuses.map((status) => ({
+          current: { phase, status } as Position,
+          request: { action, actor },
+        })),
+      ),
+    ),
+);
+
+unauthorizedCases.forEach(({ current, request }) => {
+  const decision = machine.decide(current, request);
+  assert(
+    !decision.allowed &&
+      decision.reason === DecisionReason.NotAuthorized,
+    "Unauthorized transition was not rejected",
+  );
+});
 
 assert(
   same(machine.actions(), actions),
