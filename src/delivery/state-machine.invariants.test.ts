@@ -12,10 +12,8 @@ import type {
   Actor,
   Facts,
   Gate,
-  Phase,
   Position,
   Request,
-  Status,
 } from "./state-machine.js";
 
 const machine = new DeliveryStateMachine();
