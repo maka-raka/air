@@ -3,7 +3,8 @@ export default {
   meta: {
     type: "suggestion",
     docs: {
-      description: "Use named GitHub webhook event/action constants in comparisons",
+      description:
+        "Use named GitHub webhook event/action constants in comparisons",
     },
     schema: [],
     messages: {
@@ -14,10 +15,9 @@ export default {
     function isWebhookField(node) {
       return (
         node?.type === "MemberExpression" &&
-        !node.computed &&
-        ["event", "action"].includes(node.property.name) &&
-        node.object.type === "Identifier" &&
-        node.object.name === "envelope"
+        ["event", "action"].includes(
+          node.computed ? node.property.value : node.property.name,
+        )
       );
     }
     function check(field, value) {

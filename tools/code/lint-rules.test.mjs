@@ -167,11 +167,17 @@ ruleTester.run("air/no-webhook-magic-strings", noWebhookMagicStrings, {
     "if (envelope.event === GitHubWebhookEvent.Issues) work();",
     "if (envelope.action !== GitHubIssueAction.Labeled) work();",
     'const event = "issues";',
-    'if (other.event === "issues") work();',
+    'if (other.name === "issues") work();',
+    'if (payload.event === GitHubWebhookEvent.Issues) work();',
+    'if (payload[eventKey] === "issues") work();',
   ],
   invalid: [
     'if (envelope.event === "issues") work();',
     'if ("labeled" !== envelope.action) work();',
+    'if (payload.event === "issues") work();',
+    'if ("labeled" === request.payload.action) work();',
+    'if (payload["event"] === "issues") work();',
+    'if (payload["action"] !== "labeled") work();',
   ].map((code) => ({
     code,
     errors: [{ messageId: "magic" }],

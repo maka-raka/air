@@ -46,8 +46,10 @@ export class AdmitGitHubWebhook {
   ) {}
 
   async execute(envelope: WebhookEnvelope): Promise<IngestionDecision> {
-    if (envelope.event !== GitHubWebhookEvent.Issues) return IngestionDecision.Unsupported;
-    if (envelope.action !== GitHubIssueAction.Labeled) return IngestionDecision.Unsupported;
+    if (envelope.event !== GitHubWebhookEvent.Issues)
+      return IngestionDecision.Unsupported;
+    if (envelope.action !== GitHubIssueAction.Labeled)
+      return IngestionDecision.Unsupported;
 
     const authorized = await this.authorization.canIngest(
       envelope.repository.id,
