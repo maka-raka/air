@@ -1,4 +1,11 @@
-import type { WebhookEnvelope } from "../github/webhook-verifier.js";
+export type WebhookEnvelope = Readonly<{
+  deliveryId: string;
+  event: string;
+  action: string;
+  issue: number;
+  repository: Readonly<{ id: number; fullName: string }>;
+  senderId: number;
+}>;
 
 export const IngestionDecision = {
   Accepted: "accepted",
