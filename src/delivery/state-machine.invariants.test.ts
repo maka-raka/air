@@ -7,14 +7,7 @@ import {
   DeliveryStatus,
   DecisionReason,
 } from "./state-machine.js";
-import type {
-  Action,
-  Actor,
-  Facts,
-  Gate,
-  Position,
-  Request,
-} from "./state-machine.js";
+import type { Action, Actor, Facts, Gate, Request } from "./state-machine.js";
 
 const machine = new DeliveryStateMachine();
 const phases = Object.values(DeliveryPhase);
@@ -105,27 +98,23 @@ fc.assert(
   { numRuns: 1000, seed: 20261110 },
 );
 
-const unauthorizedCases = actions.flatMap((action) =>
-  actors
-    .filter((actor) => actor !== owners[action])
-    .flatMap((actor) =>
-      phases.flatMap((phase) =>
-        statuses.map((status) => ({
-          current: { phase, status } as Position,
-          request: { action, actor },
-        })),
-      ),
-    ),
+fc.assert(
+  fc.property(
+    fc.constantFrom(...actions),
+    fc.constantFrom(...actors),
+    positionArb,
+    (action, actor, current) => {
+      fc.pre(actor !== owners[action]);
+      const decision = machine.decide(current, { action, actor });
+      assert(
+        !decision.allowed &&
+          decision.reason === DecisionReason.NotAuthorized,
+        "Unauthorized transition was not rejected",
+      );
+    },
+  ),
+  { numRuns: 1000, seed: 20261110 },
 );
-
-unauthorizedCases.forEach(({ current, request }) => {
-  const decision = machine.decide(current, request);
-  assert(
-    !decision.allowed &&
-      decision.reason === DecisionReason.NotAuthorized,
-    "Unauthorized transition was not rejected",
-  );
-});
 
 assert(
   same(machine.actions(), actions),
