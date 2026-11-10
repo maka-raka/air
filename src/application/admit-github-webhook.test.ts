@@ -1,6 +1,8 @@
 import {
   AdmitGitHubWebhook,
   IngestionDecision,
+  GitHubWebhookEvent,
+  GitHubIssueAction,
 } from "./admit-github-webhook.js";
 import type {
   DeliveryClaimPort,
@@ -36,8 +38,8 @@ class FakeAuthorization implements WebhookActorAuthorizationPort {
 
 const envelope: WebhookEnvelope = {
   deliveryId: "12345678-1234-1234-1234-123456789abc",
-  event: "issues",
-  action: "labeled",
+  event: GitHubWebhookEvent.Issues,
+  action: GitHubIssueAction.Labeled,
   issue: 42,
   repository: { id: 123, fullName: "owner/repo" },
   senderId: 7,
