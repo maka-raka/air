@@ -4,14 +4,12 @@ import { StatusCodes } from "http-status-codes";
 
 import { GitHubDeliveryStateStore } from "./delivery-state-store.js";
 import { ExecuteDeliveryCommand } from "../../application/execute-delivery-command.js";
-import {
-  GitHubApiError,
-  GitHubIssueHttpAdapter,
-} from "./issue-http-adapter.js";
+import { GitHubIssueHttpAdapter } from "./issue-http-adapter.js";
+import { GitHubApiError } from "./github-rest-client.js";
 import type {
   GitHubApiErrorCategory,
   HttpRequest,
-} from "./issue-http-adapter.js";
+} from "./github-rest-client.js";
 
 const ISSUE_NUMBER = 42;
 const ISSUE_URL = "https://api.github.com/repos/example/air/issues/42";
