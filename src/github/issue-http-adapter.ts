@@ -23,15 +23,18 @@ export type GitHubIssueClientOptions = {
   baseUrl?: string;
   timeoutMs?: number;
 };
+export const GitHubApiErrorCategory = {
+  Authentication: "authentication",
+  Forbidden: "forbidden",
+  NotFound: "not-found",
+  RateLimited: "rate-limited",
+  ServerError: "server-error",
+  ClientError: "client-error",
+  NetworkError: "network-error",
+  InvalidResponse: "invalid-response",
+} as const;
 export type GitHubApiErrorCategory =
-  | "authentication"
-  | "forbidden"
-  | "not-found"
-  | "rate-limited"
-  | "server-error"
-  | "client-error"
-  | "network-error"
-  | "invalid-response";
+  (typeof GitHubApiErrorCategory)[keyof typeof GitHubApiErrorCategory];
 
 export class GitHubApiError extends Error {
   constructor(
@@ -84,7 +87,8 @@ function classify(status: number, write: boolean): GitHubApiError {
     ambiguousWrite,
   );
 }
-type HttpMethod = "GET" | "PUT" | "PATCH";
+const HttpMethod = { Get: "GET", Put: "PUT", Patch: "PATCH" } as const;
+type HttpMethod = (typeof HttpMethod)[keyof typeof HttpMethod];
 
 function createIssueEndpoint(options: GitHubIssueClientOptions): string {
   const baseUrl = (options.baseUrl ?? "https://api.github.com").replace(
