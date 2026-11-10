@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { GitHubCommandReplyAdapter } from "./command-reply-adapter.js";
-import type { IssueCommentWriter } from "./issue-comment-http-adapter.js";
+import {
+  GitHubCommandReplyAdapter,
+  GitHubProcessedCommands,
+  replyMarker,
+} from "./command-reply-adapter.js";
+import type {
+  IssueComment,
+  IssueCommentWriter,
+} from "./issue-comment-http-adapter.js";
 import { CommandOutcome } from "../../application/comment-command-handler.js";
 import type { CommandReply } from "../../application/comment-command-handler.js";
 import {
@@ -49,7 +56,9 @@ describe("GitHubCommandReplyAdapter", () => {
     assert.deepEqual(writer.posts, [
       {
         issue: 42,
-        body: "**AIR** ✅ [command](#issuecomment-900) applied. State: `air:build:ready`.",
+        body:
+          "**AIR** ✅ [command](#issuecomment-900) applied. State: `air:build:ready`." +
+          '\n\n<!-- air:reply {"commentId":900} -->',
       },
     ]);
   });
@@ -86,5 +95,33 @@ describe("GitHubCommandReplyAdapter", () => {
     );
 
     assert.ok(recognized.every((value) => value === false));
+  });
+});
+
+describe("GitHubProcessedCommands", () => {
+  const comment = (authorId: number, body: string): IssueComment => ({
+    id: 1,
+    issue: 42,
+    body,
+    authorId,
+    authorLogin: "x",
+    authorIsBot: false,
+    pullRequest: false,
+    updatedAt: "2026-11-11T12:00:00Z",
+  });
+  const processed = (comments: IssueComment[]) =>
+    new GitHubProcessedCommands({ list: async () => comments }, 5);
+
+  it("recognizes AIR's own reply to the command", async () => {
+    const replies = processed([comment(5, `Applied\n\n${replyMarker(900)}\n`)]);
+
+    assert.equal(await replies.wasProcessed(42, 900), true);
+    assert.equal(await replies.wasProcessed(42, 901), false);
+  });
+
+  it("ignores reply markers written by anyone else", async () => {
+    const forged = processed([comment(6, `x\n\n${replyMarker(900)}`)]);
+
+    assert.equal(await forged.wasProcessed(42, 900), false);
   });
 });

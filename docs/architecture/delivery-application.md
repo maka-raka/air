@@ -70,6 +70,7 @@ Invariants:
 - Irrelevant, unsupported or unauthorized deliveries never touch the claim store, so they cannot consume a delivery ID.
 - Comment text can only set `feedbackRecorded`, `reportRecorded`, `recoveryConfirmed` and `designApproved`.
 - Business rejections are replied to and completed; only infrastructure failures propagate.
+- A command that already has an AIR reply (hidden `air:reply` marker by AIR's account) is skipped: the comment ID is the operation ID.
 - A delivery becomes `completed` only after its handler succeeds.
 - A failed handler releases the lease and the original error propagates, so a redelivery can be processed again.
 - If `complete` fails after a successful handler, the lease expires and the delivery may be handled again: ingestion is **at-least-once**, not exactly-once.

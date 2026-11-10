@@ -5,7 +5,10 @@ import { CommentCommandHandler } from "../application/comment-command-handler.js
 import { ExecuteDeliveryCommand } from "../application/execute-delivery-command.js";
 import { IngestGitHubWebhook } from "../application/ingest-github-webhook.js";
 import { GitHubCollaboratorAuthorization } from "../adapters/github/collaborator-authorization.js";
-import { GitHubCommandReplyAdapter } from "../adapters/github/command-reply-adapter.js";
+import {
+  GitHubCommandReplyAdapter,
+  GitHubProcessedCommands,
+} from "../adapters/github/command-reply-adapter.js";
 import { GitHubCommentPoller } from "../adapters/github/comment-poller.js";
 import type { PollOutcome } from "../adapters/github/comment-poller.js";
 import { GitHubDeliveryStateStore } from "../adapters/github/delivery-state-store.js";
@@ -82,8 +85,9 @@ export async function composeLocal(
   });
   const repository = new GitHubRepositoryHttpAdapter(client);
   const identity = await repository.identity();
+  const users = new GitHubUserHttpAdapter(client);
   const agent = config.agentLogin
-    ? await new GitHubUserHttpAdapter(client).byLogin(config.agentLogin)
+    ? await users.byLogin(config.agentLogin)
     : null;
   const comments = new GitHubIssueCommentHttpAdapter(client);
   const evidence = agent
@@ -100,6 +104,8 @@ export async function composeLocal(
       new GitHubDeliveryStateStore(new GitHubIssueHttpAdapter(client)),
     ),
     new GitHubCommandReplyAdapter(comments),
+    // Replies are posted with this token, so only its markers are trusted.
+    new GitHubProcessedCommands(comments, (await users.viewer()).id),
   );
   const ingestion = new IngestGitHubWebhook(
     new InMemoryDeliveryClaims(config.leaseMs),

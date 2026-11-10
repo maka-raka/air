@@ -41,7 +41,7 @@ Text after the command line is the reason. Matching is case-insensitive.
 - Humans no longer edit `air:*` state labels by hand; manual edits remain possible in GitHub and are surfaced as `invalid-state` on the next command.
 - `WebhookActorAuthorizationPort` must require at least write access.
 - Outcomes are visible as bot replies (`CommandReplyPort`). Formatting belongs to the GitHub adapter.
-- Delivery is at-least-once. A redelivered command after a successful but unacknowledged run reaches the policy against the new state and is typically rejected as `invalid-transition`. A future `operationId` (the comment ID) can make this a no-op.
+- Delivery is at-least-once, and the **comment ID is the operation ID**. Every reply ends with a hidden `<!-- air:reply {"commentId":N} -->` marker. Before executing, the handler checks for a marker from AIR's own reply account (`ProcessedCommandPort`), so a redelivered or re-polled command that already has a reply is a no-op. Markers from other authors are ignored, so nobody can pre-empt a command. Residual: a crash between the label write and the reply lets the command run again, and it is then typically rejected as `invalid-transition`.
 
 ## Not decided here
 

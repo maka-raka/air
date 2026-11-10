@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
@@ -47,6 +47,7 @@ class FakeGitHub {
     });
     const body = init.body ? JSON.parse(init.body) : undefined;
     if (path === "") return respond({ id: 123, full_name: "example/air" });
+    if (path === "/user") return respond({ id: 7, login: "octocat" });
     if (path === "/users/air-agent")
       return respond({ id: 77, login: "air-agent" });
     if (path === "/issues/comments") return respond(this.comments);
@@ -72,6 +73,7 @@ class FakeGitHub {
     if (path === "/commits/abc123/status") return respond({ statuses: [] });
     if (path === "/issues/42/comments" && init.method === "POST") {
       this.posted.push(body.body);
+      this.addComment(100_000 + this.posted.length, body.body);
       return respond({});
     }
     return respond({ message: "unexpected " + path }, 500);
@@ -109,6 +111,29 @@ describe("local composition", () => {
     ]);
     assert.equal(github.posted.length, 1);
     assert.match(github.posted[0]!, /air:requirements:ready/);
+  });
+
+  it("does not run a command twice when it is polled again", async () => {
+    const github = new FakeGitHub();
+    const dir = join(stateDir, "replay");
+    const first = await composeLocal(config(dir), github.request);
+    await first.pollOnce();
+    github.addComment(7001, "/air initialize");
+    await first.pollOnce();
+    // Simulate a lost cursor and a restarted process (empty in-memory claims).
+    await writeFile(
+      join(dir, "cursor.json"),
+      JSON.stringify({ since: "2026-11-10T00:00:00Z", lastCommentId: 0 }),
+    );
+    const restarted = await composeLocal(config(dir), github.request);
+
+    await restarted.pollOnce();
+
+    assert.equal(github.posted.length, 1);
+    assert.deepEqual(github.labels.sort(), [
+      "air:requirements:ready",
+      "priority:high",
+    ]);
   });
 
   it("ignores discussion and refuses readers without touching labels", async () => {
