@@ -87,6 +87,7 @@ function fixture(
     issue: 42,
     repository: { id: 123, fullName: "owner/repo" },
     senderId: 7,
+    senderLogin: "octocat",
     senderIsBot: false,
     pullRequest: false,
     comment: { id: 900, body },

@@ -14,6 +14,7 @@ import type {
   DeliveryLease,
   WebhookActorAuthorizationPort,
   WebhookEnvelope,
+  WebhookSender,
 } from "./ingest-github-webhook.js";
 
 type ClaimCall = Readonly<{ operation: string; deliveryId: string }>;
@@ -53,10 +54,10 @@ class FakeClaims implements DeliveryClaimPort {
 }
 
 class FakeAuthorization implements WebhookActorAuthorizationPort {
-  readonly requests: { repositoryId: number; senderId: number }[] = [];
+  readonly requests: WebhookSender[] = [];
   constructor(private readonly allowed = true) {}
-  async canIngest(repositoryId: number, senderId: number): Promise<boolean> {
-    this.requests.push({ repositoryId, senderId });
+  async canIngest(sender: WebhookSender): Promise<boolean> {
+    this.requests.push(sender);
     return this.allowed;
   }
 }
@@ -86,6 +87,7 @@ function fixture(
     issue: 42,
     repository: { id: 123, fullName: "owner/repo" },
     senderId: 7,
+    senderLogin: "octocat",
     senderIsBot: false,
     pullRequest: false,
     comment: { id: 900, body: "/air rework\nPlease cover edge cases." },
@@ -117,7 +119,7 @@ describe("IngestGitHubWebhook", () => {
 
     assert.equal(decision, IngestionDecision.Accepted);
     assert.deepEqual(authorization.requests, [
-      { repositoryId: 123, senderId: 7 },
+      { repositoryId: 123, senderId: 7, senderLogin: "octocat" },
     ]);
     assert.deepEqual(handler.handled, [envelope]);
     assert.deepEqual(operations(claims), ["acquire", "complete"]);
