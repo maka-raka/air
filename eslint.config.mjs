@@ -2,6 +2,7 @@ import noComplexCondition from "./tools/code/rules/no-complex-condition.mjs";
 import noDeliveryMagicStrings from "./tools/code/rules/no-delivery-magic-strings.mjs";
 import noStringLiteralTypeAliases from "./tools/code/rules/no-string-literal-type-aliases.mjs";
 import noWebhookMagicStrings from "./tools/code/rules/no-webhook-magic-strings.mjs";
+import noMagicStringComparisons from "./tools/code/rules/no-magic-string-comparisons.mjs";
 import noDomainDirectIo from "./tools/code/rules/no-domain-direct-io.mjs";
 import tsParser from "@typescript-eslint/parser";
 
@@ -16,6 +17,7 @@ export default [
           "no-string-literal-type-aliases": noStringLiteralTypeAliases,
           "no-domain-direct-io": noDomainDirectIo,
           "no-webhook-magic-strings": noWebhookMagicStrings,
+          "no-magic-string-comparisons": noMagicStringComparisons,
         },
       },
     },
@@ -25,6 +27,11 @@ export default [
     files: ["src/delivery/domain/**/*.ts", "src/delivery/adapters/**/*.ts"],
     ignores: ["**/*.test.ts"],
     rules: { "air/no-delivery-magic-strings": "error" },
+  },
+  {
+    files: ["src/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: { "air/no-magic-string-comparisons": "error" },
   },
   {
     files: ["src/delivery/application/**/*.ts"],

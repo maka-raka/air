@@ -1,3 +1,9 @@
+import {
+  GitHubCheckRunStatus,
+  GitHubPassingCheck,
+  GitHubPullRequestState,
+  values,
+} from "./github-protocol.js";
 import type {
   PullRequestStatus,
   PullRequestStatusPort,
@@ -11,7 +17,7 @@ import {
   object,
 } from "./github-rest-client.js";
 
-const PASSING: readonly string[] = ["success", "neutral", "skipped"];
+const PASSING = values(GitHubPassingCheck);
 
 type HeadState = Readonly<{ active: boolean; sha: string }>;
 
@@ -28,7 +34,10 @@ function head(data: unknown): HeadState {
   if (typeof data.head.sha !== "string")
     throw invalidResponse("Invalid pull request payload");
   const merged = data.merged === true;
-  return { active: data.state === "open" || merged, sha: data.head.sha };
+  return {
+    active: data.state === GitHubPullRequestState.Open || merged,
+    sha: data.head.sha,
+  };
 }
 
 /**
@@ -72,7 +81,9 @@ export class GitHubPullRequestHttpAdapter implements PullRequestStatusPort {
     if (!object(statuses) || !Array.isArray(statuses.statuses))
       throw invalidResponse("Invalid commit status payload");
     const conclusions = runs.check_runs.map((run: unknown) =>
-      object(run) && run.status === "completed" ? String(run.conclusion) : "",
+      object(run) && run.status === GitHubCheckRunStatus.Completed
+        ? String(run.conclusion)
+        : "",
     );
     const states = statuses.statuses.map((status: unknown) =>
       object(status) ? String(status.state) : "",
