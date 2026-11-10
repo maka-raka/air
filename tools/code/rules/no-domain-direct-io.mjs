@@ -19,13 +19,21 @@ export default {
       if (!forbiddenModules.test(source.value)) return;
       context.report({ node, messageId: "module", data: { name: source.value } });
     }
+    function isForbiddenCall(node) {
+      if (node.type !== "CallExpression") return false;
+      if (node.callee.type !== "Identifier") return false;
+      return forbiddenGlobals.has(node.callee.name);
+    }
+    function isForbiddenMember(node) {
+      if (node.type !== "MemberExpression") return false;
+      if (node.object.type !== "Identifier") return false;
+      return forbiddenObjects.has(node.object.name);
+    }
     function checkReference(node) {
-      if (node.type === "CallExpression" && node.callee.type === "Identifier" &&
-          forbiddenGlobals.has(node.callee.name)) {
+      if (isForbiddenCall(node)) {
         context.report({ node: node.callee, messageId: "global", data: { name: node.callee.name } });
       }
-      if (node.type === "MemberExpression" && node.object.type === "Identifier" &&
-          forbiddenObjects.has(node.object.name)) {
+      if (isForbiddenMember(node)) {
         context.report({ node: node.object, messageId: "global", data: { name: node.object.name } });
       }
     }
