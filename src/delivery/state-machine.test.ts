@@ -33,6 +33,11 @@ const statuses: readonly Status[] = [
   DeliveryStatus.Blocked,
   DeliveryStatus.Waiting,
 ];
+const advancePhases: readonly Phase[] = [
+  DeliveryPhase.Requirements,
+  DeliveryPhase.Design,
+  DeliveryPhase.Build,
+];
 const actors: readonly Actor[] = [
   DeliveryActor.Human,
   DeliveryActor.Agent,
@@ -252,7 +257,7 @@ for (const phase of phases)
         (action === DeliveryAction.Recover && status === DeliveryStatus.Working) ||
         (action === DeliveryAction.Advance &&
           status === DeliveryStatus.Waiting &&
-          ([DeliveryPhase.Requirements, DeliveryPhase.Design, DeliveryPhase.Build] as readonly Phase[]).includes(phase)) ||
+          advancePhases.includes(phase)) ||
         (action === DeliveryAction.DeployStage &&
           status === DeliveryStatus.Waiting &&
           phase === DeliveryPhase.Review) ||
