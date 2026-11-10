@@ -58,6 +58,19 @@ describe("GitHubCollaboratorAuthorization", () => {
     assert.equal(allowed, false);
   });
 
+  it("refuses the agent account even with admin access", async () => {
+    const permissions = new FakePermissions({
+      userId: 7,
+      permission: RepositoryPermission.Admin,
+    });
+    const auth = new GitHubCollaboratorAuthorization(permissions, 123, [7]);
+
+    const allowed = await auth.canIngest(sender);
+
+    assert.equal(allowed, false);
+    assert.deepEqual(permissions.logins, []);
+  });
+
   it("rejects another repository without a permission lookup", async () => {
     const { permissions, authorization: auth } = authorization({
       userId: 7,

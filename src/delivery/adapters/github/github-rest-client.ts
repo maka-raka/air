@@ -134,6 +134,7 @@ export class GitHubRestClient {
   /** `https://api.github.com/repos/<owner>/<repo>` without a trailing slash. */
   readonly repositoryUrl: string;
   readonly fullName: string;
+  private readonly baseUrl: string;
   private readonly request: HttpRequest;
   private readonly token: string;
   private readonly timeoutMs: number;
@@ -145,6 +146,7 @@ export class GitHubRestClient {
     );
     const owner = validateName(options.owner, "owner");
     const repo = validateName(options.repo, "repo");
+    this.baseUrl = baseUrl;
     this.fullName = `${owner}/${repo}`;
     this.repositoryUrl = `${baseUrl}/repos/${owner}/${repo}`;
     if (!options.token.trim()) throw new Error("GitHub token is required");
@@ -156,9 +158,18 @@ export class GitHubRestClient {
   }
 
   /** `path` is relative to the repository URL, e.g. `/issues/42/labels`. */
-  async call(
+  call(method: HttpMethod, path: string, body?: unknown): Promise<unknown> {
+    return this.send(method, this.repositoryUrl + path, body);
+  }
+
+  /** `path` is relative to the API root, e.g. `/user`. Read-only. */
+  callRoot(path: string): Promise<unknown> {
+    return this.send(HttpMethod.Get, this.baseUrl + path);
+  }
+
+  private async send(
     method: HttpMethod,
-    path: string,
+    url: string,
     body?: unknown,
   ): Promise<unknown> {
     const write = method !== "GET";
@@ -167,7 +178,7 @@ export class GitHubRestClient {
     let response: HttpResponse;
     try {
       response = await this.request(
-        this.repositoryUrl + path,
+        url,
         createRequestInit(method, this.token, controller.signal, body),
       );
     } catch {
