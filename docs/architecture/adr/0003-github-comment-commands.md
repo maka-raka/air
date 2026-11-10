@@ -33,7 +33,7 @@ Text after the command line is the reason. Matching is case-insensitive.
 - Only `issue_comment` with action `created` is accepted. Edited comments never re-run a command.
 - Comments on pull requests, comments from bots and comments that are not `/air` commands are dropped **before** authorization, so ordinary discussion costs no permission lookup and consumes no delivery claim.
 - An admitted sender always acts as `Human`. A comment can never act as Agent, Gate or Deployment workflow; those actors use their own trusted channels.
-- The comment supplies only `feedbackRecorded`, `reportRecorded` (non-empty reason) and `recoveryConfirmed` (explicit `recover`). Every other fact comes from `DeliveryEvidencePort` and cannot be asserted in comment text.
+- The comment supplies only `feedbackRecorded`, `reportRecorded` (non-empty reason), `recoveryConfirmed` (explicit `recover`) and `designApproved` (an `advance` by a write-access Human is the approval of the design it leaves; only T08 reads it). Every other fact comes from `DeliveryEvidencePort` and cannot be asserted in comment text.
 - Business rejections (`invalid-transition`, `not-authorized`, `precondition-failed`, `uncertain-write`, …) are replied to the issue and the delivery is completed. Throwing would release the claim and make a redelivery repeat the rejection, or retry an uncertain write, which ADR-0002 forbids.
 
 ## Consequences

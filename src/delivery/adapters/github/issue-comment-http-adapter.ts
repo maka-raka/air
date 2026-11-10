@@ -1,3 +1,4 @@
+import { GitHubUserType } from "./github-protocol.js";
 import {
   GitHubRestClient,
   HttpMethod,
@@ -64,7 +65,7 @@ function parseComment(value: unknown): IssueComment {
     body,
     authorId: user.id,
     authorLogin: user.login,
-    authorIsBot: user.type === "Bot",
+    authorIsBot: user.type === GitHubUserType.Bot,
     pullRequest: /\/pull\/\d+/.test(htmlUrl),
     updatedAt,
   };
