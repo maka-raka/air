@@ -34,7 +34,10 @@ const tampered = Buffer.from(body.toString().replace("42", "43"));
 const invalid = verifier.verify(tampered, headers(body));
 assert(!invalid.ok, "Tampered body must fail");
 if (!invalid.ok) {
-  assert(invalid.reason === WebhookRejection.InvalidSignature, "Signature failure expected");
+  assert(
+    invalid.reason === WebhookRejection.InvalidSignature,
+    "Signature failure expected",
+  );
 }
 const unsigned = verifier.verify(body, {});
 assert(!unsigned.ok, "Unsigned request must fail");
