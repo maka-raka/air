@@ -18,8 +18,8 @@
   },
   "devDependencies": {
     "typescript": "^5.9.3",
-    "@types/node": "^22.15.0",
-    "eslint": "^9.39.0",
+    "@types/node": "^26.6.6",
+    "eslint": "^10.14.0",
     "@typescript-eslint/parser": "^8.46.0",
     "prettier": "^3.6.2",
     "dependency-cruiser": "^18.0.0",
