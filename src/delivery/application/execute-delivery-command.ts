@@ -1,4 +1,4 @@
-import type { Position, Request } from "../delivery/state-machine.js";
+import type { Position, Request } from "../domain/state-machine.js";
 
 /** Application-facing result; adapters implement this contract structurally. */
 export const DeliveryFailure = {

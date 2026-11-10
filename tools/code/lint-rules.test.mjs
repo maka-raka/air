@@ -144,7 +144,7 @@ test("enforces delivery magic-string rule only in production", async () => {
   const [production] = await eslint.lintText(
     'if (status === "ready") work();',
     {
-      filePath: "src/delivery/example.ts",
+      filePath: "src/delivery/domain/example.ts",
     },
   );
   assert.ok(
@@ -153,7 +153,7 @@ test("enforces delivery magic-string rule only in production", async () => {
     ),
   );
   const [testFile] = await eslint.lintText('if (status === "ready") work();', {
-    filePath: "src/delivery/example.test.ts",
+    filePath: "src/delivery/domain/example.test.ts",
   });
   assert.ok(
     !testFile.messages.some(
@@ -187,7 +187,7 @@ ruleTester.run("air/no-webhook-magic-strings", noWebhookMagicStrings, {
 test("enforces webhook magic-string rule in application production only", async () => {
   const code = 'if (envelope.event === "issues") work();';
   const [production] = await eslint.lintText(code, {
-    filePath: "src/application/example.ts",
+    filePath: "src/delivery/application/example.ts",
   });
   assert.ok(
     production.messages.some(
@@ -195,7 +195,7 @@ test("enforces webhook magic-string rule in application production only", async 
     ),
   );
   const [testFile] = await eslint.lintText(code, {
-    filePath: "src/application/example.test.ts",
+    filePath: "src/delivery/application/example.test.ts",
   });
   assert.ok(
     !testFile.messages.some(

@@ -7,7 +7,7 @@ import type {
   ReadIssue,
   StoreFailure,
 } from "./delivery-state-store.js";
-import type { Request } from "../delivery/state-machine.js";
+import type { Request } from "../../domain/state-machine.js";
 
 let checks = 0;
 function assert(condition: boolean, message: string) {

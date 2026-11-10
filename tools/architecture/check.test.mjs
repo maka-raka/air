@@ -51,15 +51,19 @@ console.log("Architecture conformance negative fixtures passed");
 
 const productionModel = {
   components: [
-    { id: "delivery-domain", paths: ["src/delivery/**"], dependencies: [] },
+    {
+      id: "delivery-domain",
+      paths: ["src/delivery/domain/**"],
+      dependencies: [],
+    },
     {
       id: "delivery-application",
-      paths: ["src/application/**"],
+      paths: ["src/delivery/application/**"],
       dependencies: ["delivery-domain"],
     },
     {
-      id: "github-infrastructure",
-      paths: ["src/github/**"],
+      id: "delivery-adapters",
+      paths: ["src/delivery/adapters/**"],
       dependencies: ["delivery-domain"],
     },
     {
@@ -86,8 +90,14 @@ const productionModel = {
 };
 
 const allowedDependencies = [
-  ["src/application/command.ts", "src/delivery/state-machine.ts"],
-  ["src/github/store.ts", "src/delivery/state-machine.ts"],
+  [
+    "src/delivery/application/command.ts",
+    "src/delivery/domain/state-machine.ts",
+  ],
+  [
+    "src/delivery/adapters/github/store.ts",
+    "src/delivery/domain/state-machine.ts",
+  ],
   ["src/policy/application/use-case.ts", "src/policy/domain/policy.ts"],
   ["src/policy/adapters/repository.ts", "src/policy/application/port.ts"],
   ["src/policy/composition/root.ts", "src/policy/adapters/repository.ts"],
@@ -99,9 +109,18 @@ for (const [source, target] of allowedDependencies) {
 }
 
 const forbiddenDependencies = [
-  ["src/delivery/state-machine.ts", "src/application/command.ts"],
-  ["src/delivery/state-machine.ts", "src/github/store.ts"],
-  ["src/application/command.ts", "src/github/store.ts"],
+  [
+    "src/delivery/domain/state-machine.ts",
+    "src/delivery/application/command.ts",
+  ],
+  [
+    "src/delivery/domain/state-machine.ts",
+    "src/delivery/adapters/github/store.ts",
+  ],
+  [
+    "src/delivery/application/command.ts",
+    "src/delivery/adapters/github/store.ts",
+  ],
   ["src/policy/domain/policy.ts", "src/policy/adapters/repository.ts"],
   ["src/policy/application/use-case.ts", "src/policy/adapters/repository.ts"],
   ["src/policy/adapters/repository.ts", "src/policy/composition/root.ts"],

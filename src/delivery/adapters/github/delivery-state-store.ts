@@ -4,14 +4,14 @@ import {
   DeliveryStatus,
   DeliveryAction,
   DecisionReason,
-} from "../delivery/state-machine.js";
+} from "../../domain/state-machine.js";
 import type {
   Decision,
   Phase,
   Position,
   Request,
   Status,
-} from "../delivery/state-machine.js";
+} from "../../domain/state-machine.js";
 
 const phases: readonly string[] = Object.values(DeliveryPhase);
 const statuses: readonly string[] = Object.values(DeliveryStatus);
