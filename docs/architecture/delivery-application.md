@@ -74,7 +74,9 @@ Invariants:
 - A failed handler releases the lease and the original error propagates, so a redelivery can be processed again.
 - If `complete` fails after a successful handler, the lease expires and the delivery may be handled again: ingestion is **at-least-once**, not exactly-once.
 
-Not yet decided: lease TTL, the durable claim-store, evidence and reply adapters, composition, and the HTTP mapping of `in-progress` (GitHub does not retry failed deliveries automatically; redelivery is manual or API-driven).
+A local runtime (`src/delivery/composition/local.ts`) polls comments instead of receiving webhooks, with in-memory claims and fail-closed evidence; see [Local runtime](../engineering/local-runtime.md).
+
+Not yet decided: lease TTL for hosted use, the durable claim-store, evidence adapters, a hosted webhook entrypoint, and the HTTP mapping of `in-progress` (GitHub does not retry failed deliveries automatically; redelivery is manual or API-driven).
 
 ## Evidence lifecycle
 
