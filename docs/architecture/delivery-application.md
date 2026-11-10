@@ -49,24 +49,32 @@ Ports should be scoped to the consuming use case rather than forcing a universal
 
 ## Webhook ingestion
 
-`IngestGitHubWebhook` admits an HMAC-verified GitHub webhook and owns its delivery-ID claim lifecycle.
+Human commands arrive as `/air` issue comments ([ADR-0003](adr/0003-github-comment-commands.md)).
 
-Order: supported event/action → trusted actor authorization → `DeliveryClaimPort.acquire` → `AdmittedWebhookHandlerPort.handle` → `complete`.
+`IngestGitHubWebhook` admits an HMAC-verified `issue_comment.created` webhook and owns its delivery-ID claim lifecycle.
+
+Order: supported event/action → `/air` issue comment from a non-bot → trusted actor authorization → `DeliveryClaimPort.acquire` → `AdmittedWebhookHandlerPort.handle` → `complete`.
+
+`CommentCommandHandler` is the handler: `CommentCommandParser` → `DeliveryEvidencePort` → `ExecuteDeliveryCommand` (actor `Human`) → `CommandReplyPort`.
 
 | Port | Required behavior |
 | --- | --- |
 | `DeliveryClaimPort` | Durable and atomic across workers. `acquire` returns `acquired` (with a fenced lease), `in-progress` (live lease held elsewhere) or `completed`. Unsettled leases expire. Operations carrying a superseded token are ignored. |
-| `WebhookActorAuthorizationPort` | Resolves permissions from trusted GitHub identity, never from webhook payload claims. |
+| `WebhookActorAuthorizationPort` | Resolves permissions from trusted GitHub identity, never from webhook payload claims. Requires at least write access. |
 | `AdmittedWebhookHandlerPort` | Downstream processing; must be idempotent. |
+| `DeliveryEvidencePort` | Trusted facts for a command (task size, design approval, PR and checks, active run, observe verdict). Never derived from comment text. |
+| `CommandReplyPort` | Reports `applied`, `rejected` or `invalid-command` for the source comment. |
 
 Invariants:
 
-- Unsupported or unauthorized deliveries never touch the claim store, so they cannot consume a delivery ID.
+- Irrelevant, unsupported or unauthorized deliveries never touch the claim store, so they cannot consume a delivery ID.
+- Comment text can only set `feedbackRecorded`, `reportRecorded` and `recoveryConfirmed`.
+- Business rejections are replied to and completed; only infrastructure failures propagate.
 - A delivery becomes `completed` only after its handler succeeds.
 - A failed handler releases the lease and the original error propagates, so a redelivery can be processed again.
 - If `complete` fails after a successful handler, the lease expires and the delivery may be handled again: ingestion is **at-least-once**, not exactly-once.
 
-Not yet decided: lease TTL, the durable claim-store adapter, and the HTTP mapping of `in-progress` (GitHub does not retry failed deliveries automatically; redelivery is manual or API-driven).
+Not yet decided: lease TTL, the durable claim-store, evidence and reply adapters, composition, and the HTTP mapping of `in-progress` (GitHub does not retry failed deliveries automatically; redelivery is manual or API-driven).
 
 ## Evidence lifecycle
 
