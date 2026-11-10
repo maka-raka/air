@@ -1,32 +1,32 @@
 import fc from "fast-check";
-import { DeliveryTransitionPolicy } from "./state-machine.js";
+import { DeliveryTransitionPolicy, DeliveryPhase, DeliveryStatus, DeliveryActor, DeliveryAction, DecisionReason } from "./state-machine.js";
 import type { Action, Actor, Phase, Status } from "./state-machine.js";
 
 const transitionPolicy = new DeliveryTransitionPolicy();
 
 const phases: Phase[] = [
-  "requirements",
-  "design",
-  "build",
-  "review",
-  "accept",
-  "observe",
+  DeliveryPhase.Requirements,
+  DeliveryPhase.Design,
+  DeliveryPhase.Build,
+  DeliveryPhase.Review,
+  DeliveryPhase.Accept,
+  DeliveryPhase.Observe,
 ];
-const statuses: Status[] = ["ready", "working", "blocked", "waiting"];
+const statuses: Status[] = [DeliveryStatus.Ready, DeliveryStatus.Working, DeliveryStatus.Blocked, DeliveryStatus.Waiting];
 const actions: Action[] = [
-  "initialize",
-  "start",
-  "complete",
-  "block",
-  "retry",
-  "rework",
-  "advance",
-  "deploy-stage",
-  "deploy-prod",
-  "close",
-  "recover",
+  DeliveryAction.Initialize,
+  DeliveryAction.Start,
+  DeliveryAction.Complete,
+  DeliveryAction.Block,
+  DeliveryAction.Retry,
+  DeliveryAction.Rework,
+  DeliveryAction.Advance,
+  DeliveryAction.DeployStage,
+  DeliveryAction.DeployProd,
+  DeliveryAction.Close,
+  DeliveryAction.Recover,
 ];
-const actors: Actor[] = ["human", "agent", "gate", "deployment-workflow"];
+const actors: Actor[] = [DeliveryActor.Human, DeliveryActor.Agent, DeliveryActor.Gate, DeliveryActor.DeploymentWorkflow];
 const arb = fc.record({
   phase: fc.constantFrom(...phases),
   status: fc.constantFrom(...statuses),
@@ -50,13 +50,13 @@ fc.assert(
 );
 fc.assert(
   fc.property(
-    fc.constantFrom(...actors.filter((a) => a !== "human")),
+    fc.constantFrom(...actors.filter((a) => a !== DeliveryActor.Human)),
     (actor) => {
       const result = transitionPolicy.decide(null, {
-        action: "initialize",
+        action: DeliveryAction.Initialize,
         actor,
       });
-      return !result.allowed && result.reason === "not-authorized";
+      return !result.allowed && result.reason === DecisionReason.NotAuthorized;
     },
   ),
   { numRuns: 250, seed: 20261104 },
