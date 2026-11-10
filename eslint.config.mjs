@@ -1,11 +1,24 @@
 import noComplexCondition from "./tools/code/rules/no-complex-condition.mjs";
+import noDeliveryMagicStrings from "./tools/code/rules/no-delivery-magic-strings.mjs";
 import tsParser from "@typescript-eslint/parser";
 
 export default [
   {
     files: ["src/**/*.ts", "tools/**/*.mjs"],
-    plugins: { air: { rules: { "no-complex-condition": noComplexCondition } } },
+    plugins: {
+      air: {
+        rules: {
+          "no-complex-condition": noComplexCondition,
+          "no-delivery-magic-strings": noDeliveryMagicStrings,
+        },
+      },
+    },
     rules: { "air/no-complex-condition": "error" },
+  },
+  {
+    files: ["src/delivery/**/*.ts", "src/github/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: { "air/no-delivery-magic-strings": "error" },
   },
   {
     files: ["src/**/*.ts"],

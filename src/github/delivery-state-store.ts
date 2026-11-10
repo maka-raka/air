@@ -1,4 +1,10 @@
-import { DeliveryTransitionPolicy } from "../delivery/state-machine.js";
+import {
+  DeliveryTransitionPolicy,
+  DeliveryPhase,
+  DeliveryStatus,
+  DeliveryAction,
+  DecisionReason,
+} from "../delivery/state-machine.js";
 import type {
   Decision,
   Phase,
@@ -7,15 +13,8 @@ import type {
   Status,
 } from "../delivery/state-machine.js";
 
-const phases: readonly string[] = [
-  "requirements",
-  "design",
-  "build",
-  "review",
-  "accept",
-  "observe",
-];
-const statuses: readonly string[] = ["ready", "working", "blocked", "waiting"];
+const phases: readonly string[] = Object.values(DeliveryPhase);
+const statuses: readonly string[] = Object.values(DeliveryStatus);
 const activePattern = /^air:([^:]+):([^:]+)$/;
 export type Snapshot = Readonly<{
   labels: readonly string[];
@@ -125,7 +124,10 @@ export class GitHubDeliveryStateStore {
       return fail("invalid-state", String(e));
     }
     if (before.closed) return fail("invalid-transition", "Issue is closed");
-    if (before.position === null && request.action !== "initialize")
+    if (
+      before.position === null &&
+      request.action !== DeliveryAction.Initialize
+    )
       return fail("invalid-state", "Missing active state");
     const decision: Decision = this.transitionPolicy.decide(
       before.position,
