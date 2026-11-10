@@ -9,7 +9,6 @@ const forbiddenModules = new Set([
   "process",
   "worker_threads",
 ]);
-const forbiddenModulePath = /^(?:node:)?([^/]+)(?:\/.*)?$/;
 const forbiddenGlobals = new Set(["fetch", "setTimeout", "setInterval"]);
 const forbiddenObjects = new Set(["process", "console"]);
 
@@ -26,9 +25,10 @@ export default {
   create(context) {
     function checkModule(node, source) {
       if (typeof source?.value !== "string") return;
-      const match = forbiddenModulePath.exec(source.value);
-      if (!match) return;
-      if (!forbiddenModules.has(match[1])) return;
+      const moduleName = source.value
+        .replace(/^node:/, "")
+        .split("/")[0];
+      if (!forbiddenModules.has(moduleName)) return;
       context.report({
         node,
         messageId: "module",
