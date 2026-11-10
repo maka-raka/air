@@ -2,12 +2,10 @@ import {
   GitHubDeliveryStateStore,
   parseSnapshot,
 } from "./delivery-state-store.js";
-import type {
-  IssueLabelsPort,
-  ReadIssue,
-  StoreFailure,
-} from "./delivery-state-store.js";
-import type { Request } from "../delivery/state-machine.js";
+import type { IssueLabelsPort, ReadIssue } from "./delivery-state-store.js";
+import type { Request } from "../../domain/state-machine.js";
+import { ExecuteDeliveryCommand } from "../../application/execute-delivery-command.js";
+import type { DeliveryFailure } from "../../application/execute-delivery-command.js";
 
 let checks = 0;
 function assert(condition: boolean, message: string) {
@@ -44,15 +42,20 @@ const start: Request = {
   actor: "agent",
   facts: { preflightPassed: true, activeRun: false },
 };
+const execute = (fake: Fake, request: Request) =>
+  new ExecuteDeliveryCommand(new GitHubDeliveryStateStore(fake)).execute({
+    issue: 42,
+    request,
+  });
 async function success(fake: Fake, request: Request, expected: string | null) {
-  const result = await new GitHubDeliveryStateStore(fake).apply(42, request);
+  const result = await execute(fake, request);
   assert(result.ok, "expected success: " + JSON.stringify(result));
   if (expected)
     assert(fake.issue.labels.includes(expected), "missing expected state");
   return result;
 }
-async function failure(fake: Fake, request: Request, reason: StoreFailure) {
-  const result = await new GitHubDeliveryStateStore(fake).apply(42, request);
+async function failure(fake: Fake, request: Request, reason: DeliveryFailure) {
+  const result = await execute(fake, request);
   assert(
     !result.ok && result.reason === reason,
     "expected " + reason + ": " + JSON.stringify(result),

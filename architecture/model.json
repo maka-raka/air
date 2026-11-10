@@ -4,17 +4,38 @@
     {
       "id": "delivery-domain",
       "paths": [
-        "src/delivery/**"
+        "src/delivery/domain/**"
       ],
       "dependencies": []
     },
     {
-      "id": "github-infrastructure",
+      "id": "delivery-application",
       "paths": [
-        "src/github/**"
+        "src/delivery/application/**"
       ],
       "dependencies": [
         "delivery-domain"
+      ]
+    },
+    {
+      "id": "delivery-adapters",
+      "paths": [
+        "src/delivery/adapters/**"
+      ],
+      "dependencies": [
+        "delivery-domain",
+        "delivery-application"
+      ]
+    },
+    {
+      "id": "delivery-composition",
+      "paths": [
+        "src/delivery/composition/**"
+      ],
+      "dependencies": [
+        "delivery-domain",
+        "delivery-application",
+        "delivery-adapters"
       ]
     },
     {
@@ -52,15 +73,6 @@
         "policy-domain",
         "policy-application",
         "policy-adapters"
-      ]
-    },
-    {
-      "id": "delivery-application",
-      "paths": [
-        "src/application/**"
-      ],
-      "dependencies": [
-        "delivery-domain"
       ]
     }
   ]

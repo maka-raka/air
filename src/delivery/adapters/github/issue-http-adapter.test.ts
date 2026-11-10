@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { StatusCodes } from "http-status-codes";
 
 import { GitHubDeliveryStateStore } from "./delivery-state-store.js";
+import { ExecuteDeliveryCommand } from "../../application/execute-delivery-command.js";
 import {
   GitHubApiError,
   GitHubIssueHttpAdapter,
@@ -329,15 +330,20 @@ describe("GitHubIssueHttpAdapter", () => {
     it("preserves unrelated labels when advancing delivery state", async () => {
       // Arrange
       const { client, issue, requests } = createIssueServer();
-      const store = new GitHubDeliveryStateStore(client);
+      const useCase = new ExecuteDeliveryCommand(
+        new GitHubDeliveryStateStore(client),
+      );
 
       // Act
-      const result = await store.apply(ISSUE_NUMBER, {
-        action: "start",
-        actor: "agent",
-        facts: {
-          preflightPassed: true,
-          activeRun: false,
+      const result = await useCase.execute({
+        issue: ISSUE_NUMBER,
+        request: {
+          action: "start",
+          actor: "agent",
+          facts: {
+            preflightPassed: true,
+            activeRun: false,
+          },
         },
       });
 

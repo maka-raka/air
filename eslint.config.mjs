@@ -22,17 +22,36 @@ export default [
     rules: { "air/no-complex-condition": "error" },
   },
   {
-    files: ["src/delivery/**/*.ts", "src/github/**/*.ts"],
+    files: ["src/delivery/domain/**/*.ts", "src/delivery/adapters/**/*.ts"],
     ignores: ["**/*.test.ts"],
     rules: { "air/no-delivery-magic-strings": "error" },
   },
   {
-    files: ["src/application/**/*.ts"],
+    files: ["src/delivery/application/**/*.ts"],
     ignores: ["**/*.test.ts"],
     rules: { "air/no-webhook-magic-strings": "error" },
   },
   {
-    files: ["src/delivery/**/*.ts", "src/policy/domain/**/*.ts"],
+    files: ["src/delivery/adapters/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/domain/state-machine.js"],
+              importNames: ["DeliveryStateMachine", "DeliveryTransitionPolicy"],
+              message:
+                "Adapters persist state; transition decisions belong to application use cases.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/delivery/domain/**/*.ts", "src/policy/domain/**/*.ts"],
     ignores: ["**/*.test.ts"],
     rules: { "air/no-domain-direct-io": "error" },
   },

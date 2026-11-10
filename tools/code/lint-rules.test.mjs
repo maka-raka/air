@@ -144,7 +144,7 @@ test("enforces delivery magic-string rule only in production", async () => {
   const [production] = await eslint.lintText(
     'if (status === "ready") work();',
     {
-      filePath: "src/delivery/example.ts",
+      filePath: "src/delivery/domain/example.ts",
     },
   );
   assert.ok(
@@ -153,7 +153,7 @@ test("enforces delivery magic-string rule only in production", async () => {
     ),
   );
   const [testFile] = await eslint.lintText('if (status === "ready") work();', {
-    filePath: "src/delivery/example.test.ts",
+    filePath: "src/delivery/domain/example.test.ts",
   });
   assert.ok(
     !testFile.messages.some(
@@ -187,7 +187,7 @@ ruleTester.run("air/no-webhook-magic-strings", noWebhookMagicStrings, {
 test("enforces webhook magic-string rule in application production only", async () => {
   const code = 'if (envelope.event === "issues") work();';
   const [production] = await eslint.lintText(code, {
-    filePath: "src/application/example.ts",
+    filePath: "src/delivery/application/example.ts",
   });
   assert.ok(
     production.messages.some(
@@ -195,11 +195,35 @@ test("enforces webhook magic-string rule in application production only", async 
     ),
   );
   const [testFile] = await eslint.lintText(code, {
-    filePath: "src/application/example.test.ts",
+    filePath: "src/delivery/application/example.test.ts",
   });
   assert.ok(
     !testFile.messages.some(
       ({ ruleId }) => ruleId === "air/no-webhook-magic-strings",
     ),
   );
+});
+
+test("forbids delivery adapters from deciding transitions", async () => {
+  const code =
+    'import { DeliveryTransitionPolicy } from "../../domain/state-machine.js";\nexport const p = new DeliveryTransitionPolicy();';
+  const restricted = (messages) =>
+    messages.some(({ ruleId }) => ruleId === "no-restricted-imports");
+  const [adapter] = await eslint.lintText(code, {
+    filePath: "src/delivery/adapters/github/store.ts",
+  });
+  assert.ok(restricted(adapter.messages));
+  const [application] = await eslint.lintText(code, {
+    filePath: "src/delivery/application/command.ts",
+  });
+  assert.ok(!restricted(application.messages));
+  const [adapterTest] = await eslint.lintText(code, {
+    filePath: "src/delivery/adapters/github/store.test.ts",
+  });
+  assert.ok(!restricted(adapterTest.messages));
+  const [constants] = await eslint.lintText(
+    'import { DeliveryPhase } from "../../domain/state-machine.js";\nexport const p = DeliveryPhase;',
+    { filePath: "src/delivery/adapters/github/store.ts" },
+  );
+  assert.ok(!restricted(constants.messages));
 });

@@ -1,16 +1,13 @@
-import { ExecuteDeliveryCommand } from "./execute-delivery-command.js";
-import { GitHubDeliveryStateStore } from "../github/delivery-state-store.js";
-import type {
-  IssueLabelsPort,
-  ReadIssue,
-} from "../github/delivery-state-store.js";
+import { ExecuteDeliveryCommand } from "../../application/execute-delivery-command.js";
+import { GitHubDeliveryStateStore } from "./delivery-state-store.js";
+import type { IssueLabelsPort, ReadIssue } from "./delivery-state-store.js";
 import {
   DeliveryAction,
   DeliveryActor,
   DeliveryPhase,
   DeliveryStatus,
-} from "../delivery/state-machine.js";
-import type { Request } from "../delivery/state-machine.js";
+} from "../../domain/state-machine.js";
+import type { Request } from "../../domain/state-machine.js";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);

@@ -61,6 +61,18 @@ The current checker covers source-file ownership and static relative imports.
 It does not prove semantic SRP, runtime topology, deployment, dynamic imports,
 or C4 diagram synchronization. Those require additional validators and review.
 
+Each bounded context uses `src/<context>/{domain,application,adapters,composition}`.
+Additional automated guards:
+
+- dependency-cruiser: application never imports adapters or composition;
+  adapters never import composition; every production module is reachable
+  from a test (catches dead modules and compatibility shims).
+- ESLint `no-restricted-imports`: delivery adapters may import domain types
+  and constants but not `DeliveryStateMachine` or `DeliveryTransitionPolicy`,
+  so persistence adapters cannot decide transitions.
+
+These guards check imports, not intent. Review still owns SRP.
+
 ## Code and testing conventions
 
 - Name domain entities, value objects, adapters, and their files in the singular
