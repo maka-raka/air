@@ -1,6 +1,7 @@
 import noComplexCondition from "./rules/no-complex-condition.mjs";
 import noWebhookMagicStrings from "./rules/no-webhook-magic-strings.mjs";
 import noDeliveryMagicStrings from "./rules/no-delivery-magic-strings.mjs";
+import noMagicStringComparisons from "./rules/no-magic-string-comparisons.mjs";
 import tsParser from "@typescript-eslint/parser";
 import assert from "node:assert/strict";
 import { describe, it, test } from "node:test";
@@ -226,4 +227,36 @@ test("forbids delivery adapters from deciding transitions", async () => {
     { filePath: "src/delivery/adapters/github/store.ts" },
   );
   assert.ok(!restricted(constants.messages));
+});
+
+ruleTester.run("air/no-magic-string-comparisons", noMagicStringComparisons, {
+  valid: [
+    "if (run.status === CheckRunStatus.Completed) work();",
+    'if (typeof value === "string") work();',
+    'if ("number" !== typeof value) work();',
+    'if (value === "") work();',
+    "if (count === 3) work();",
+    'const state = "open";',
+    "switch (state) { case State.Open: work(); }",
+  ],
+  invalid: [
+    'if (run.status === "completed") work();',
+    'if ("Bot" === user.type) work();',
+    'if (method != "GET") work();',
+    'switch (state) { case "open": work(); }',
+  ].map((code) => ({ code, errors: [{ messageId: "magic" }] })),
+});
+
+test("enforces magic-string comparisons in production code only", async () => {
+  const code = 'if (run.status === "completed") work();';
+  const found = (messages) =>
+    messages.some(({ ruleId }) => ruleId === "air/no-magic-string-comparisons");
+  const [production] = await eslint.lintText(code, {
+    filePath: "src/delivery/adapters/github/example.ts",
+  });
+  const [testFile] = await eslint.lintText(code, {
+    filePath: "src/delivery/adapters/github/example.test.ts",
+  });
+  assert.ok(found(production.messages));
+  assert.ok(!found(testFile.messages));
 });

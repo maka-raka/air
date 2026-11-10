@@ -10,8 +10,10 @@ function isCursor(value: unknown): value is PollCursor {
   return Number.isSafeInteger(lastCommentId) && Number(lastCommentId) >= 0;
 }
 
+const FILE_NOT_FOUND = "ENOENT";
+
 function missing(error: unknown): boolean {
-  return (error as NodeJS.ErrnoException)?.code === "ENOENT";
+  return (error as NodeJS.ErrnoException)?.code === FILE_NOT_FOUND;
 }
 
 /** Persists the poll cursor as JSON; writes atomically via rename. */
