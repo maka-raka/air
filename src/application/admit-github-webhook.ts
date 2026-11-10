@@ -7,6 +7,14 @@ export type WebhookEnvelope = Readonly<{
   senderId: number;
 }>;
 
+export const GitHubWebhookEvent = {
+  Issues: "issues",
+} as const;
+
+export const GitHubIssueAction = {
+  Labeled: "labeled",
+} as const;
+
 export const IngestionDecision = {
   Accepted: "accepted",
   Duplicate: "duplicate",
@@ -38,8 +46,8 @@ export class AdmitGitHubWebhook {
   ) {}
 
   async execute(envelope: WebhookEnvelope): Promise<IngestionDecision> {
-    if (envelope.event !== "issues") return IngestionDecision.Unsupported;
-    if (envelope.action !== "labeled") return IngestionDecision.Unsupported;
+    if (envelope.event !== GitHubWebhookEvent.Issues) return IngestionDecision.Unsupported;
+    if (envelope.action !== GitHubIssueAction.Labeled) return IngestionDecision.Unsupported;
 
     const authorized = await this.authorization.canIngest(
       envelope.repository.id,
