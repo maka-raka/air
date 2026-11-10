@@ -1,4 +1,4 @@
-import { decideTransition } from "../delivery/state-machine.js";
+import { DeliveryTransitionPolicy } from "../delivery/state-machine.js";
 import type {
   Decision,
   Phase,
@@ -101,7 +101,10 @@ function matches(a: Snapshot, b: Snapshot): boolean {
  * Never automatically retry ambiguous writes.
  */
 export class GitHubDeliveryStateStore {
-  constructor(private readonly port: IssueLabelsPort) {}
+  constructor(
+    private readonly port: IssueLabelsPort,
+    private readonly transitionPolicy: DeliveryTransitionPolicy = new DeliveryTransitionPolicy(),
+  ) {}
   async load(issue: number): Promise<StoreResult> {
     try {
       const snapshot = parseSnapshot(await this.port.read(issue));
@@ -124,7 +127,7 @@ export class GitHubDeliveryStateStore {
     if (before.closed) return fail("invalid-transition", "Issue is closed");
     if (before.position === null && request.action !== "initialize")
       return fail("invalid-state", "Missing active state");
-    const decision: Decision = decideTransition(before.position, request);
+    const decision: Decision = this.transitionPolicy.decide(before.position, request);
     if (!decision.allowed) return fail(decision.reason);
     const next = decision.next;
     let latest: ReadIssue;
