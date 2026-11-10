@@ -50,7 +50,10 @@ export class GitHubWebhookVerifier {
     const signature = headers["x-hub-signature-256"];
     const deliveryId = headers["x-github-delivery"];
     const event = headers["x-github-event"];
-    if (!signature || !deliveryId || !event) {
+    if (!signature || !deliveryId) {
+      return { ok: false, reason: WebhookRejection.InvalidHeaders };
+    }
+    if (!event) {
       return { ok: false, reason: WebhookRejection.InvalidHeaders };
     }
     if (!/^[0-9a-f]{64}$/.test(signature.slice(7))) {
@@ -82,7 +85,10 @@ export class GitHubWebhookVerifier {
     const repository = payload.repository;
     const issue = payload.issue;
     const sender = payload.sender;
-    if (!record(repository) || !record(issue) || !record(sender)) {
+    if (!record(repository) || !record(issue)) {
+      return { ok: false, reason: WebhookRejection.InvalidPayload };
+    }
+    if (!record(sender)) {
       return { ok: false, reason: WebhookRejection.InvalidPayload };
     }
     if (!positiveId(repository.id) || repository.id !== this.repositoryId) {
