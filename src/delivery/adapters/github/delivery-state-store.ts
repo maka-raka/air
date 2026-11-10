@@ -1,52 +1,27 @@
-import {
-  DeliveryTransitionPolicy,
-  DeliveryPhase,
-  DeliveryStatus,
-  DeliveryAction,
-  DecisionReason,
-} from "../../domain/state-machine.js";
+import { DeliveryPhase, DeliveryStatus } from "../../domain/state-machine.js";
+import type { Phase, Position, Status } from "../../domain/state-machine.js";
+import { DeliveryFailure } from "../../application/execute-delivery-command.js";
 import type {
-  Decision,
-  Phase,
-  Position,
-  Request,
-  Status,
-} from "../../domain/state-machine.js";
+  DeliveryResult,
+  DeliverySnapshot,
+  DeliveryStatePort,
+} from "../../application/execute-delivery-command.js";
 
 const phases: readonly string[] = Object.values(DeliveryPhase);
 const statuses: readonly string[] = Object.values(DeliveryStatus);
 const activePattern = /^air:([^:]+):([^:]+)$/;
-export type Snapshot = Readonly<{
-  labels: readonly string[];
-  position: Position | null;
-  closed: boolean;
-}>;
 export type ReadIssue = Readonly<{
   labels: readonly string[];
   closed: boolean;
 }>;
+/** Adapter-internal seam to the GitHub Issues HTTP client. */
 export interface IssueLabelsPort {
   read(issue: number): Promise<ReadIssue>;
   replaceLabels(issue: number, labels: readonly string[]): Promise<void>;
   closeIssue(issue: number): Promise<void>;
 }
-export const StoreFailure = {
-  InvalidState: "invalid-state",
-  StateConflict: "state-conflict",
-  InvalidTransition: "invalid-transition",
-  NotAuthorized: "not-authorized",
-  GateRejected: "gate-rejected",
-  PreconditionFailed: "precondition-failed",
-  WriteFailed: "write-failed",
-  UncertainWrite: "uncertain-write",
-  PartialCompletion: "partial-completion",
-} as const;
-export type StoreFailure = (typeof StoreFailure)[keyof typeof StoreFailure];
-export type StoreResult =
-  | { ok: true; snapshot: Snapshot; replayed?: boolean }
-  | { ok: false; reason: StoreFailure; detail?: string };
 
-const fail = (reason: StoreFailure, detail?: string): StoreResult => ({
+const fail = (reason: DeliveryFailure, detail?: string): DeliveryResult => ({
   ok: false,
   reason,
   detail,
@@ -58,7 +33,7 @@ function activeLabels(labels: readonly string[]): string[] {
     return !!match && phases.includes(match[1]) && statuses.includes(match[2]);
   });
 }
-export function parseSnapshot(issue: ReadIssue): Snapshot {
+export function parseSnapshot(issue: ReadIssue): DeliverySnapshot {
   const active = activeLabels(issue.labels);
   const malformed = issue.labels.filter(
     (label) =>
@@ -90,82 +65,58 @@ function same(a: ReadIssue, b: ReadIssue): boolean {
     a.closed === b.closed && equal([...a.labels].sort(), [...b.labels].sort())
   );
 }
-function matches(a: Snapshot, b: Snapshot): boolean {
+function matches(a: DeliverySnapshot, b: DeliverySnapshot): boolean {
   return (
     a.closed === b.closed &&
     JSON.stringify(a.position) === JSON.stringify(b.position)
   );
 }
 /**
+ * Maps delivery state to GitHub issue labels. Persistence only: transition
+ * decisions belong to the application use case.
  * GitHub Issues labels have no compare-and-swap. This is best-effort conflict
  * detection, not a distributed lock or an exactly-once write guarantee.
  * Never automatically retry ambiguous writes.
  */
-export class GitHubDeliveryStateStore {
-  constructor(
-    private readonly port: IssueLabelsPort,
-    private readonly transitionPolicy: DeliveryTransitionPolicy = new DeliveryTransitionPolicy(),
-  ) {}
-  async load(issue: number): Promise<StoreResult> {
+export class GitHubDeliveryStateStore implements DeliveryStatePort {
+  constructor(private readonly port: IssueLabelsPort) {}
+
+  async load(issue: number): Promise<DeliveryResult> {
     try {
-      const snapshot = parseSnapshot(await this.port.read(issue));
-      return snapshot.position === null && !snapshot.closed
-        ? fail("invalid-state", "Missing active label; initialize explicitly")
-        : { ok: true, snapshot };
+      return { ok: true, snapshot: parseSnapshot(await this.port.read(issue)) };
     } catch (e) {
-      return fail("invalid-state", String(e));
+      return fail(DeliveryFailure.InvalidState, String(e));
     }
   }
-  async apply(issue: number, request: Request): Promise<StoreResult> {
-    let first: ReadIssue;
-    let before: Snapshot;
-    try {
-      first = await this.port.read(issue);
-      before = parseSnapshot(first);
-    } catch (e) {
-      return fail("invalid-state", String(e));
-    }
-    if (before.closed) return fail("invalid-transition", "Issue is closed");
-    if (
-      before.position === null &&
-      request.action !== DeliveryAction.Initialize
-    )
-      return fail("invalid-state", "Missing active state");
-    const decision: Decision = this.transitionPolicy.decide(
-      before.position,
-      request,
-    );
-    if (!decision.allowed) return fail(decision.reason);
-    const next = decision.next;
+
+  async save(
+    issue: number,
+    expected: DeliverySnapshot,
+    next: Position | null,
+  ): Promise<DeliveryResult> {
     let latest: ReadIssue;
     try {
       latest = await this.port.read(issue);
     } catch (e) {
       return fail(
-        "state-conflict",
+        DeliveryFailure.StateConflict,
         "Unable to confirm unchanged state: " + String(e),
       );
     }
-    if (!same(first, latest))
-      return fail("state-conflict", "Issue changed before write");
-    const labels = next
-      ? [
-          ...first.labels.filter((label) => !activeLabels([label]).length),
-          stateLabel(next),
-        ]
-      : [...first.labels];
+    if (!same(expected, latest))
+      return fail(DeliveryFailure.StateConflict, "Issue changed before write");
+    const inactive = expected.labels.filter(
+      (label) => !activeLabels([label]).length,
+    );
+    const labels = next ? [...inactive, stateLabel(next)] : inactive;
     try {
-      if (next) await this.port.replaceLabels(issue, labels);
-      else {
-        await this.port.replaceLabels(
-          issue,
-          labels.filter((label) => !activeLabels([label]).length),
-        );
+      await this.port.replaceLabels(issue, labels);
+      if (!next) {
         try {
           await this.port.closeIssue(issue);
         } catch (e) {
           return fail(
-            "partial-completion",
+            DeliveryFailure.PartialCompletion,
             "Active label removed but issue close failed or is uncertain: " +
               String(e),
           );
@@ -173,26 +124,22 @@ export class GitHubDeliveryStateStore {
       }
     } catch (e) {
       // A transport failure may occur after GitHub accepted the write.
-      return fail("uncertain-write", String(e));
+      return fail(DeliveryFailure.UncertainWrite, String(e));
     }
-    let after: Snapshot;
+    let after: DeliverySnapshot;
     try {
       after = parseSnapshot(await this.port.read(issue));
     } catch (e) {
-      return fail("uncertain-write", "Cannot verify write: " + String(e));
+      return fail(
+        DeliveryFailure.UncertainWrite,
+        "Cannot verify write: " + String(e),
+      );
     }
-    const expected: Snapshot = {
-      labels: next
-        ? labels
-        : labels.filter((label) => !activeLabels([label]).length),
-      position: next,
-      closed: next === null,
-    };
-    if (!matches(after, expected))
-      return fail("uncertain-write", "Read-back state mismatch");
+    if (!matches(after, { labels, position: next, closed: next === null }))
+      return fail(DeliveryFailure.UncertainWrite, "Read-back state mismatch");
     if (next && !equal([...after.labels].sort(), [...labels].sort()))
       return fail(
-        "state-conflict",
+        DeliveryFailure.StateConflict,
         "Concurrent label modification detected after write",
       );
     return { ok: true, snapshot: after };

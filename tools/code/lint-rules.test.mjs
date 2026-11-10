@@ -203,3 +203,27 @@ test("enforces webhook magic-string rule in application production only", async 
     ),
   );
 });
+
+test("forbids delivery adapters from deciding transitions", async () => {
+  const code =
+    'import { DeliveryTransitionPolicy } from "../../domain/state-machine.js";\nexport const p = new DeliveryTransitionPolicy();';
+  const restricted = (messages) =>
+    messages.some(({ ruleId }) => ruleId === "no-restricted-imports");
+  const [adapter] = await eslint.lintText(code, {
+    filePath: "src/delivery/adapters/github/store.ts",
+  });
+  assert.ok(restricted(adapter.messages));
+  const [application] = await eslint.lintText(code, {
+    filePath: "src/delivery/application/command.ts",
+  });
+  assert.ok(!restricted(application.messages));
+  const [adapterTest] = await eslint.lintText(code, {
+    filePath: "src/delivery/adapters/github/store.test.ts",
+  });
+  assert.ok(!restricted(adapterTest.messages));
+  const [constants] = await eslint.lintText(
+    'import { DeliveryPhase } from "../../domain/state-machine.js";\nexport const p = DeliveryPhase;',
+    { filePath: "src/delivery/adapters/github/store.ts" },
+  );
+  assert.ok(!restricted(constants.messages));
+});

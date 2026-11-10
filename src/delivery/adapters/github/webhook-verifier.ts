@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import type { WebhookEnvelope } from "../../application/ingest-github-webhook.js";
 
 export const WebhookRejection = {
   InvalidSignature: "invalid-signature",
@@ -8,15 +9,6 @@ export const WebhookRejection = {
 } as const;
 export type WebhookRejection =
   (typeof WebhookRejection)[keyof typeof WebhookRejection];
-
-export type WebhookEnvelope = Readonly<{
-  deliveryId: string;
-  event: string;
-  action: string;
-  issue: number;
-  repository: Readonly<{ id: number; fullName: string }>;
-  senderId: number;
-}>;
 
 export type WebhookVerification =
   | Readonly<{ ok: true; envelope: WebhookEnvelope }>

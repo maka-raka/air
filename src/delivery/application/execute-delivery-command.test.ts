@@ -1,156 +1,190 @@
-import { ExecuteDeliveryCommand } from "./execute-delivery-command.js";
-import { GitHubDeliveryStateStore } from "../adapters/github/delivery-state-store.js";
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import {
+  DeliveryFailure,
+  ExecuteDeliveryCommand,
+} from "./execute-delivery-command.js";
 import type {
-  IssueLabelsPort,
-  ReadIssue,
-} from "../adapters/github/delivery-state-store.js";
+  DeliveryResult,
+  DeliverySnapshot,
+  DeliveryStatePort,
+} from "./execute-delivery-command.js";
 import {
   DeliveryAction,
   DeliveryActor,
   DeliveryPhase,
   DeliveryStatus,
 } from "../domain/state-machine.js";
-import type { Request } from "../domain/state-machine.js";
+import type { Position, Request } from "../domain/state-machine.js";
 
-function assert(condition: boolean, message: string): void {
-  if (!condition) throw new Error(message);
-}
+type SaveCall = Readonly<{
+  issue: number;
+  expected: DeliverySnapshot;
+  next: Position | null;
+}>;
 
-class FakeGitHubIssue implements IssueLabelsPort {
-  private issue: ReadIssue;
-  reads = 0;
-  writes = 0;
-  beforeSecondRead?: () => void;
-  writeFailure = false;
+class FakeState implements DeliveryStatePort {
+  readonly loads: number[] = [];
+  readonly saves: SaveCall[] = [];
 
-  constructor(labels: readonly string[]) {
-    this.issue = { labels: [...labels], closed: false };
+  constructor(
+    private readonly loaded: DeliveryResult,
+    private readonly saved: DeliveryResult = loaded,
+  ) {}
+
+  async load(issue: number): Promise<DeliveryResult> {
+    this.loads.push(issue);
+    return this.loaded;
   }
 
-  async read(): Promise<ReadIssue> {
-    this.reads++;
-    if (this.reads === 2) this.beforeSecondRead?.();
-    return { labels: [...this.issue.labels], closed: this.issue.closed };
-  }
-
-  async replaceLabels(
-    _issue: number,
-    labels: readonly string[],
-  ): Promise<void> {
-    this.writes++;
-    this.issue = { ...this.issue, labels: [...labels] };
-    if (this.writeFailure) throw new Error("Transport lost after write");
-  }
-
-  async closeIssue(): Promise<void> {
-    this.issue = { ...this.issue, closed: true };
-  }
-
-  setLabels(labels: readonly string[]): void {
-    this.issue = { ...this.issue, labels: [...labels] };
-  }
-
-  get labels(): readonly string[] {
-    return this.issue.labels;
+  async save(
+    issue: number,
+    expected: DeliverySnapshot,
+    next: Position | null,
+  ): Promise<DeliveryResult> {
+    this.saves.push({ issue, expected, next });
+    return this.saved;
   }
 }
 
-const request: Request = {
+const ready: DeliverySnapshot = {
+  labels: ["air:requirements:ready", "priority:high"],
+  position: {
+    phase: DeliveryPhase.Requirements,
+    status: DeliveryStatus.Ready,
+  },
+  closed: false,
+};
+
+const start: Request = {
   action: DeliveryAction.Start,
   actor: DeliveryActor.Agent,
   facts: { preflightPassed: true, activeRun: false },
 };
 
-async function main(): Promise<void> {
-  const issue = new FakeGitHubIssue([
-    "air:requirements:ready",
-    "priority:high",
-  ]);
-  const useCase = new ExecuteDeliveryCommand(
-    new GitHubDeliveryStateStore(issue),
-  );
-  const result = await useCase.execute({ issue: 42, request });
-  assert(result.ok, "Expected successful delivery transition");
-  assert(
-    result.ok &&
-      result.snapshot.position?.phase === DeliveryPhase.Requirements &&
-      result.snapshot.position.status === DeliveryStatus.Working,
-    "Unexpected state after transition",
-  );
-  assert(
-    issue.labels.includes("priority:high"),
-    "Must preserve unrelated labels",
-  );
-  assert(issue.writes === 1, "Must write exactly once for successful command");
+const loaded = (snapshot: DeliverySnapshot): DeliveryResult => ({
+  ok: true,
+  snapshot,
+});
 
-  const duplicate = await useCase.execute({ issue: 42, request });
-  assert(
-    !duplicate.ok && duplicate.reason === "invalid-transition",
-    "Duplicate command must not reapply the transition",
-  );
-  assert(issue.writes === 1, "Duplicate command must not cause a write");
+describe("ExecuteDeliveryCommand", () => {
+  it("saves the policy decision against the loaded snapshot", async () => {
+    const state = new FakeState(loaded(ready));
+    const useCase = new ExecuteDeliveryCommand(state);
 
-  const invalid = await useCase.execute({ issue: 0, request });
-  assert(
-    !invalid.ok && invalid.reason === "invalid-state",
-    "Invalid issue must fail",
-  );
-  assert(issue.writes === 1, "Invalid issue must not write");
+    const result = await useCase.execute({ issue: 42, request: start });
 
-  const unauthorized = new FakeGitHubIssue(["air:requirements:ready"]);
-  const unauthorizedUseCase = new ExecuteDeliveryCommand(
-    new GitHubDeliveryStateStore(unauthorized),
-  );
-  const rejected = await unauthorizedUseCase.execute({
-    issue: 42,
-    request: { ...request, actor: DeliveryActor.Human },
+    assert.equal(result.ok, true);
+    assert.deepEqual(state.saves, [
+      {
+        issue: 42,
+        expected: ready,
+        next: {
+          phase: DeliveryPhase.Requirements,
+          status: DeliveryStatus.Working,
+        },
+      },
+    ]);
   });
-  assert(
-    !rejected.ok && rejected.reason === "not-authorized",
-    "Unauthorized actor must be rejected",
-  );
-  assert(unauthorized.writes === 0, "Unauthorized actor must not write");
 
-  const conflicting = new FakeGitHubIssue(["air:requirements:ready"]);
-  conflicting.beforeSecondRead = () =>
-    conflicting.setLabels(["air:requirements:blocked"]);
-  const conflictResult = await new ExecuteDeliveryCommand(
-    new GitHubDeliveryStateStore(conflicting),
-  ).execute({ issue: 42, request });
-  assert(
-    !conflictResult.ok && conflictResult.reason === "state-conflict",
-    "Concurrent state change must be rejected",
-  );
-  assert(conflicting.writes === 0, "Conflict must not write");
+  it("returns the save outcome unchanged", async () => {
+    const conflict: DeliveryResult = {
+      ok: false,
+      reason: DeliveryFailure.StateConflict,
+    };
+    const state = new FakeState(loaded(ready), conflict);
+    const useCase = new ExecuteDeliveryCommand(state);
 
-  const ambiguous = new FakeGitHubIssue(["air:requirements:ready"]);
-  ambiguous.writeFailure = true;
-  const ambiguousResult = await new ExecuteDeliveryCommand(
-    new GitHubDeliveryStateStore(ambiguous),
-  ).execute({ issue: 42, request });
-  assert(
-    !ambiguousResult.ok && ambiguousResult.reason === "uncertain-write",
-    "Ambiguous writes must be surfaced, never retried",
-  );
-  assert(ambiguous.writes === 1, "Ambiguous write must not be retried");
+    const result = await useCase.execute({ issue: 42, request: start });
 
-  const initialization = new FakeGitHubIssue(["priority:high"]);
-  const initialized = await new ExecuteDeliveryCommand(
-    new GitHubDeliveryStateStore(initialization),
-  ).execute({
-    issue: 42,
-    request: {
-      action: DeliveryAction.Initialize,
-      actor: DeliveryActor.Human,
-    },
+    assert.deepEqual(result, conflict);
   });
-  assert(
-    initialized.ok &&
-      initialized.snapshot.position?.status === DeliveryStatus.Ready,
-    "Issue must initialize into ready state",
-  );
 
-  console.log("Delivery application integration passed");
-}
+  it("rejects an invalid issue number without touching state", async () => {
+    const state = new FakeState(loaded(ready));
+    const useCase = new ExecuteDeliveryCommand(state);
 
-await main();
+    const result = await useCase.execute({ issue: 0, request: start });
+
+    assert.equal(!result.ok && result.reason, DeliveryFailure.InvalidState);
+    assert.deepEqual(state.loads, []);
+  });
+
+  it("propagates a load failure without saving", async () => {
+    const failure: DeliveryResult = {
+      ok: false,
+      reason: DeliveryFailure.InvalidState,
+      detail: "Malformed labels",
+    };
+    const state = new FakeState(failure);
+    const useCase = new ExecuteDeliveryCommand(state);
+
+    const result = await useCase.execute({ issue: 42, request: start });
+
+    assert.deepEqual(result, failure);
+    assert.deepEqual(state.saves, []);
+  });
+
+  it("rejects commands on a closed delivery", async () => {
+    const state = new FakeState(
+      loaded({ labels: [], position: null, closed: true }),
+    );
+    const useCase = new ExecuteDeliveryCommand(state);
+
+    const result = await useCase.execute({ issue: 42, request: start });
+
+    assert.equal(
+      !result.ok && result.reason,
+      DeliveryFailure.InvalidTransition,
+    );
+    assert.deepEqual(state.saves, []);
+  });
+
+  it("requires initialization when no active state exists", async () => {
+    const state = new FakeState(
+      loaded({ labels: [], position: null, closed: false }),
+    );
+    const useCase = new ExecuteDeliveryCommand(state);
+
+    const result = await useCase.execute({ issue: 42, request: start });
+
+    assert.equal(!result.ok && result.reason, DeliveryFailure.InvalidState);
+    assert.deepEqual(state.saves, []);
+  });
+
+  it("initializes a delivery without an active state", async () => {
+    const empty: DeliverySnapshot = {
+      labels: [],
+      position: null,
+      closed: false,
+    };
+    const state = new FakeState(loaded(empty));
+    const useCase = new ExecuteDeliveryCommand(state);
+
+    await useCase.execute({
+      issue: 42,
+      request: {
+        action: DeliveryAction.Initialize,
+        actor: DeliveryActor.Human,
+      },
+    });
+
+    assert.deepEqual(
+      state.saves.map(({ next }) => next),
+      [{ phase: DeliveryPhase.Requirements, status: DeliveryStatus.Ready }],
+    );
+  });
+
+  it("returns the policy rejection without saving", async () => {
+    const state = new FakeState(loaded(ready));
+    const useCase = new ExecuteDeliveryCommand(state);
+
+    const result = await useCase.execute({
+      issue: 42,
+      request: { ...start, actor: DeliveryActor.Human },
+    });
+
+    assert.equal(!result.ok && result.reason, DeliveryFailure.NotAuthorized);
+    assert.deepEqual(state.saves, []);
+  });
+});

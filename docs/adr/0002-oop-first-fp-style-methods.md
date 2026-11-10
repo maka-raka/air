@@ -35,7 +35,7 @@ External GitHub operations are performed by adapters rather than the domain poli
 | `src/policy/domain/policy.ts` | `PolicyResolver` class | Preserve class ownership and deterministic resolution |
 | `src/delivery/adapters/github/issue-http-adapter.ts` | `GitHubIssueHttpAdapter` class | Preserve I/O boundary |
 | `src/delivery/domain/state-machine.ts` | `DeliveryStateMachine.decide()` and `DeliveryTransitionPolicy` classes | Migration complete; preserve behavioral and authorization tests |
-| `src/delivery/adapters/github/delivery-state-store.ts` | GitHub state adapter | Review side-effect boundaries and conflict handling during subsequent changes |
+| `src/delivery/adapters/github/delivery-state-store.ts` | GitHub state adapter | Persistence only (`load`/`save`); transition decisions moved to `ExecuteDeliveryCommand` |
 | `src/delivery/application/execute-delivery-command.ts` | Not on main at audit time; proposed in PR #33 | Review class-owned use case and port dependency before merging |
 
 This audit documents observed ownership, not proof of SOLID compliance or method purity. Issue #24 remains open until implementation and verification acceptance criteria are met.
