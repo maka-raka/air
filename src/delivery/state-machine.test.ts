@@ -150,8 +150,8 @@ const authority: Record<Action, Actor> = {
   [DeliveryAction.Retry]: DeliveryActor.Human,
   [DeliveryAction.Rework]: DeliveryActor.Human,
   [DeliveryAction.Advance]: DeliveryActor.Human,
-  DeliveryAction.DeployStage: DeliveryActor.DeploymentWorkflow,
-  DeliveryAction.DeployProd: DeliveryActor.DeploymentWorkflow,
+  [DeliveryAction.DeployStage]: DeliveryActor.DeploymentWorkflow,
+  [DeliveryAction.DeployProd]: DeliveryActor.DeploymentWorkflow,
   [DeliveryAction.Close]: DeliveryActor.Human,
   [DeliveryAction.Recover]: DeliveryActor.Human,
 };
