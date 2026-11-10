@@ -55,6 +55,23 @@ Exit codes: `0` applied or recorded, `2` rejected by policy (the reason is print
 
 Also set `AIR_AGENT_LOGIN` for `npm run local:run`, so `/air` comments written by the agent account are refused as Human commands.
 
+## Deployment events
+
+After a deployment, a workflow reports it with a **third** account ([ADR-0006](../architecture/adr/0006-deployment-events.md)). It needs `AIR_DEPLOY_TOKEN`, `AIR_DEPLOY_LOGIN` and `AIR_AGENT_LOGIN`:
+
+```yaml
+# .github/workflows/deploy.yml (excerpt, after your deploy step)
+- run: npx air-deploy stage "$ISSUE" "$GITHUB_SHA"
+  env:
+    AIR_REPOSITORY: ${{ github.repository }}
+    AIR_DEPLOY_TOKEN: ${{ secrets.AIR_DEPLOY_TOKEN }}
+    AIR_DEPLOY_LOGIN: air-deployer
+    AIR_AGENT_LOGIN: air-agent
+    AIR_ENVIRONMENT_STAGE: staging   # your GitHub environment name
+```
+
+`review:waiting` advances to `accept:ready` and `accept:waiting` advances to `observe:ready`. Any other state is preserved and gets a `deployment-state-mismatch` comment. The `air:deployed:<env>` label is always added.
+
 ## What works locally
 
 | Command | Locally |

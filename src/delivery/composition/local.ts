@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
+import { isEntryPoint, repository } from "./config.js";
 import { CommentCommandHandler } from "../application/comment-command-handler.js";
 import { ExecuteDeliveryCommand } from "../application/execute-delivery-command.js";
 import { IngestGitHubWebhook } from "../application/ingest-github-webhook.js";
@@ -53,10 +53,7 @@ export function readLocalConfig(
 ): LocalConfig {
   const token = env.AIR_GITHUB_TOKEN ?? env.GITHUB_TOKEN ?? "";
   if (!token.trim()) throw new Error("Set AIR_GITHUB_TOKEN");
-  const parts = (env.AIR_REPOSITORY ?? "").split("/");
-  const [owner, repo] = parts;
-  if (parts.length !== 2) throw new Error("Set AIR_REPOSITORY=<owner>/<repo>");
-  if (!owner || !repo) throw new Error("Set AIR_REPOSITORY=<owner>/<repo>");
+  const { owner, repo } = repository(env);
   const pollIntervalMs = integer(env.AIR_POLL_INTERVAL_MS, 20_000);
   if (pollIntervalMs < MIN_POLL_INTERVAL_MS)
     throw new Error(`AIR_POLL_INTERVAL_MS must be >= ${MIN_POLL_INTERVAL_MS}`);
@@ -167,10 +164,7 @@ async function main(): Promise<void> {
   await runLocal(poller, config.pollIntervalMs, controller.signal, consoleLog);
 }
 
-if (
-  process.argv[1] &&
-  resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-)
+if (isEntryPoint(import.meta.url))
   main().catch((error) => {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;

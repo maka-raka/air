@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 import { randomUUID } from "node:crypto";
-import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { AgentCommands } from "../application/agent-commands.js";
 import { EvaluatePhaseGate } from "../application/phase-gate.js";
 import { GitHubPullRequestHttpAdapter } from "../adapters/github/pull-request-http-adapter.js";
@@ -12,6 +9,7 @@ import type { ReportFacts } from "../application/delivery-record.js";
 import { ExecuteDeliveryCommand } from "../application/execute-delivery-command.js";
 import type { DeliveryResult } from "../application/execute-delivery-command.js";
 import { DeliveryPhase } from "../domain/state-machine.js";
+import { isEntryPoint, repository } from "./config.js";
 import type { Phase } from "../domain/state-machine.js";
 import { GitHubDeliveryRecordStore } from "../adapters/github/delivery-record-store.js";
 import { GitHubDeliveryStateStore } from "../adapters/github/delivery-state-store.js";
@@ -159,10 +157,7 @@ export function readAgentConfig(
   if (!token.trim()) throw new Error("Set AIR_AGENT_TOKEN");
   const agentLogin = env.AIR_AGENT_LOGIN ?? "";
   if (!agentLogin) throw new Error("Set AIR_AGENT_LOGIN");
-  const parts = (env.AIR_REPOSITORY ?? "").split("/");
-  const [owner, repo] = parts;
-  if (parts.length !== 2) throw new Error("Set AIR_REPOSITORY=<owner>/<repo>");
-  if (!owner || !repo) throw new Error("Set AIR_REPOSITORY=<owner>/<repo>");
+  const { owner, repo } = repository(env);
   const runTtlMs = Number(env.AIR_RUN_TTL_MS || 2 * 60 * 60 * 1000);
   if (!Number.isSafeInteger(runTtlMs) || runTtlMs <= 0)
     throw new Error("Invalid AIR_RUN_TTL_MS");
@@ -286,11 +281,7 @@ async function main(): Promise<void> {
   process.exitCode = outcome.result.ok ? ExitCode.Ok : ExitCode.Rejected;
 }
 
-// Compare real paths: an npm `bin` symlink must still run main().
-if (
-  process.argv[1] &&
-  realpathSync(resolve(process.argv[1])) === fileURLToPath(import.meta.url)
-)
+if (isEntryPoint(import.meta.url))
   main().catch((error) => {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = ExitCode.Error;
