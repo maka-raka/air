@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   ClaimOutcome,
-  GitHubIssueAction,
+  GitHubCommentAction,
   GitHubWebhookEvent,
   IngestGitHubWebhook,
   IngestionDecision,
@@ -81,11 +81,14 @@ function fixture(
 ) {
   const envelope: WebhookEnvelope = {
     deliveryId: "12345678-1234-1234-1234-123456789abc",
-    event: GitHubWebhookEvent.Issues,
-    action: GitHubIssueAction.Labeled,
+    event: GitHubWebhookEvent.IssueComment,
+    action: GitHubCommentAction.Created,
     issue: 42,
     repository: { id: 123, fullName: "owner/repo" },
     senderId: 7,
+    senderIsBot: false,
+    pullRequest: false,
+    comment: { id: 900, body: "/air rework\nPlease cover edge cases." },
   };
   const claims = new FakeClaims();
   const authorization = new FakeAuthorization(options.allowed ?? true);
@@ -222,8 +225,15 @@ describe("IngestGitHubWebhook", () => {
     assert.deepEqual(handler.handled, []);
   });
 
-  for (const unsupported of [{ event: "push" }, { action: "opened" }]) {
-    it(`rejects unsupported ${Object.keys(unsupported)[0]} before calling ports`, async () => {
+  for (const unsupported of [
+    { event: "issues" },
+    { action: "edited" },
+    { pullRequest: true },
+    { senderIsBot: true },
+    { comment: null },
+    { comment: { id: 900, body: "Looks good to me" } },
+  ]) {
+    it(`rejects ${JSON.stringify(unsupported)} before calling ports`, async () => {
       const { envelope, claims, authorization, handler, useCase } = fixture();
 
       const decision = await useCase.execute({ ...envelope, ...unsupported });

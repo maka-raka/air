@@ -1,5 +1,9 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { WebhookEnvelope } from "../../application/ingest-github-webhook.js";
+import { GitHubWebhookEvent } from "../../application/ingest-github-webhook.js";
+import type {
+  WebhookComment,
+  WebhookEnvelope,
+} from "../../application/ingest-github-webhook.js";
 
 export const WebhookRejection = {
   InvalidSignature: "invalid-signature",
@@ -22,6 +26,15 @@ function record(value: unknown): value is Record<string, unknown> {
 
 function positiveId(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+/** Undefined means malformed; null means the payload carries no comment. */
+function webhookComment(value: unknown): WebhookComment | null | undefined {
+  if (value === undefined) return null;
+  if (!record(value) || !positiveId(value.id)) return undefined;
+  return typeof value.body === "string"
+    ? { id: value.id, body: value.body }
+    : undefined;
 }
 
 /**
@@ -62,7 +75,7 @@ export class GitHubWebhookVerifier {
     if (!timingSafeEqual(expected, actual)) {
       return { ok: false, reason: WebhookRejection.InvalidSignature };
     }
-    if (event !== "issues") {
+    if (event !== GitHubWebhookEvent.IssueComment) {
       return { ok: false, reason: WebhookRejection.UnsupportedEvent };
     }
     let payload: unknown;
@@ -95,6 +108,10 @@ export class GitHubWebhookVerifier {
     if (typeof payload.action !== "string") {
       return { ok: false, reason: WebhookRejection.InvalidPayload };
     }
+    const comment = webhookComment(payload.comment);
+    if (comment === undefined) {
+      return { ok: false, reason: WebhookRejection.InvalidPayload };
+    }
     return {
       ok: true,
       envelope: {
@@ -104,6 +121,9 @@ export class GitHubWebhookVerifier {
         issue: issue.number,
         repository: { id: repository.id, fullName: repository.full_name },
         senderId: sender.id,
+        senderIsBot: sender.type === "Bot",
+        pullRequest: issue.pull_request !== undefined,
+        comment,
       },
     };
   }

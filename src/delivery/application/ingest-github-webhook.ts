@@ -1,3 +1,7 @@
+import { CommentCommandParser } from "./comment-command-parser.js";
+
+export type WebhookComment = Readonly<{ id: number; body: string }>;
+
 export type WebhookEnvelope = Readonly<{
   deliveryId: string;
   event: string;
@@ -5,14 +9,18 @@ export type WebhookEnvelope = Readonly<{
   issue: number;
   repository: Readonly<{ id: number; fullName: string }>;
   senderId: number;
+  senderIsBot: boolean;
+  /** GitHub delivers pull request comments as issue_comment too. */
+  pullRequest: boolean;
+  comment: WebhookComment | null;
 }>;
 
 export const GitHubWebhookEvent = {
-  Issues: "issues",
+  IssueComment: "issue_comment",
 } as const;
 
-export const GitHubIssueAction = {
-  Labeled: "labeled",
+export const GitHubCommentAction = {
+  Created: "created",
 } as const;
 
 export const IngestionDecision = {
@@ -58,7 +66,10 @@ export interface DeliveryClaimPort {
 }
 
 export interface WebhookActorAuthorizationPort {
-  /** Resolve permissions from trusted GitHub identity, never webhook claims. */
+  /**
+   * Resolve permissions from trusted GitHub identity, never webhook claims.
+   * Must require at least write access: an admitted sender acts as Human.
+   */
   canIngest(repositoryId: number, senderId: number): Promise<boolean>;
 }
 
@@ -68,8 +79,10 @@ export interface AdmittedWebhookHandlerPort {
 }
 
 /**
- * Admits a verified GitHub webhook and owns its claim lifecycle.
+ * Admits a verified GitHub comment command and owns its claim lifecycle.
  * Call only after HMAC verification.
+ * Irrelevant comments are filtered before any port call, so ordinary
+ * discussion costs no authorization lookup and consumes no claim.
  * Guarantees: a delivery is completed only after its handler succeeds; a
  * failed handler releases the lease and rethrows. Delivery is at-least-once.
  */
@@ -78,13 +91,15 @@ export class IngestGitHubWebhook {
     private readonly claims: DeliveryClaimPort,
     private readonly authorization: WebhookActorAuthorizationPort,
     private readonly handler: AdmittedWebhookHandlerPort,
+    private readonly parser: CommentCommandParser = new CommentCommandParser(),
   ) {}
 
   async execute(envelope: WebhookEnvelope): Promise<IngestionDecision> {
-    if (envelope.event !== GitHubWebhookEvent.Issues)
+    if (envelope.event !== GitHubWebhookEvent.IssueComment)
       return IngestionDecision.Unsupported;
-    if (envelope.action !== GitHubIssueAction.Labeled)
+    if (envelope.action !== GitHubCommentAction.Created)
       return IngestionDecision.Unsupported;
+    if (!this.isIssueCommand(envelope)) return IngestionDecision.Unsupported;
 
     const authorized = await this.authorization.canIngest(
       envelope.repository.id,
@@ -114,5 +129,13 @@ export class IngestGitHubWebhook {
       throw failure;
     }
     await this.claims.complete(lease);
+  }
+
+  /** Human-authored /air comment on an issue (not a pull request). */
+  private isIssueCommand(envelope: WebhookEnvelope): boolean {
+    if (envelope.pullRequest || envelope.senderIsBot) return false;
+    return (
+      envelope.comment !== null && this.parser.recognizes(envelope.comment.body)
+    );
   }
 }
