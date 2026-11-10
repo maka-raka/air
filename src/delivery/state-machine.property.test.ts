@@ -52,7 +52,10 @@ fc.assert(
   fc.property(
     fc.constantFrom(...actors.filter((a) => a !== "human")),
     (actor) => {
-      const result = transitionPolicy.decide(null, { action: "initialize", actor });
+      const result = transitionPolicy.decide(null, {
+        action: "initialize",
+        actor,
+      });
       return !result.allowed && result.reason === "not-authorized";
     },
   ),
