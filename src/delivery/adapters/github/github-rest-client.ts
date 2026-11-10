@@ -114,7 +114,7 @@ function createRequestInit(
     "X-GitHub-Api-Version": "2022-11-28",
   };
 
-  if (method !== "GET") {
+  if (method !== HttpMethod.Get) {
     headers["Content-Type"] = "application/json";
   }
 
@@ -172,7 +172,7 @@ export class GitHubRestClient {
     url: string,
     body?: unknown,
   ): Promise<unknown> {
-    const write = method !== "GET";
+    const write = method !== HttpMethod.Get;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     let response: HttpResponse;

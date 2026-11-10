@@ -1,7 +1,9 @@
 /** Pure policy model. Local policies can only add constraints. */
+export const PolicyMode = { Enforced: "enforced" } as const;
+
 export type Rule = Readonly<{
   id: string;
-  mode: "enforced";
+  mode: typeof PolicyMode.Enforced;
   forbidden?: readonly string[];
   minimumRuns?: number;
 }>;
@@ -52,7 +54,7 @@ export class PolicyResolver {
 
       rules.set(extra.id, {
         id: extra.id,
-        mode: "enforced",
+        mode: PolicyMode.Enforced,
         ...(hasForbidden ? { forbidden } : {}),
         ...(hasMinimumRuns ? { minimumRuns } : {}),
       });
@@ -72,7 +74,10 @@ export class PolicyResolver {
     const ids = new Set<string>();
 
     for (const rule of policy.rules) {
-      if (!/^[a-z][a-z0-9.-]*$/.test(rule.id) || rule.mode !== "enforced") {
+      if (
+        !/^[a-z][a-z0-9.-]*$/.test(rule.id) ||
+        rule.mode !== PolicyMode.Enforced
+      ) {
         throw new PolicyResolutionError("Invalid or duplicate rule");
       }
 
