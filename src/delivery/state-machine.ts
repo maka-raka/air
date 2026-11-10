@@ -132,7 +132,9 @@ export class DeliveryTransitionPolicy {
         const valid =
           (phase === "requirements" &&
             ((to === "design" && f.taskSize === "L") ||
-              (to === "build" && f.taskSize === "S" && f.miniDesignRecorded))) ||
+              (to === "build" &&
+                f.taskSize === "S" &&
+                f.miniDesignRecorded))) ||
           (phase === "design" && to === "build" && f.designApproved) ||
           (phase === "build" && to === "review" && f.prExists && f.checksGreen);
         return valid && to
