@@ -1,5 +1,6 @@
 import noComplexCondition from "./tools/code/rules/no-complex-condition.mjs";
 import noDeliveryMagicStrings from "./tools/code/rules/no-delivery-magic-strings.mjs";
+import noStringLiteralTypeAliases from "./tools/code/rules/no-string-literal-type-aliases.mjs";
 import tsParser from "@typescript-eslint/parser";
 
 export default [
@@ -10,6 +11,7 @@ export default [
         rules: {
           "no-complex-condition": noComplexCondition,
           "no-delivery-magic-strings": noDeliveryMagicStrings,
+          "no-string-literal-type-aliases": noStringLiteralTypeAliases,
         },
       },
     },
@@ -24,6 +26,7 @@ export default [
     files: ["src/**/*.ts"],
     languageOptions: { parser: tsParser },
     rules: {
+      "air/no-string-literal-type-aliases": "error",
       "no-nested-ternary": "error",
       "no-restricted-syntax": [
         "error",
