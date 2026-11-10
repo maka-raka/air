@@ -6,7 +6,7 @@ import type {
   DeliveryClaimPort,
   WebhookActorAuthorizationPort,
 } from "./admit-github-webhook.js";
-import type { WebhookEnvelope } from "../github/webhook-verifier.js";
+import type { WebhookEnvelope } from "./admit-github-webhook.js";
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
