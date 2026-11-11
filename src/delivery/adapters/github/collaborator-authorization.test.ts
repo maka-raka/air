@@ -27,7 +27,10 @@ function authorization(access: CollaboratorPermission) {
   const permissions = new FakePermissions(access);
   return {
     permissions,
-    authorization: new GitHubCollaboratorAuthorization(permissions, 123),
+    authorization: new GitHubCollaboratorAuthorization(permissions, 123, {
+      approverIds: [7],
+      excludedUserIds: [77],
+    }),
   };
 }
 
@@ -58,18 +61,62 @@ describe("GitHubCollaboratorAuthorization", () => {
     assert.equal(allowed, false);
   });
 
-  it("refuses the agent account even with admin access", async () => {
+  it("refuses a service account even with admin access", async () => {
     const permissions = new FakePermissions({
-      userId: 7,
+      userId: 77,
       permission: RepositoryPermission.Admin,
     });
-    const auth = new GitHubCollaboratorAuthorization(permissions, 123, [7]);
+    const auth = new GitHubCollaboratorAuthorization(permissions, 123, {
+      approverIds: [7],
+      excludedUserIds: [77, 88],
+    });
 
-    const allowed = await auth.canIngest(sender);
+    const allowed = await auth.canIngest({ ...sender, senderId: 77 });
 
     assert.equal(allowed, false);
     assert.deepEqual(permissions.logins, []);
   });
+
+  it("refuses a writer who is not on the approver list", async () => {
+    const permissions = new FakePermissions({
+      userId: 8,
+      permission: RepositoryPermission.Admin,
+    });
+    const auth = new GitHubCollaboratorAuthorization(permissions, 123, {
+      approverIds: [7],
+      excludedUserIds: [],
+    });
+
+    const allowed = await auth.canIngest({ ...sender, senderId: 8 });
+
+    assert.equal(allowed, false);
+    assert.deepEqual(permissions.logins, []);
+  });
+
+  it("refuses an approver who lost write access", async () => {
+    const { authorization: auth } = authorization({
+      userId: 7,
+      permission: RepositoryPermission.Read,
+    });
+
+    assert.equal(await auth.canIngest(sender), false);
+  });
+
+  for (const [name, policy] of [
+    ["no approvers", { approverIds: [], excludedUserIds: [] }],
+    ["a service approver", { approverIds: [7], excludedUserIds: [7] }],
+  ] as const) {
+    it(`refuses to start with ${name}`, () => {
+      const permissions = new FakePermissions({
+        userId: 7,
+        permission: RepositoryPermission.Admin,
+      });
+
+      assert.throws(
+        () => new GitHubCollaboratorAuthorization(permissions, 123, policy),
+      );
+    });
+  }
 
   it("rejects another repository without a permission lookup", async () => {
     const { permissions, authorization: auth } = authorization({

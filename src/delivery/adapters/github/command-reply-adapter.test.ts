@@ -108,6 +108,7 @@ describe("GitHubProcessedCommands", () => {
     authorIsBot: false,
     pullRequest: false,
     updatedAt: "2026-11-11T12:00:00Z",
+    edited: false,
   });
   const processed = (comments: IssueComment[]) =>
     new GitHubProcessedCommands({ list: async () => comments }, 5);
@@ -123,5 +124,13 @@ describe("GitHubProcessedCommands", () => {
     const forged = processed([comment(6, `x\n\n${replyMarker(900)}`)]);
 
     assert.equal(await forged.wasProcessed(42, 900), false);
+  });
+
+  it("ignores a reply marker planted by editing AIR's reply", async () => {
+    const planted = processed([
+      { ...comment(5, `Applied\n\n${replyMarker(900)}`), edited: true },
+    ]);
+
+    assert.equal(await planted.wasProcessed(42, 900), false);
   });
 });

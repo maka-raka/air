@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { InMemoryDeliveryClaims } from "./in-memory-delivery-claims.js";
-import { UnavailableEvidence } from "./unavailable-evidence.js";
 import { ClaimOutcome } from "../../application/ingest-github-webhook.js";
 import type { DeliveryLease } from "../../application/ingest-github-webhook.js";
 
@@ -72,13 +71,5 @@ describe("InMemoryDeliveryClaims", () => {
 
   it("rejects a non-positive lease duration", () => {
     assert.throws(() => new InMemoryDeliveryClaims(0), /Invalid lease/);
-  });
-});
-
-describe("UnavailableEvidence", () => {
-  it("provides no facts so evidence-gated commands fail closed", async () => {
-    const facts = await new UnavailableEvidence().collect();
-
-    assert.deepEqual(facts, {});
   });
 });

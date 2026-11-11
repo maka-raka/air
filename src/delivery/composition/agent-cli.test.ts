@@ -13,12 +13,41 @@ import type { HttpRequest } from "../adapters/github/github-rest-client.js";
 import { DeliveryFailure } from "../application/execute-delivery-command.js";
 
 const AGENT = { id: 77, login: "air-agent" };
+const OPERATOR = { id: 9, login: "air-bot" };
+const users: Record<string, { id: number; login: string }> = {
+  "air-agent": AGENT,
+  "air-bot": OPERATOR,
+  mallory: { id: 66, login: "mallory" },
+};
 
 /** In-memory GitHub API: one issue, comments, and a token owner. */
 class FakeGitHub {
   labels: string[] = ["air:requirements:ready"];
+  readonly events: unknown[] = [
+    {
+      event: "labeled",
+      label: { name: "air:requirements:ready" },
+      actor: OPERATOR,
+    },
+  ];
   readonly comments: { body: string; user: typeof AGENT }[] = [];
   constructor(private readonly viewer = AGENT) {}
+
+  /** Sets the issue state as if `actor` had added the label. */
+  setState(label: string, actor: { id: number; login: string }) {
+    this.labels = [label];
+    this.events.push({ event: "labeled", label: { name: label }, actor });
+  }
+
+  private recordAdded(next: readonly string[]) {
+    const added = next.filter((name) => !this.labels.includes(name));
+    for (const name of added)
+      this.events.push({
+        event: "labeled",
+        label: { name },
+        actor: this.viewer,
+      });
+  }
 
   readonly request: HttpRequest = async (url, init) => {
     const path = new URL(url).pathname.replace("/repos/example/air", "");
@@ -29,12 +58,16 @@ class FakeGitHub {
       json: async () => payload,
     });
     if (path === "/user") return respond(this.viewer);
+    const login = /^\/users\/([^/]+)$/.exec(path)?.[1];
+    if (login && users[login]) return respond(users[login]);
+    if (path === "/issues/42/events") return respond(this.events);
     if (path === "/issues/42" && init.method === "GET")
       return respond({
         state: "open",
         labels: this.labels.map((name) => ({ name })),
       });
     if (path === "/issues/42/labels") {
+      this.recordAdded(body.labels);
       this.labels = body.labels;
       return respond([]);
     }
@@ -50,6 +83,7 @@ class FakeGitHub {
           user: { ...user, type: "User" },
           issue_url: "https://api.github.com/repos/example/air/issues/42",
           html_url: `https://github.com/example/air/issues/42#c${i}`,
+          created_at: "2026-11-11T12:00:00Z",
           updated_at: "2026-11-11T12:00:00Z",
         })),
       );
@@ -61,7 +95,7 @@ const config: AgentConfig = {
   owner: "example",
   repo: "air",
   token: "agent-token",
-  agentLogin: "air-agent",
+  accounts: { operatorLogin: "air-bot", agentLogin: "air-agent" },
   runTtlMs: 7_200_000,
 };
 
@@ -188,6 +222,18 @@ describe("agent CLI composition", () => {
     );
   });
 
+  it("refuses to start from a state label a person added by hand", async () => {
+    const github = new FakeGitHub();
+    github.setState("air:build:ready", users.mallory!);
+    const { commands } = await composeAgent(config, github.request);
+
+    const result = await commands.start(42);
+
+    assert.equal(!result.ok && result.reason, DeliveryFailure.UntrustedState);
+    assert.deepEqual(github.labels, ["air:build:ready"]);
+    assert.deepEqual(github.comments, []);
+  });
+
   it("refuses to run with another account's token", async () => {
     const github = new FakeGitHub({ id: 5, login: "maintainer" });
 
@@ -255,24 +301,29 @@ describe("readAgentConfig", () => {
   it("requires a dedicated agent token and login", () => {
     const base = { AIR_REPOSITORY: "example/air" };
 
+    const withToken = { ...base, AIR_AGENT_TOKEN: "t" };
+    const full = {
+      ...withToken,
+      AIR_OPERATOR_LOGIN: "air-bot",
+      AIR_AGENT_LOGIN: "air-agent",
+    };
+
     assert.throws(() => readAgentConfig(base), /AIR_AGENT_TOKEN/);
+    assert.throws(() => readAgentConfig(withToken), /AIR_OPERATOR_LOGIN/);
     assert.throws(
-      () => readAgentConfig({ ...base, AIR_AGENT_TOKEN: "t" }),
+      () => readAgentConfig({ ...full, AIR_AGENT_LOGIN: "" }),
       /AIR_AGENT_LOGIN/,
     );
-    assert.deepEqual(
-      readAgentConfig({
-        ...base,
-        AIR_AGENT_TOKEN: "t",
-        AIR_AGENT_LOGIN: "air-agent",
-      }),
-      {
-        owner: "example",
-        repo: "air",
-        token: "t",
-        agentLogin: "air-agent",
-        runTtlMs: 7_200_000,
-      },
+    assert.throws(
+      () => readAgentConfig({ ...full, AIR_OPERATOR_LOGIN: "air-agent" }),
+      /different accounts/,
     );
+    assert.deepEqual(readAgentConfig(full), {
+      owner: "example",
+      repo: "air",
+      token: "t",
+      accounts: { operatorLogin: "air-bot", agentLogin: "air-agent" },
+      runTtlMs: 7_200_000,
+    });
   });
 });

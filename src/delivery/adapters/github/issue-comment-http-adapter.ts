@@ -15,6 +15,12 @@ export type IssueComment = Readonly<{
   authorIsBot: boolean;
   pullRequest: boolean;
   updatedAt: string;
+  /**
+   * True once the body was changed after posting. People with write access
+   * can edit anyone's comment, so an edited comment is never evidence and
+   * never a command.
+   */
+  edited: boolean;
 }>;
 
 /** Adapter-internal seam used by the reply adapter. */
@@ -52,12 +58,15 @@ function issueNumber(issueUrl: unknown): number {
 function parseComment(value: unknown): IssueComment {
   if (!object(value) || !object(value.user))
     throw invalidResponse("Invalid GitHub comment payload");
-  const { id, body, user, html_url: htmlUrl, updated_at: updatedAt } = value;
+  const { id, body, user, html_url: htmlUrl } = value;
+  const { created_at: createdAt, updated_at: updatedAt } = value;
   if (!positive(id) || typeof body !== "string")
     throw invalidResponse("Invalid GitHub comment payload");
   if (!positive(user.id) || typeof user.login !== "string")
     throw invalidResponse("Invalid GitHub comment author");
   if (typeof htmlUrl !== "string" || typeof updatedAt !== "string")
+    throw invalidResponse("Invalid GitHub comment payload");
+  if (typeof createdAt !== "string" || Number.isNaN(Date.parse(createdAt)))
     throw invalidResponse("Invalid GitHub comment payload");
   return {
     id,
@@ -68,6 +77,7 @@ function parseComment(value: unknown): IssueComment {
     authorIsBot: user.type === GitHubUserType.Bot,
     pullRequest: /\/pull\/\d+/.test(htmlUrl),
     updatedAt,
+    edited: Date.parse(updatedAt) !== Date.parse(createdAt),
   };
 }
 

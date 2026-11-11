@@ -6,12 +6,10 @@ import {
 import type { DeploymentOutcome } from "../application/record-deployment.js";
 import { ExecuteDeliveryCommand } from "../application/execute-delivery-command.js";
 import { GitHubDeliveryRecordStore } from "../adapters/github/delivery-record-store.js";
-import { GitHubDeliveryStateStore } from "../adapters/github/delivery-state-store.js";
 import { GitHubDeploymentHttpAdapter } from "../adapters/github/deployment-http-adapter.js";
 import { GitHubRestClient } from "../adapters/github/github-rest-client.js";
 import type { HttpRequest } from "../adapters/github/github-rest-client.js";
 import { GitHubIssueCommentHttpAdapter } from "../adapters/github/issue-comment-http-adapter.js";
-import { GitHubIssueHttpAdapter } from "../adapters/github/issue-http-adapter.js";
 import {
   AgentIdentityPreflight,
   GitHubUserHttpAdapter,
@@ -23,6 +21,13 @@ import {
   required,
 } from "./config.js";
 import type { Env } from "./config.js";
+import {
+  assertTokenOwner,
+  readServiceLogins,
+  resolveServiceAccounts,
+  verifiedStateStore,
+} from "./trust.js";
+import type { ServiceLogins } from "./trust.js";
 
 export const USAGE = "Usage: air-deploy <stage|prod> <issue> <sha>";
 
@@ -53,22 +58,18 @@ export type DeployConfig = Readonly<{
   owner: string;
   repo: string;
   token: string;
-  deployLogin: string;
-  agentLogin: string;
+  /** `deployLogin` is always set here. */
+  accounts: ServiceLogins & Readonly<{ deployLogin: string }>;
   runTtlMs: number;
   environmentNames: Readonly<Record<DeploymentEnvironment, string>>;
 }>;
 
 export function readDeployConfig(env: Env): DeployConfig {
   const deployLogin = required(env, "AIR_DEPLOY_LOGIN");
-  const agentLogin = required(env, "AIR_AGENT_LOGIN");
-  if (deployLogin.toLowerCase() === agentLogin.toLowerCase())
-    throw new Error("AIR_DEPLOY_LOGIN must differ from AIR_AGENT_LOGIN");
   return {
     ...repository(env),
     token: required(env, "AIR_DEPLOY_TOKEN"),
-    deployLogin,
-    agentLogin,
+    accounts: { ...readServiceLogins(env), deployLogin },
     runTtlMs: positiveInteger(env, "AIR_RUN_TTL_MS", 2 * 60 * 60 * 1000),
     environmentNames: {
       [DeploymentEnvironment.Stage]: env.AIR_ENVIRONMENT_STAGE || "stage",
@@ -89,21 +90,21 @@ export async function composeDeploy(
     request,
   });
   const users = new GitHubUserHttpAdapter(client);
-  const viewer = await users.viewer();
-  if (viewer.login.toLowerCase() !== config.deployLogin.toLowerCase())
-    throw new Error(
-      `AIR_DEPLOY_TOKEN belongs to ${viewer.login}, not ${config.deployLogin}`,
-    );
-  const agent = await users.byLogin(config.agentLogin);
+  const accounts = await resolveServiceAccounts(users, config.accounts);
+  if (!accounts.deployer) throw new Error("Set AIR_DEPLOY_LOGIN");
+  const viewer = await assertTokenOwner(
+    users,
+    accounts.deployer,
+    "AIR_DEPLOY_TOKEN",
+  );
+  const agent = accounts.agent;
   const comments = new GitHubIssueCommentHttpAdapter(client);
   const deployments = new GitHubDeploymentHttpAdapter(
     client,
     config.environmentNames,
   );
   return new RecordDeployment(
-    new ExecuteDeliveryCommand(
-      new GitHubDeliveryStateStore(new GitHubIssueHttpAdapter(client)),
-    ),
+    new ExecuteDeliveryCommand(verifiedStateStore(client, accounts)),
     new GitHubDeliveryRecordStore(comments, agent.id),
     deployments,
     deployments,

@@ -33,6 +33,8 @@ const failureText: Readonly<Record<DeliveryFailure, string>> = {
     "The label update may or may not have been applied. Check the labels before retrying.",
   [DeliveryFailure.PartialCompletion]:
     "The update was only partly applied. Check the labels and issue state.",
+  [DeliveryFailure.UntrustedState]:
+    "The current state label was not set by AIR, the agent or the deployer. Someone changed delivery labels by hand; nothing runs until an administrator restores them.",
 };
 
 const parseErrorText: Readonly<Record<CommandParseError, string>> = {
@@ -85,8 +87,8 @@ export class GitHubCommandReplyAdapter implements CommandReplyPort {
 
 /**
  * A command is processed once AIR's own account replied to it. Markers from
- * any other author are ignored, so nobody can pre-empt someone's command by
- * posting a fake reply.
+ * any other author, and edited replies, are ignored, so nobody can pre-empt
+ * someone's command by posting or planting a fake reply.
  */
 export class GitHubProcessedCommands implements ProcessedCommandPort {
   constructor(
@@ -98,8 +100,10 @@ export class GitHubProcessedCommands implements ProcessedCommandPort {
     const marker = replyMarker(commentId);
     const comments = await this.comments.list(issue);
     return comments.some(
-      ({ authorId, body }) =>
-        authorId === this.replierId && body.trimEnd().endsWith(marker),
+      ({ authorId, body, edited }) =>
+        authorId === this.replierId &&
+        !edited &&
+        body.trimEnd().endsWith(marker),
     );
   }
 }

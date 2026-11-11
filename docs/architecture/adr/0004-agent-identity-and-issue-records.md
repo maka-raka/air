@@ -34,7 +34,7 @@ Agent facts are **issue comments by the agent account**. Each comment has readab
 | `block` | `air block`, **before** T03 | `reportRecorded` |
 | `report` | `air report <phase>` | phase facts: `taskSize`, `miniDesign`, `verdict`, `pullRequest`, `artifact` |
 
-- Only comments authored by the agent account are read. Markers written by anyone else are ignored, so other commenters cannot forge reports or run state.
+- Only comments authored by the agent account, and never edited, are read. Markers written by anyone else are ignored, and so are agent comments someone edited later (people with write access can edit any comment). See [ADR-0007](0007-threat-model-and-trust-boundaries.md).
 - The marker must be the last line. Its JSON escapes `--`, so record content can never close the HTML comment early.
 - **`activeRun`** = the latest `run-start` has no `run-end` **and** is younger than `AIR_RUN_TTL_MS` (default 2 h). The TTL lets an abandoned run expire, so `/air recover` (T13, requires `activeRun = false`) remains possible after an agent crash.
 
