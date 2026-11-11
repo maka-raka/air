@@ -32,6 +32,8 @@ This adds the agent skill, the deploy workflow and `.env.air.example`, and ignor
    - **variables:** `AIR_OPERATOR_LOGIN`, `AIR_AGENT_LOGIN`, `AIR_DEPLOY_LOGIN`, `AIR_AGENT_PUBLIC_KEY`, and optionally `AIR_ENVIRONMENT_STAGE` / `AIR_ENVIRONMENT_PROD`;
    - **environment secret** in each deploy environment: `AIR_DEPLOY_TOKEN`.
 
+5. Verify with `AIR_DOCTOR_TOKEN=$(gh auth token) npx --no air doctor --strict` after step 4. Fix every `FAIL` and `??` before running AIR.
+
 ## 4. Local configuration
 
 ```bash

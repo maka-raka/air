@@ -33,6 +33,22 @@ export const GitHubCompareContains = {
   Ahead: "ahead",
 } as const;
 
+/** Branch rule types that matter for AIR's hardening checklist. */
+export const GitHubRuleType = {
+  PullRequest: "pull_request",
+  RequiredStatusChecks: "required_status_checks",
+  NonFastForward: "non_fast_forward",
+  Deletion: "deletion",
+} as const;
+
+export const GitHubEnvironmentRule = {
+  RequiredReviewers: "required_reviewers",
+} as const;
+
+export const GitHubWorkflowPermission = { Read: "read" } as const;
+
+export const GitHubContentEncoding = { Base64: "base64" } as const;
+
 export const values = <T extends Record<string, string>>(
   vocabulary: T,
 ): readonly string[] => Object.values(vocabulary);

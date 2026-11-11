@@ -41,7 +41,7 @@ All accounts are resolved to **immutable user IDs** at startup. Every process ch
 
 ### Repository settings are part of the trust model
 
-The checks above protect AIR's state. They cannot stop a writer from pushing code. The settings in [Repository Hardening](../../engineering/security-hardening.md) (protected branches, CODEOWNERS, environment secrets, minimal token permissions) are **required**, not optional.
+The checks above protect AIR's state. They cannot stop a writer from pushing code. The settings in [Repository Hardening](../../engineering/security-hardening.md) (protected branches, CODEOWNERS, environment secrets, minimal token permissions) are **required**, not optional. `air doctor` checks them through the API and reports what it cannot see as unknown, never as passing.
 
 ## Consequences
 
