@@ -1,5 +1,7 @@
 # AIR Local Runtime
 
+> In another project, install AIR and run `npx --no air-local` instead: see [Adopting AIR](install.md). This page describes running from this repository.
+
 Run AIR on your own machine against a **test repository**. GitHub cannot reach `localhost`, so the local runtime **polls** repository comments instead of receiving webhooks. It feeds them to the same `IngestGitHubWebhook` use case a hosted webhook endpoint will use. Only the adapters differ.
 
 ```text

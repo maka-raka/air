@@ -1,6 +1,7 @@
+#!/usr/bin/env node
 import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { isEntryPoint, repository, required } from "./config.js";
+import { isEntryPoint, loadEnvFile, repository, required } from "./config.js";
 import { CommentCommandHandler } from "../application/comment-command-handler.js";
 import { ExecuteDeliveryCommand } from "../application/execute-delivery-command.js";
 import { IngestGitHubWebhook } from "../application/ingest-github-webhook.js";
@@ -188,7 +189,11 @@ const consoleLog: PollLog = {
     ),
 };
 
+export const LOCAL_USAGE = "Usage: air-local [--env-file <path>]";
+
 async function main(): Promise<void> {
+  const rest = loadEnvFile(process.argv.slice(2));
+  if (rest.length > 0) throw new Error(LOCAL_USAGE);
   const config = readLocalConfig(process.env);
   const poller = await composeLocal(config);
   const controller = new AbortController();

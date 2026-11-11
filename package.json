@@ -1,7 +1,18 @@
 {
   "name": "@air/delivery-core",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
+  "description": "AIR delivery runtime: comment-command poller, agent CLI and deploy reporter for GitHub issues.",
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist/src/**/*.js",
+    "!dist/src/**/*.test.js",
+    "templates/",
+    ".env.example"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "rm -rf dist && tsc",
@@ -30,6 +41,7 @@
   },
   "bin": {
     "air": "dist/src/delivery/composition/agent-cli.js",
-    "air-deploy": "dist/src/delivery/composition/deploy-cli.js"
+    "air-deploy": "dist/src/delivery/composition/deploy-cli.js",
+    "air-local": "dist/src/delivery/composition/local.js"
   }
 }

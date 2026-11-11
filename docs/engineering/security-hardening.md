@@ -48,7 +48,7 @@ If a token cannot read check runs, `advance review` fails closed with `precondit
 
 - [ ] Set `AIR_OPERATOR_LOGIN`, `AIR_AGENT_LOGIN`, `AIR_APPROVER_LOGINS` and, if you deploy, `AIR_DEPLOY_LOGIN` in **every** AIR process (poller, agent CLI, deploy workflow). They must match, or legitimate state is rejected as `untrusted-state`.
 - [ ] Do not set `AIR_ALLOW_OPERATOR_APPROVER` outside a throwaway test repository.
-- [ ] In CI, install AIR from a pinned version with a lockfile and run it with `npm exec --no -- air-deploy …`, so npm never downloads an unrelated package of the same name.
+- [ ] Install AIR only from a release tarball, verify it with `gh attestation verify` and commit the lockfile ([Adopting AIR](install.md)). Run it as `npx --no air …` / `npm exec --no -- air-deploy …`, so npm never downloads an unrelated package of the same name.
 
 ## When AIR says `untrusted-state`
 
