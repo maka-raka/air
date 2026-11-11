@@ -8,6 +8,19 @@ import {
 } from "./deploy-cli.js";
 import type { DeployConfig } from "./deploy-cli.js";
 import type { HttpRequest } from "../adapters/github/github-rest-client.js";
+import {
+  Ed25519RecordSigner,
+  generateRecordKeys,
+} from "../adapters/github/record-signature.js";
+
+const KEYS = generateRecordKeys();
+const SIGNER = Ed25519RecordSigner.fromBase64(KEYS.privateKey);
+/** A record marker signed with the agent key for issue 42 of repository 123. */
+const signedMarker = (record: unknown) => {
+  const encoded = JSON.stringify(record);
+  const sig = SIGNER.sign({ repositoryId: 123, issue: 42 }, encoded);
+  return `<!-- air:record ${encoded} sig=${sig} -->`;
+};
 
 const DEPLOYER = { id: 88, login: "air-deployer" };
 const AGENT = { id: 77, login: "air-agent" };
@@ -49,13 +62,14 @@ class FakeGitHub {
       status,
       json: async () => payload,
     });
-    const report = `Build\n\n<!-- air:record ${JSON.stringify({
+    const report = `Build\n\n${signedMarker({
       kind: "report",
       phase: "build",
       at: "2026-11-11T10:00:00Z",
       facts: { pullRequest: 57 },
-    })} -->`;
+    })}`;
     const routes: Record<string, () => unknown> = {
+      "GET ": () => ({ id: 123, full_name: "example/air" }),
       "GET /user": () => this.viewer,
       "GET /users/air-agent": () => AGENT,
       "GET /users/air-bot": () => OPERATOR,
@@ -119,6 +133,7 @@ const config: DeployConfig = {
     agentLogin: "air-agent",
     deployLogin: "air-deployer",
   },
+  recordPublicKey: KEYS.publicKey,
   runTtlMs: 7_200_000,
   environmentNames: { stage: "staging", prod: "production" },
 };
@@ -214,6 +229,7 @@ describe("parseDeployArgs and readDeployConfig", () => {
       AIR_OPERATOR_LOGIN: "air-bot",
       AIR_DEPLOY_LOGIN: "bot",
       AIR_AGENT_LOGIN: "BOT",
+      AIR_AGENT_PUBLIC_KEY: "cHVibGlj",
     };
 
     assert.throws(() => readDeployConfig(env), /different accounts/);

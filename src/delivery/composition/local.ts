@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { isEntryPoint, repository } from "./config.js";
+import { isEntryPoint, repository, required } from "./config.js";
 import { CommentCommandHandler } from "../application/comment-command-handler.js";
 import { ExecuteDeliveryCommand } from "../application/execute-delivery-command.js";
 import { IngestGitHubWebhook } from "../application/ingest-github-webhook.js";
@@ -25,6 +25,7 @@ import {
   assertTokenOwner,
   readApproverLogins,
   readServiceLogins,
+  recordVerifier,
   resolveServiceAccounts,
   verifiedStateStore,
 } from "./trust.js";
@@ -40,6 +41,8 @@ export type LocalConfig = Readonly<{
   runTtlMs: number;
   /** Service accounts; the token must belong to the operator. */
   accounts: ServiceLogins;
+  /** Agent public key (base64 SPKI); unsigned records never count. */
+  recordPublicKey: string;
   /** The only people whose `/air` comments count as approvals. */
   approverLogins: readonly string[];
   /**
@@ -81,6 +84,7 @@ export function readLocalConfig(
     leaseMs: integer(env.AIR_LEASE_MS, 60_000),
     runTtlMs: integer(env.AIR_RUN_TTL_MS, 2 * 60 * 60 * 1000),
     accounts: readServiceLogins(env),
+    recordPublicKey: required(env, "AIR_AGENT_PUBLIC_KEY"),
     approverLogins: readApproverLogins(env),
     allowOperatorApprover: env.AIR_ALLOW_OPERATOR_APPROVER === ENABLED,
   };
@@ -117,7 +121,11 @@ export async function composeLocal(
   const comments = new GitHubIssueCommentHttpAdapter(client);
   const handler = new CommentCommandHandler(
     new RecordedDeliveryEvidence(
-      new GitHubDeliveryRecordStore(comments, accounts.agent.id),
+      new GitHubDeliveryRecordStore(comments, {
+        agentUserId: accounts.agent.id,
+        repositoryId: identity.id,
+        verifier: recordVerifier(config.recordPublicKey),
+      }),
       new GitHubPullRequestHttpAdapter(client),
       () => new Date(),
       config.runTtlMs,

@@ -7,6 +7,10 @@ import type {
   GitHubUserHttpAdapter,
 } from "../adapters/github/user-http-adapter.js";
 import type { DeliveryStatePort } from "../application/execute-delivery-command.js";
+import {
+  Ed25519RecordSigner,
+  Ed25519RecordVerifier,
+} from "../adapters/github/record-signature.js";
 import { required } from "./config.js";
 import type { Env } from "./config.js";
 
@@ -68,6 +72,31 @@ export function readApproverLogins(env: Env): readonly string[] {
   logins.forEach((value) => login(value, "AIR_APPROVER_LOGINS entry"));
   distinct(logins, "AIR_APPROVER_LOGINS entries");
   return logins;
+}
+
+/** The agent's public key; every process that reads records needs it. */
+export function recordVerifier(publicKey: string): Ed25519RecordVerifier {
+  return Ed25519RecordVerifier.fromBase64(publicKey);
+}
+
+/**
+ * The agent's signing key. When the public key is configured too, it must
+ * belong to the signing key, so a mismatch is caught before any record is
+ * written that other processes would ignore.
+ */
+export function recordSigner(
+  signingKey: string,
+  publicKey?: string,
+): Ed25519RecordSigner {
+  const signer = Ed25519RecordSigner.fromBase64(signingKey);
+  if (
+    publicKey &&
+    recordVerifier(publicKey).exportBase64() !== signer.verifier.exportBase64()
+  )
+    throw new Error(
+      "AIR_AGENT_PUBLIC_KEY does not match AIR_AGENT_SIGNING_KEY",
+    );
+  return signer;
 }
 
 /** Resolves logins to immutable IDs once, at startup. */

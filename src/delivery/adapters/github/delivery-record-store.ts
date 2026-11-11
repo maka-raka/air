@@ -17,8 +17,24 @@ import type {
   IssueCommentReader,
   IssueCommentWriter,
 } from "./issue-comment-http-adapter.js";
+import type {
+  Ed25519RecordSigner,
+  Ed25519RecordVerifier,
+} from "./record-signature.js";
 
-const MARKER = /<!-- air:record (\{[^\n]*\}) -->\s*$/;
+export type RecordTrust = Readonly<{
+  /** The agent account; only its comments are read. */
+  agentUserId: number;
+  /** Signatures are bound to this repository. */
+  repositoryId: number;
+  /** Agent public key: every record must carry a valid signature. */
+  verifier: Ed25519RecordVerifier;
+  /** Only the agent process can append records. */
+  signer?: Ed25519RecordSigner;
+}>;
+
+const MARKER =
+  /<!-- air:record (\{[^\n]*\}) sig=([A-Za-z0-9+/]+={0,2}) -->\s*$/;
 const kinds: readonly string[] = Object.values(DeliveryRecordKind);
 const phases: readonly string[] = Object.values(DeliveryPhase);
 const outcomes: readonly string[] = Object.values(RunOutcome);
@@ -86,21 +102,28 @@ function decode(value: unknown): DeliveryRecord | null {
 
 /**
  * Stores Delivery records as issue comments: readable text followed by a
- * hidden `<!-- air:record {...} -->` marker. Only unedited comments authored
- * by the trusted agent account count. Markers from anyone else are ignored,
- * and so are agent comments that someone edited later (write access lets
- * people edit any comment), so reports and run state cannot be forged.
+ * hidden `<!-- air:record {...} sig=... -->` marker. A record counts only if
+ * all of these hold:
+ * - the comment is authored by the agent account and was never edited;
+ * - its Ed25519 signature verifies with the agent's public key, for this
+ *   repository and this issue.
+ * The signature means even a repository admin, who can edit any comment
+ * through the API, cannot forge or move a record without the agent's key.
  */
 export class GitHubDeliveryRecordStore implements DeliveryRecordPort {
   constructor(
     private readonly comments: IssueCommentReader & IssueCommentWriter,
-    private readonly agentUserId: number,
+    private readonly trust: RecordTrust,
   ) {}
 
   append(issue: number, record: DeliveryRecord, body: string): Promise<void> {
+    const signer = this.trust.signer;
+    if (!signer) throw new Error("Only the agent can append records");
+    const encoded = encode(record);
+    const signature = signer.sign(this.scope(issue), encoded);
     return this.comments.post(
       issue,
-      `${body.trim()}\n\n<!-- air:record ${encode(record)} -->`,
+      `${body.trim()}\n\n<!-- air:record ${encoded} sig=${signature} -->`,
     );
   }
 
@@ -108,17 +131,27 @@ export class GitHubDeliveryRecordStore implements DeliveryRecordPort {
     const comments = await this.comments.list(issue);
     return comments
       .filter(
-        ({ authorId, edited }) => authorId === this.agentUserId && !edited,
+        ({ authorId, edited }) =>
+          authorId === this.trust.agentUserId && !edited,
       )
-      .flatMap(({ body }) => {
-        const marker = MARKER.exec(body);
-        if (!marker) return [];
-        try {
-          const record = decode(JSON.parse(marker[1]!));
-          return record ? [record] : [];
-        } catch {
-          return [];
-        }
-      });
+      .flatMap(({ body }) => this.read(issue, body));
+  }
+
+  private read(issue: number, body: string): DeliveryRecord[] {
+    const marker = MARKER.exec(body);
+    if (!marker) return [];
+    const [, encoded, signature] = marker;
+    const scope = this.scope(issue);
+    if (!this.trust.verifier.verify(scope, encoded!, signature!)) return [];
+    try {
+      const record = decode(JSON.parse(encoded!));
+      return record ? [record] : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private scope(issue: number) {
+    return { repositoryId: this.trust.repositoryId, issue };
   }
 }

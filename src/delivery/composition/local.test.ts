@@ -6,6 +6,19 @@ import { after, describe, it } from "node:test";
 import { composeLocal, readLocalConfig, runLocal } from "./local.js";
 import type { LocalConfig } from "./local.js";
 import type { HttpRequest } from "../adapters/github/github-rest-client.js";
+import {
+  Ed25519RecordSigner,
+  generateRecordKeys,
+} from "../adapters/github/record-signature.js";
+
+const KEYS = generateRecordKeys();
+const SIGNER = Ed25519RecordSigner.fromBase64(KEYS.privateKey);
+/** A record marker signed with the agent key for issue 42 of repository 123. */
+const signedMarker = (record: unknown) => {
+  const encoded = JSON.stringify(record);
+  const sig = SIGNER.sign({ repositoryId: 123, issue: 42 }, encoded);
+  return `<!-- air:record ${encoded} sig=${sig} -->`;
+};
 
 const stateDir = await mkdtemp(join(tmpdir(), "air-local-"));
 after(() => rm(stateDir, { recursive: true, force: true }));
@@ -42,11 +55,7 @@ class FakeGitHub {
 
   /** An agent-authored record comment (author 77). */
   addRecord(id: number, record: unknown) {
-    this.addComment(
-      id,
-      `Report\n\n<!-- air:record ${JSON.stringify(record)} -->`,
-      AGENT.id,
-    );
+    this.addComment(id, `Report\n\n${signedMarker(record)}`, AGENT.id);
   }
 
   addComment(id: number, body: string, userId = APPROVER.id, edited = false) {
@@ -130,6 +139,7 @@ const config = (dir: string): LocalConfig => ({
   leaseMs: 60_000,
   runTtlMs: 7_200_000,
   accounts: { operatorLogin: "air-bot", agentLogin: "air-agent" },
+  recordPublicKey: KEYS.publicKey,
   approverLogins: ["octocat"],
   allowOperatorApprover: false,
 });
@@ -321,11 +331,31 @@ describe("local composition under attack", () => {
     await poller.pollOnce();
     github.addComment(
       8100,
-      `Report\n\n<!-- air:record ${JSON.stringify(report)} -->`,
+      `Report\n\n${signedMarker(report)}`,
       AGENT.id,
       true,
     );
     github.addComment(8101, "/air advance build\nSmall task");
+
+    await poller.pollOnce();
+
+    assert.deepEqual(github.labels, ["air:requirements:waiting"]);
+    assert.match(github.posted[0]!, /precondition-failed/);
+  });
+
+  it("does not count an agent report signed with another key", async () => {
+    const github = new FakeGitHub();
+    github.setState("air:requirements:waiting");
+    const poller = await composeLocal(
+      {
+        ...config(join(stateDir, "foreign-key")),
+        recordPublicKey: generateRecordKeys().publicKey,
+      },
+      github.request,
+    );
+    await poller.pollOnce();
+    github.addRecord(8150, report);
+    github.addComment(8151, "/air advance build\nSmall task");
 
     await poller.pollOnce();
 
@@ -404,6 +434,7 @@ describe("readLocalConfig", () => {
     AIR_OPERATOR_LOGIN: "air-bot",
     AIR_AGENT_LOGIN: "air-agent",
     AIR_APPROVER_LOGINS: "octocat, hubot",
+    AIR_AGENT_PUBLIC_KEY: "cHVibGlj",
   };
 
   it("reads repository, token, accounts and defaults", () => {
@@ -418,6 +449,7 @@ describe("readLocalConfig", () => {
       leaseMs: 60_000,
       runTtlMs: 7_200_000,
       accounts: { operatorLogin: "air-bot", agentLogin: "air-agent" },
+      recordPublicKey: "cHVibGlj",
       approverLogins: ["octocat", "hubot"],
       allowOperatorApprover: false,
     });
@@ -429,6 +461,7 @@ describe("readLocalConfig", () => {
     [{ ...base, AIR_POLL_INTERVAL_MS: "100" }, /AIR_POLL_INTERVAL_MS/],
     [{ ...base, AIR_OPERATOR_LOGIN: "" }, /AIR_OPERATOR_LOGIN/],
     [{ ...base, AIR_AGENT_LOGIN: "" }, /AIR_AGENT_LOGIN/],
+    [{ ...base, AIR_AGENT_PUBLIC_KEY: "" }, /AIR_AGENT_PUBLIC_KEY/],
     [{ ...base, AIR_APPROVER_LOGINS: " , " }, /AIR_APPROVER_LOGINS/],
     [{ ...base, AIR_APPROVER_LOGINS: "a/b" }, /AIR_APPROVER_LOGINS/],
     [{ ...base, AIR_AGENT_LOGIN: "AIR-BOT" }, /different accounts/],

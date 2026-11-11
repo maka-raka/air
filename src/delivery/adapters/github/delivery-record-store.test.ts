@@ -9,8 +9,17 @@ import type {
 import { DeliveryRecordKind } from "../../application/delivery-record.js";
 import type { DeliveryRecord } from "../../application/delivery-record.js";
 import { DeliveryPhase } from "../../domain/state-machine.js";
+import { Ed25519RecordSigner, generateRecordKeys } from "./record-signature.js";
 
 const AGENT = 77;
+const REPOSITORY = 123;
+const SIGNER = Ed25519RecordSigner.fromBase64(generateRecordKeys().privateKey);
+
+/** A marker signed with the agent key, as the agent would write it. */
+function signed(json: string, issue = 42, signer = SIGNER): string {
+  const sig = signer.sign({ repositoryId: REPOSITORY, issue }, json);
+  return `x\n\n<!-- air:record ${json} sig=${sig} -->`;
+}
 
 class FakeComments implements IssueCommentReader, IssueCommentWriter {
   readonly comments: IssueComment[] = [];
@@ -41,7 +50,19 @@ const report: DeliveryRecord = {
 
 function fixture() {
   const comments = new FakeComments();
-  return { comments, store: new GitHubDeliveryRecordStore(comments, AGENT) };
+  const trust = {
+    agentUserId: AGENT,
+    repositoryId: REPOSITORY,
+    verifier: SIGNER.verifier,
+  };
+  return {
+    comments,
+    store: new GitHubDeliveryRecordStore(comments, {
+      ...trust,
+      signer: SIGNER,
+    }),
+    reader: new GitHubDeliveryRecordStore(comments, trust),
+  };
 }
 
 describe("GitHubDeliveryRecordStore", () => {
@@ -72,11 +93,18 @@ describe("GitHubDeliveryRecordStore", () => {
     assert.equal(marker.indexOf("-->"), marker.length - 3);
   });
 
+  it("lets a process without the signing key read but not write", async () => {
+    const { reader, store } = fixture();
+    await store.append(42, report, "Done.");
+
+    assert.deepEqual(await reader.list(42), [report]);
+    assert.throws(() => reader.append(42, report, "Forged."), /Only the agent/);
+  });
+
   it("ignores markers from anyone but the agent", async () => {
     const { comments, store } = fixture();
-    const forged = `Trust me\n\n<!-- air:record ${JSON.stringify(report)} -->`;
-
-    await comments.post(42, forged, 5);
+    // Even a correctly signed marker counts only from the agent account.
+    await comments.post(42, signed(JSON.stringify(report)), 5);
 
     assert.deepEqual(await store.list(42), []);
   });
@@ -84,35 +112,31 @@ describe("GitHubDeliveryRecordStore", () => {
   it("ignores an agent record that someone edited later", async () => {
     const { comments, store } = fixture();
     await store.append(42, report, "Requirements done.");
-    const original = comments.comments[0]!;
-    const tampered = JSON.stringify({
-      ...report,
-      facts: { taskSize: "S", miniDesign: true, verdict: "go" },
-    });
-    comments.comments[0] = {
-      ...original,
-      body: `Requirements done.\n\n<!-- air:record ${tampered} -->`,
-      edited: true,
-    };
+    comments.comments[0] = { ...comments.comments[0]!, edited: true };
 
     assert.deepEqual(await store.list(42), []);
   });
 
+  const block = '{"kind":"block","at":"2026-11-11T12:00:00Z"}';
+  const other = Ed25519RecordSigner.fromBase64(generateRecordKeys().privateKey);
   for (const [name, body] of [
     ["plain comments", "Just a comment"],
-    ["invalid JSON", "x\n\n<!-- air:record {nope} -->"],
+    ["an unsigned marker", `x\n\n<!-- air:record ${block} -->`],
+    ["a signature from another key", signed(block, 42, other)],
+    ["a record signed for another issue", signed(block, 43)],
     [
-      "unknown kinds",
-      'x\n\n<!-- air:record {"kind":"x","at":"2026-11-11T12:00:00Z"} -->',
+      "a signed record whose content was changed",
+      signed(block).replace("block", "report"),
     ],
+    ["invalid JSON", signed("{nope}")],
+    ["unknown kinds", signed('{"kind":"x","at":"2026-11-11T12:00:00Z"}')],
     [
       "invalid facts",
-      'x\n\n<!-- air:record {"kind":"report","phase":"build","at":"2026-11-11T12:00:00Z","facts":{"taskSize":"XL"}} -->',
+      signed(
+        '{"kind":"report","phase":"build","at":"2026-11-11T12:00:00Z","facts":{"taskSize":"XL"}}',
+      ),
     ],
-    [
-      "a marker that is not at the end",
-      'x\n\n<!-- air:record {"kind":"block","at":"2026-11-11T12:00:00Z"} -->\nmore',
-    ],
+    ["a marker that is not at the end", `${signed(block)}\nmore`],
   ] as const) {
     it(`skips ${name}`, async () => {
       const { comments, store } = fixture();
