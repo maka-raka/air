@@ -9,6 +9,12 @@ AI Relay (AIR) is an AI-assisted software delivery orchestration project. Humans
 - [Architecture decisions](docs/architecture/adr/)
 - [Open questions](docs/architecture/open-questions.md)
 
+## Using AIR
+
+- [Adopt AIR in a project](docs/engineering/install.md)
+- [Local runtime](docs/engineering/local-runtime.md)
+- [Repository hardening (required)](docs/engineering/security-hardening.md)
+
 ## Design principles
 
 - Domain-Driven Design and explicit domain boundaries

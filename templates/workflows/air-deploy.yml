@@ -1,0 +1,132 @@
+# AIR deployment report (created by `npx air init`).
+#
+# Call this after your deploy job succeeds, for example:
+#
+#   report-to-air:
+#     needs: deploy-staging
+#     uses: ./.github/workflows/air-deploy.yml
+#     with:
+#       stage: stage                # stage | prod
+#       github-environment: staging # the environment that holds AIR_DEPLOY_TOKEN
+#       sha: ${{ github.sha }}
+#
+# It finds the issues to report from merged pull requests of `sha` whose
+# description has a line `AIR-Issue: #<n>`, or uses the `issues` input.
+# AIR re-verifies everything itself (deployment status, PR, approval), so a
+# wrong issue number can only be refused, never advance an issue.
+#
+# Required repository variables: AIR_OPERATOR_LOGIN, AIR_AGENT_LOGIN,
+# AIR_DEPLOY_LOGIN, AIR_AGENT_PUBLIC_KEY (and optionally
+# AIR_ENVIRONMENT_STAGE / AIR_ENVIRONMENT_PROD).
+# Required environment secret: AIR_DEPLOY_TOKEN (in each deploy environment).
+# AIR must be a devDependency installed from a pinned release tarball.
+
+name: AIR deployment report
+
+on:
+  workflow_call:
+    inputs:
+      stage:
+        description: "stage or prod"
+        required: true
+        type: string
+      github-environment:
+        description: "GitHub environment holding AIR_DEPLOY_TOKEN"
+        required: true
+        type: string
+      sha:
+        description: "Deployed commit"
+        required: true
+        type: string
+      issues:
+        description: "Optional space-separated issue numbers"
+        required: false
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: "stage or prod"
+        required: true
+        type: choice
+        options: [stage, prod]
+      github-environment:
+        description: "GitHub environment holding AIR_DEPLOY_TOKEN"
+        required: true
+        type: string
+      sha:
+        description: "Deployed commit"
+        required: true
+        type: string
+      issues:
+        description: "Space-separated issue numbers"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.github-environment }}
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # Same pinned actions as AIR's own CI; update them together.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+
+      - name: Find AIR issues
+        id: issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ inputs.sha }}
+          GIVEN: ${{ inputs.issues }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$SHA" =~ ^[0-9a-f]{7,40}$ ]]; then
+            echo "Invalid sha" >&2; exit 1
+          fi
+          found=""
+          if [[ -n "$GIVEN" ]]; then
+            found="$GIVEN"
+          else
+            found=$(gh api "repos/$REPO/commits/$SHA/pulls" \
+              --jq '.[] | select(.merged_at != null) | .body // ""' \
+              | grep -oE '^AIR-Issue: #[0-9]+[[:space:]]*$' \
+              | grep -oE '[0-9]+' | sort -un | tr '\n' ' ' || true)
+          fi
+          for n in $found; do
+            [[ "$n" =~ ^[1-9][0-9]{0,9}$ ]] || { echo "Invalid issue: $n" >&2; exit 1; }
+          done
+          echo "list=$found" >> "$GITHUB_OUTPUT"
+
+      - name: Report to AIR
+        if: steps.issues.outputs.list != ''
+        env:
+          AIR_REPOSITORY: ${{ github.repository }}
+          AIR_DEPLOY_TOKEN: ${{ secrets.AIR_DEPLOY_TOKEN }}
+          AIR_OPERATOR_LOGIN: ${{ vars.AIR_OPERATOR_LOGIN }}
+          AIR_AGENT_LOGIN: ${{ vars.AIR_AGENT_LOGIN }}
+          AIR_DEPLOY_LOGIN: ${{ vars.AIR_DEPLOY_LOGIN }}
+          AIR_AGENT_PUBLIC_KEY: ${{ vars.AIR_AGENT_PUBLIC_KEY }}
+          AIR_ENVIRONMENT_STAGE: ${{ vars.AIR_ENVIRONMENT_STAGE }}
+          AIR_ENVIRONMENT_PROD: ${{ vars.AIR_ENVIRONMENT_PROD }}
+          STAGE: ${{ inputs.stage }}
+          SHA: ${{ inputs.sha }}
+          ISSUES: ${{ steps.issues.outputs.list }}
+        run: |
+          set -euo pipefail
+          for n in $ISSUES; do
+            # --no: never download a package; use only the pinned devDependency.
+            npm exec --no -- air-deploy "$STAGE" "$n" "$SHA"
+          done

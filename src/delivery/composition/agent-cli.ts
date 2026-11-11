@@ -9,7 +9,8 @@ import type { ReportFacts } from "../application/delivery-record.js";
 import { ExecuteDeliveryCommand } from "../application/execute-delivery-command.js";
 import type { DeliveryResult } from "../application/execute-delivery-command.js";
 import { DeliveryPhase } from "../domain/state-machine.js";
-import { isEntryPoint, repository } from "./config.js";
+import { isEntryPoint, loadEnvFile, repository } from "./config.js";
+import { initProject, renderInit } from "./project-init.js";
 import type { Phase } from "../domain/state-machine.js";
 import { GitHubDeliveryRecordStore } from "../adapters/github/delivery-record-store.js";
 import { GitHubRestClient } from "../adapters/github/github-rest-client.js";
@@ -37,6 +38,8 @@ export const AgentCliCommand = {
   Gate: "gate",
   /** Prints a new record-signing key pair; needs no configuration. */
   Keygen: "keygen",
+  /** Adds AIR's skill, deploy workflow and env template to a project. */
+  Init: "init",
 } as const;
 
 export type AgentInvocation =
@@ -63,7 +66,10 @@ export const USAGE = `Usage:
   air block <issue> (--question <text> | --question-file <path>)
   air report <issue> <phase> (--summary <text> | --summary-file <path>) [--facts <json>]
   air gate <issue>
-  air keygen`;
+  air keygen
+  air init
+
+Options: --env-file <path> (default: .env.air when present)`;
 
 const phases: readonly string[] = Object.values(DeliveryPhase);
 
@@ -314,13 +320,18 @@ export function keygen(
 }
 
 async function main(): Promise<void> {
-  if (process.argv[2] === AgentCliCommand.Keygen) {
+  const argv = process.argv.slice(2);
+  if (argv[0] === AgentCliCommand.Keygen) {
     console.log(keygen());
+    return;
+  }
+  if (argv[0] === AgentCliCommand.Init) {
+    console.log(renderInit(await initProject(process.cwd())));
     return;
   }
   let invocation: AgentInvocation;
   try {
-    invocation = parseAgentArgs(process.argv.slice(2));
+    invocation = parseAgentArgs(loadEnvFile(argv));
   } catch (error) {
     console.error(`${(error as Error).message}\n\n${USAGE}`);
     process.exitCode = ExitCode.Error;

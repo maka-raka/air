@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -35,4 +35,37 @@ export function isEntryPoint(moduleUrl: string): boolean {
   const script = process.argv[1];
   if (!script) return false;
   return realpathSync(resolve(script)) === fileURLToPath(moduleUrl);
+}
+
+/** Loaded when present and no `--env-file` is given. */
+export const DEFAULT_ENV_FILE = ".env.air";
+const ENV_FLAG = "--env-file";
+const WINDOWS = "win32";
+const OTHERS_CAN_ACCESS = 0o077;
+
+export type EnvFileLoader = (path: string) => void;
+
+/**
+ * Strips `--env-file <path>` from the arguments and loads that file, or
+ * `.env.air` when it exists. Variables already set in the environment win.
+ * The file holds tokens, so it must not be accessible to other users.
+ */
+export function loadEnvFile(
+  argv: readonly string[],
+  load: EnvFileLoader = (path) => process.loadEnvFile(path),
+  platform: string = process.platform,
+): readonly string[] {
+  const at = argv.indexOf(ENV_FLAG);
+  const explicit = at === -1 ? undefined : argv[at + 1];
+  if (at !== -1 && !explicit) throw new Error(`${ENV_FLAG} needs a path`);
+  const rest = at === -1 ? argv : [...argv.slice(0, at), ...argv.slice(at + 2)];
+  const path = explicit ?? DEFAULT_ENV_FILE;
+  if (!explicit && !existsSync(path)) return rest;
+  const mode = statSync(path).mode;
+  if (platform !== WINDOWS && (mode & OTHERS_CAN_ACCESS) !== 0)
+    throw new Error(
+      `${path} is readable by other users; run: chmod 600 ${path}`,
+    );
+  load(path);
+  return rest;
 }
