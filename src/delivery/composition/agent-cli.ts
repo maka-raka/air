@@ -22,16 +22,21 @@ import {
 import {
   assertTokenOwner,
   readServiceLogins,
+  recordSigner,
   resolveServiceAccounts,
   verifiedStateStore,
 } from "./trust.js";
+import { GitHubRepositoryHttpAdapter } from "../adapters/github/repository-http-adapter.js";
 import type { ServiceLogins } from "./trust.js";
+import { generateRecordKeys } from "../adapters/github/record-signature.js";
 
 export const AgentCliCommand = {
   Start: "start",
   Block: "block",
   Report: "report",
   Gate: "gate",
+  /** Prints a new record-signing key pair; needs no configuration. */
+  Keygen: "keygen",
 } as const;
 
 export type AgentInvocation =
@@ -57,7 +62,8 @@ export const USAGE = `Usage:
   air start <issue>
   air block <issue> (--question <text> | --question-file <path>)
   air report <issue> <phase> (--summary <text> | --summary-file <path>) [--facts <json>]
-  air gate <issue>`;
+  air gate <issue>
+  air keygen`;
 
 const phases: readonly string[] = Object.values(DeliveryPhase);
 
@@ -152,6 +158,10 @@ export type AgentConfig = Readonly<{
   repo: string;
   token: string;
   accounts: ServiceLogins;
+  /** Agent private key (base64 PKCS#8); never leaves the agent process. */
+  signingKey: string;
+  /** Optional; when set it must match the signing key. */
+  publicKey?: string;
   runTtlMs: number;
 }>;
 
@@ -164,7 +174,19 @@ export function readAgentConfig(
   const runTtlMs = Number(env.AIR_RUN_TTL_MS || 2 * 60 * 60 * 1000);
   if (!Number.isSafeInteger(runTtlMs) || runTtlMs <= 0)
     throw new Error("Invalid AIR_RUN_TTL_MS");
-  return { owner, repo, token, accounts: readServiceLogins(env), runTtlMs };
+  const signingKey = env.AIR_AGENT_SIGNING_KEY ?? "";
+  if (!signingKey.trim()) throw new Error("Set AIR_AGENT_SIGNING_KEY");
+  return {
+    owner,
+    repo,
+    token,
+    accounts: readServiceLogins(env),
+    signingKey,
+    ...(env.AIR_AGENT_PUBLIC_KEY
+      ? { publicKey: env.AIR_AGENT_PUBLIC_KEY }
+      : {}),
+    runTtlMs,
+  };
 }
 
 export type AgentServices = Readonly<{
@@ -183,6 +205,7 @@ export async function composeAgent(
     token: config.token,
     request,
   });
+  const signer = recordSigner(config.signingKey, config.publicKey);
   const users = new GitHubUserHttpAdapter(client);
   const accounts = await resolveServiceAccounts(users, config.accounts);
   const viewer = await assertTokenOwner(
@@ -190,11 +213,17 @@ export async function composeAgent(
     accounts.agent,
     "AIR_AGENT_TOKEN",
   );
+  const identity = await new GitHubRepositoryHttpAdapter(client).identity();
   const state = verifiedStateStore(client, accounts);
   const executor = new ExecuteDeliveryCommand(state);
   const records = new GitHubDeliveryRecordStore(
     new GitHubIssueCommentHttpAdapter(client),
-    viewer.id,
+    {
+      agentUserId: viewer.id,
+      repositoryId: identity.id,
+      verifier: signer.verifier,
+      signer,
+    },
   );
   const preflight = new AgentIdentityPreflight(users, viewer.id);
   const now = () => new Date();
@@ -268,7 +297,27 @@ export function render({ result, problems = [] }: CliOutcome): string {
 
 export const ExitCode = { Ok: 0, Error: 1, Rejected: 2 } as const;
 
+/** Output of `air keygen`: where each key belongs. */
+export function keygen(
+  keys: Readonly<{
+    privateKey: string;
+    publicKey: string;
+  }> = generateRecordKeys(),
+): string {
+  return [
+    "# Agent only (secret): signs records. Keep it out of git and CI logs.",
+    `AIR_AGENT_SIGNING_KEY=${keys.privateKey}`,
+    "",
+    "# Every AIR process (poller, agent, deploy workflow): verifies records.",
+    `AIR_AGENT_PUBLIC_KEY=${keys.publicKey}`,
+  ].join("\n");
+}
+
 async function main(): Promise<void> {
+  if (process.argv[2] === AgentCliCommand.Keygen) {
+    console.log(keygen());
+    return;
+  }
   let invocation: AgentInvocation;
   try {
     invocation = parseAgentArgs(process.argv.slice(2));

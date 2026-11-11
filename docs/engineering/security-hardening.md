@@ -38,7 +38,13 @@ If a token cannot read check runs, `advance review` fails closed with `precondit
 - [ ] Run the agent with Claude Code permission rules that deny destructive commands and pushes to the default branch; prefer a container or VM with only the repository checked out.
 - [ ] Keep `.env` out of git (it is ignored) and readable only by you (`chmod 600 .env`).
 
-## 5. Running AIR
+## 5. Record-signing key
+
+- [ ] Run `npx air keygen` once. Put `AIR_AGENT_SIGNING_KEY` **only** where the agent runs. Put `AIR_AGENT_PUBLIC_KEY` in every AIR process: poller, agent and deploy workflow (it is not secret).
+- [ ] Never store the signing key in CI, in the repository or in a shared password vault entry that others can read.
+- [ ] If the signing key may have leaked, generate a new pair and update the public key everywhere. Records signed with the old key stop counting, so open deliveries must re-report.
+
+## 6. Running AIR
 
 - [ ] Set `AIR_OPERATOR_LOGIN`, `AIR_AGENT_LOGIN`, `AIR_APPROVER_LOGINS` and, if you deploy, `AIR_DEPLOY_LOGIN` in **every** AIR process (poller, agent CLI, deploy workflow). They must match, or legitimate state is rejected as `untrusted-state`.
 - [ ] Do not set `AIR_ALLOW_OPERATOR_APPROVER` outside a throwaway test repository.

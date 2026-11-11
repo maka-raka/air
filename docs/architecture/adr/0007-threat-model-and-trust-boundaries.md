@@ -35,8 +35,9 @@ All accounts are resolved to **immutable user IDs** at startup. Every process ch
 
 1. **Label provenance.** Before any transition, `ProvenanceVerifiedStateStore` reads the issue's label events and finds the latest `labeled` event for the current `air:<phase>:<status>` label. Its actor must be the operator, the agent or the deployer. Otherwise the command fails with **`untrusted-state`**, and nothing changes until an administrator restores the labels. A history longer than the adapter reads (1,000 events) also fails closed.
 2. **Unedited evidence.** A comment counts as a record, a processed-command reply or a command only if it was never edited (`updated_at` equals `created_at`).
-3. **Explicit approvers.** Commands count only from `AIR_APPROVER_LOGINS`, by user ID, and only while that person still has write access. Write access alone is not enough. Service accounts can never be approvers.
-4. **Separated operator.** If the operator is also an approver, AIR refuses to start unless `AIR_ALLOW_OPERATOR_APPROVER=true`. Without that separation, one person can set labels by hand that AIR then trusts.
+3. **Signed records.** Agent records carry an Ed25519 signature over the repository ID, the issue number and the record JSON. Only the agent process holds the private key; every other process verifies with the public key. Unsigned, re-signed or moved records are ignored, so even a repository admin cannot forge evidence.
+4. **Explicit approvers.** Commands count only from `AIR_APPROVER_LOGINS`, by user ID, and only while that person still has write access. Write access alone is not enough. Service accounts can never be approvers.
+5. **Separated operator.** If the operator is also an approver, AIR refuses to start unless `AIR_ALLOW_OPERATOR_APPROVER=true`. Without that separation, one person can set labels by hand that AIR then trusts.
 
 ### Repository settings are part of the trust model
 
@@ -52,10 +53,12 @@ The checks above protect AIR's state. They cannot stop a writer from pushing cod
 
 | Risk | Status | Plan |
 | --- | --- | --- |
-| A repository admin can still edit records via the API and delete comments | open | P1: Ed25519-signed records (private key only with the agent) |
-| Renaming a label in repository settings changes it on every issue; whether the event history then shows the old or the new name is unverified | open | verify on the live run; P1 signed state anchors close it either way |
+| A repository admin can forge records | **closed** by signed records | — |
+| Anyone with write access can delete record comments (evidence disappears) | open; deletion can only remove evidence, so gates fail closed | audit log outside GitHub |
+| The agent's signing key leaks | open | keep it only in the agent environment; rotate by generating a new pair and updating `AIR_AGENT_PUBLIC_KEY` everywhere (old records then stop counting) |
+| Renaming a label in repository settings changes it on every issue; whether the event history then shows the old or the new name is unverified | open | verify on the live run; signed state anchors would close it either way |
 | Prompt injection: the agent reads text from any commenter and holds a write token | open | private repositories only; agent reads only approver-authored text; sandbox and Claude Code deny rules (P1) |
 | Agent token can push code and edit workflows | mitigated by repository settings | branch protection, CODEOWNERS for `.github/`, token without *Workflows* permission |
-| GitHub bumps `updated_at` for a non-content change, so a valid record is ignored | fails closed | signatures (P1) make the edit check unnecessary |
+| GitHub bumps `updated_at` for a non-content change, so a valid record is ignored | fails closed | if seen on the live run, drop the edit check for records: signatures already cover them |
 | Personal access tokens in a local `.env` | accepted for local use | P1: GitHub App with short-lived tokens |
 | Replay protection in memory only (webhook server) | open | durable claims with the hosted runtime |

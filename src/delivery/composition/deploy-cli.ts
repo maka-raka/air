@@ -24,9 +24,11 @@ import type { Env } from "./config.js";
 import {
   assertTokenOwner,
   readServiceLogins,
+  recordVerifier,
   resolveServiceAccounts,
   verifiedStateStore,
 } from "./trust.js";
+import { GitHubRepositoryHttpAdapter } from "../adapters/github/repository-http-adapter.js";
 import type { ServiceLogins } from "./trust.js";
 
 export const USAGE = "Usage: air-deploy <stage|prod> <issue> <sha>";
@@ -60,6 +62,8 @@ export type DeployConfig = Readonly<{
   token: string;
   /** `deployLogin` is always set here. */
   accounts: ServiceLogins & Readonly<{ deployLogin: string }>;
+  /** Agent public key (base64 SPKI); unsigned records never count. */
+  recordPublicKey: string;
   runTtlMs: number;
   environmentNames: Readonly<Record<DeploymentEnvironment, string>>;
 }>;
@@ -70,6 +74,7 @@ export function readDeployConfig(env: Env): DeployConfig {
     ...repository(env),
     token: required(env, "AIR_DEPLOY_TOKEN"),
     accounts: { ...readServiceLogins(env), deployLogin },
+    recordPublicKey: required(env, "AIR_AGENT_PUBLIC_KEY"),
     runTtlMs: positiveInteger(env, "AIR_RUN_TTL_MS", 2 * 60 * 60 * 1000),
     environmentNames: {
       [DeploymentEnvironment.Stage]: env.AIR_ENVIRONMENT_STAGE || "stage",
@@ -98,6 +103,8 @@ export async function composeDeploy(
     "AIR_DEPLOY_TOKEN",
   );
   const agent = accounts.agent;
+  const identity = await new GitHubRepositoryHttpAdapter(client).identity();
+  const verifier = recordVerifier(config.recordPublicKey);
   const comments = new GitHubIssueCommentHttpAdapter(client);
   const deployments = new GitHubDeploymentHttpAdapter(
     client,
@@ -105,7 +112,11 @@ export async function composeDeploy(
   );
   return new RecordDeployment(
     new ExecuteDeliveryCommand(verifiedStateStore(client, accounts)),
-    new GitHubDeliveryRecordStore(comments, agent.id),
+    new GitHubDeliveryRecordStore(comments, {
+      agentUserId: agent.id,
+      repositoryId: identity.id,
+      verifier,
+    }),
     deployments,
     deployments,
     comments,

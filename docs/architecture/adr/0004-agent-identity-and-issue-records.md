@@ -24,7 +24,7 @@ Agent facts are **issue comments by the agent account**. Each comment has readab
 ```text
 **Blocked:** Which API version should we target?
 
-<!-- air:record {"kind":"block","at":"2026-11-11T12:00:00.000Z"} -->
+<!-- air:record {"kind":"block","at":"2026-11-11T12:00:00.000Z"} sig=MEUCIQ… -->
 ```
 
 | Kind | Written by | Proves |
@@ -35,6 +35,7 @@ Agent facts are **issue comments by the agent account**. Each comment has readab
 | `report` | `air report <phase>` | phase facts: `taskSize`, `miniDesign`, `verdict`, `pullRequest`, `artifact` |
 
 - Only comments authored by the agent account, and never edited, are read. Markers written by anyone else are ignored, and so are agent comments someone edited later (people with write access can edit any comment). See [ADR-0007](0007-threat-model-and-trust-boundaries.md).
+- Every record is **signed with Ed25519** by the agent (`AIR_AGENT_SIGNING_KEY`, created with `npx air keygen`). The signature covers `air-record:v1`, the repository ID, the issue number and the exact JSON, so a record cannot be changed or copied to another issue. Every reader verifies it with `AIR_AGENT_PUBLIC_KEY` and ignores unsigned records. ([ADR-0007](0007-threat-model-and-trust-boundaries.md))
 - The marker must be the last line. Its JSON escapes `--`, so record content can never close the HTML comment early.
 - **`activeRun`** = the latest `run-start` has no `run-end` **and** is younger than `AIR_RUN_TTL_MS` (default 2 h). The TTL lets an abandoned run expire, so `/air recover` (T13, requires `activeRun = false`) remains possible after an agent crash.
 

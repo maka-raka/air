@@ -16,7 +16,8 @@ every AIR_POLL_INTERVAL_MS:
 1. Create a private **test** repository and apply [Repository Hardening](security-hardening.md).
 2. Create the accounts: an **operator** (the poller runs as it), an **agent** and, if you deploy, a **deployer**. Each is a separate GitHub account with write access. Approvers are your own accounts ([ADR-0007](../architecture/adr/0007-threat-model-and-trust-boundaries.md)).
 3. Create a [fine-grained personal access token](https://github.com/settings/personal-access-tokens/new) for the **operator**, limited to that repository. The permissions are listed in [Repository Hardening §2](security-hardening.md#2-tokens-fine-grained-one-repository-each-shortest-expiry-you-can-manage).
-4. Configure and start:
+4. Create the record-signing keys once with `npm run build && npx air keygen`. The signing key goes only to the agent; the public key goes into every AIR process.
+5. Configure and start:
 
    ```bash
    cp .env.example .env   # set the repository, accounts, approvers and token
@@ -27,7 +28,7 @@ every AIR_POLL_INTERVAL_MS:
 
    AIR refuses to start when the token is not the operator's, when two service accounts are the same, or when the operator is also an approver (set `AIR_ALLOW_OPERATOR_APPROVER=true` only in a throwaway repository).
 
-5. As an approver, comment in an issue of the test repository:
+6. As an approver, comment in an issue of the test repository:
 
    ```text
    /air initialize
@@ -68,6 +69,7 @@ After a deployment, a workflow reports it with the **deployer** account ([ADR-00
     AIR_OPERATOR_LOGIN: air-bot
     AIR_DEPLOY_LOGIN: air-deployer
     AIR_AGENT_LOGIN: air-agent
+    AIR_AGENT_PUBLIC_KEY: ${{ vars.AIR_AGENT_PUBLIC_KEY }}
     AIR_ENVIRONMENT_STAGE: staging   # your GitHub environment name
 ```
 

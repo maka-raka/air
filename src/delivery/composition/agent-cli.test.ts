@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   AgentCliCommand,
   composeAgent,
+  keygen,
   parseAgentArgs,
   readAgentConfig,
   render,
@@ -11,6 +12,12 @@ import {
 import type { AgentConfig } from "./agent-cli.js";
 import type { HttpRequest } from "../adapters/github/github-rest-client.js";
 import { DeliveryFailure } from "../application/execute-delivery-command.js";
+import {
+  Ed25519RecordSigner,
+  generateRecordKeys,
+} from "../adapters/github/record-signature.js";
+
+const KEYS = generateRecordKeys();
 
 const AGENT = { id: 77, login: "air-agent" };
 const OPERATOR = { id: 9, login: "air-bot" };
@@ -57,6 +64,7 @@ class FakeGitHub {
       status,
       json: async () => payload,
     });
+    if (path === "") return respond({ id: 123, full_name: "example/air" });
     if (path === "/user") return respond(this.viewer);
     const login = /^\/users\/([^/]+)$/.exec(path)?.[1];
     if (login && users[login]) return respond(users[login]);
@@ -96,6 +104,7 @@ const config: AgentConfig = {
   repo: "air",
   token: "agent-token",
   accounts: { operatorLogin: "air-bot", agentLogin: "air-agent" },
+  signingKey: KEYS.privateKey,
   runTtlMs: 7_200_000,
 };
 
@@ -234,6 +243,27 @@ describe("agent CLI composition", () => {
     assert.deepEqual(github.comments, []);
   });
 
+  it("signs its records so other processes can verify them", async () => {
+    const github = new FakeGitHub();
+    const services = await composeAgent(config, github.request);
+
+    await runAgent(services, { command: AgentCliCommand.Start, issue: 42 });
+
+    assert.match(github.comments[0]!.body, / sig=[A-Za-z0-9+/]+={0,2} -->$/);
+  });
+
+  it("refuses a public key that does not match the signing key", async () => {
+    const github = new FakeGitHub();
+
+    await assert.rejects(
+      composeAgent(
+        { ...config, publicKey: generateRecordKeys().publicKey },
+        github.request,
+      ),
+      /does not match/,
+    );
+  });
+
   it("refuses to run with another account's token", async () => {
     const github = new FakeGitHub({ id: 5, login: "maintainer" });
 
@@ -297,6 +327,15 @@ describe("parseAgentArgs", () => {
   }
 });
 
+describe("keygen", () => {
+  it("prints which key goes where", () => {
+    const text = keygen({ privateKey: "PRIV", publicKey: "PUB" });
+
+    assert.match(text, /^# Agent only[^\n]*\nAIR_AGENT_SIGNING_KEY=PRIV$/m);
+    assert.match(text, /^AIR_AGENT_PUBLIC_KEY=PUB$/m);
+  });
+});
+
 describe("readAgentConfig", () => {
   it("requires a dedicated agent token and login", () => {
     const base = { AIR_REPOSITORY: "example/air" };
@@ -304,12 +343,17 @@ describe("readAgentConfig", () => {
     const withToken = { ...base, AIR_AGENT_TOKEN: "t" };
     const full = {
       ...withToken,
+      AIR_AGENT_SIGNING_KEY: "c2VjcmV0",
       AIR_OPERATOR_LOGIN: "air-bot",
       AIR_AGENT_LOGIN: "air-agent",
     };
 
     assert.throws(() => readAgentConfig(base), /AIR_AGENT_TOKEN/);
-    assert.throws(() => readAgentConfig(withToken), /AIR_OPERATOR_LOGIN/);
+    assert.throws(() => readAgentConfig(withToken), /AIR_AGENT_SIGNING_KEY/);
+    assert.throws(
+      () => readAgentConfig({ ...full, AIR_OPERATOR_LOGIN: "" }),
+      /AIR_OPERATOR_LOGIN/,
+    );
     assert.throws(
       () => readAgentConfig({ ...full, AIR_AGENT_LOGIN: "" }),
       /AIR_AGENT_LOGIN/,
@@ -323,6 +367,7 @@ describe("readAgentConfig", () => {
       repo: "air",
       token: "t",
       accounts: { operatorLogin: "air-bot", agentLogin: "air-agent" },
+      signingKey: "c2VjcmV0",
       runTtlMs: 7_200_000,
     });
   });
