@@ -11,6 +11,12 @@ import type { DeliveryResult } from "../application/execute-delivery-command.js"
 import { DeliveryPhase } from "../domain/state-machine.js";
 import { isEntryPoint, loadEnvFile, repository } from "./config.js";
 import { initProject, renderInit } from "./project-init.js";
+import {
+  composeDoctor,
+  readDoctorConfig,
+  readLocalSettings,
+  renderDoctor,
+} from "./doctor.js";
 import type { Phase } from "../domain/state-machine.js";
 import { GitHubDeliveryRecordStore } from "../adapters/github/delivery-record-store.js";
 import { GitHubRestClient } from "../adapters/github/github-rest-client.js";
@@ -40,6 +46,8 @@ export const AgentCliCommand = {
   Keygen: "keygen",
   /** Adds AIR's skill, deploy workflow and env template to a project. */
   Init: "init",
+  /** Audits repository settings against the hardening checklist. */
+  Doctor: "doctor",
 } as const;
 
 export type AgentInvocation =
@@ -68,6 +76,7 @@ export const USAGE = `Usage:
   air gate <issue>
   air keygen
   air init
+  air doctor [--strict]
 
 Options: --env-file <path> (default: .env.air when present)`;
 
@@ -327,6 +336,16 @@ async function main(): Promise<void> {
   }
   if (argv[0] === AgentCliCommand.Init) {
     console.log(renderInit(await initProject(process.cwd())));
+    return;
+  }
+  if (argv[0] === AgentCliCommand.Doctor) {
+    const config = readDoctorConfig(process.env, loadEnvFile(argv.slice(1)));
+    const { findings, failed } = await composeDoctor(config).run(
+      readLocalSettings(),
+      config.strict,
+    );
+    console.log(renderDoctor(findings));
+    process.exitCode = failed ? ExitCode.Error : ExitCode.Ok;
     return;
   }
   let invocation: AgentInvocation;

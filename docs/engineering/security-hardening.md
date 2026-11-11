@@ -2,6 +2,24 @@
 
 AIR verifies who set delivery state and who wrote the evidence ([ADR-0007](../architecture/adr/0007-threat-model-and-trust-boundaries.md)). It cannot stop someone with write access from pushing code or editing workflows. Apply **every** item below to each repository before AIR runs on it.
 
+## Check it automatically
+
+```bash
+AIR_DOCTOR_TOKEN=$(gh auth token) npx --no air doctor            # exit 1 on any FAIL
+AIR_DOCTOR_TOKEN=$(gh auth token) npx --no air doctor --strict   # also fail on unknown settings
+```
+
+`air doctor` reads the settings below through the GitHub API (read-only) and prints `ok`, `FAIL` or `??` for each:
+- repository visibility;
+- default-branch rules and classic protection, and who can bypass them;
+- CODEOWNERS coverage of `.github/`;
+- the workflow token defaults;
+- deploy environments;
+- every AIR account's access;
+- the local `.env.air`.
+
+Some settings are visible only to repository admins. Run it with an admin's token (your own `gh auth token`), not with an AIR service token. Settings it cannot read are reported as `??`, never as `ok`. The doctor does not check the agent environment (§4) or token scopes; review those by hand.
+
 ## 1. Accounts
 
 | Role | Account | Repository role | Notes |
