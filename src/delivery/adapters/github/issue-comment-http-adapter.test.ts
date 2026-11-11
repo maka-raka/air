@@ -14,6 +14,7 @@ function comment(id: number, overrides: Record<string, unknown> = {}) {
     user: { id: 7, login: "octocat", type: "User" },
     issue_url: `${REPO}/issues/42`,
     html_url: `https://github.com/example/air/issues/42#issuecomment-${id}`,
+    created_at: "2026-11-10T10:00:00Z",
     updated_at: "2026-11-10T10:00:00Z",
     ...overrides,
   };
@@ -70,6 +71,7 @@ describe("GitHubIssueCommentHttpAdapter", () => {
         authorIsBot: false,
         pullRequest: false,
         updatedAt: "2026-11-10T10:00:00Z",
+        edited: false,
       },
       {
         id: 2,
@@ -80,6 +82,7 @@ describe("GitHubIssueCommentHttpAdapter", () => {
         authorIsBot: true,
         pullRequest: true,
         updatedAt: "2026-11-10T10:00:00Z",
+        edited: false,
       },
     ]);
   });
@@ -100,6 +103,30 @@ describe("GitHubIssueCommentHttpAdapter", () => {
     assert.equal(query.get("sort"), "updated");
     assert.equal(query.get("direction"), "asc");
   });
+
+  it("flags a comment whose body changed after posting", async () => {
+    const { adapter } = fixture([
+      [comment(1, { updated_at: "2026-11-10T10:05:00Z" })],
+    ]);
+
+    const [edited] = await adapter.since("2026-11-10T09:00:00Z");
+
+    assert.equal(edited!.edited, true);
+  });
+
+  for (const [name, overrides] of [
+    ["a missing author", { user: null }],
+    ["a missing creation time", { created_at: undefined }],
+    ["an invalid creation time", { created_at: "soon" }],
+  ] as const) {
+    it(`rejects a comment with ${name}`, async () => {
+      const { adapter } = fixture([[comment(1, overrides)]]);
+
+      await assert.rejects(adapter.since("2026-11-10T09:00:00Z"), {
+        category: "invalid-response",
+      });
+    });
+  }
 
   it("rejects a malformed comment payload", async () => {
     const { adapter } = fixture([[comment(1, { user: null })]]);

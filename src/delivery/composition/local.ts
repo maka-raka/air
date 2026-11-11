@@ -11,19 +11,24 @@ import {
 } from "../adapters/github/command-reply-adapter.js";
 import { GitHubCommentPoller } from "../adapters/github/comment-poller.js";
 import type { PollOutcome } from "../adapters/github/comment-poller.js";
-import { GitHubDeliveryStateStore } from "../adapters/github/delivery-state-store.js";
 import { GitHubRestClient } from "../adapters/github/github-rest-client.js";
 import type { HttpRequest } from "../adapters/github/github-rest-client.js";
 import { GitHubIssueCommentHttpAdapter } from "../adapters/github/issue-comment-http-adapter.js";
-import { GitHubIssueHttpAdapter } from "../adapters/github/issue-http-adapter.js";
 import { GitHubRepositoryHttpAdapter } from "../adapters/github/repository-http-adapter.js";
 import { FilePollCursorStore } from "../adapters/local/file-poll-cursor-store.js";
 import { InMemoryDeliveryClaims } from "../adapters/local/in-memory-delivery-claims.js";
-import { UnavailableEvidence } from "../adapters/local/unavailable-evidence.js";
 import { RecordedDeliveryEvidence } from "../application/recorded-delivery-evidence.js";
 import { GitHubDeliveryRecordStore } from "../adapters/github/delivery-record-store.js";
 import { GitHubPullRequestHttpAdapter } from "../adapters/github/pull-request-http-adapter.js";
 import { GitHubUserHttpAdapter } from "../adapters/github/user-http-adapter.js";
+import {
+  assertTokenOwner,
+  readApproverLogins,
+  readServiceLogins,
+  resolveServiceAccounts,
+  verifiedStateStore,
+} from "./trust.js";
+import type { ServiceLogins } from "./trust.js";
 
 export type LocalConfig = Readonly<{
   owner: string;
@@ -33,12 +38,19 @@ export type LocalConfig = Readonly<{
   stateDir: string;
   leaseMs: number;
   runTtlMs: number;
+  /** Service accounts; the token must belong to the operator. */
+  accounts: ServiceLogins;
+  /** The only people whose `/air` comments count as approvals. */
+  approverLogins: readonly string[];
   /**
-   * Agent account: its comments never run Human commands, and its records
-   * are the only trusted evidence. Without it, evidence fails closed.
+   * Lets the operator account also approve. Off by default: then the person
+   * approving and the account writing state are the same, and a human can
+   * set state labels that AIR trusts.
    */
-  agentLogin?: string;
+  allowOperatorApprover: boolean;
 }>;
+
+const ENABLED = "true";
 
 const MIN_POLL_INTERVAL_MS = 5_000;
 
@@ -68,7 +80,9 @@ export function readLocalConfig(
     stateDir: env.AIR_STATE_DIR || ".air",
     leaseMs: integer(env.AIR_LEASE_MS, 60_000),
     runTtlMs: integer(env.AIR_RUN_TTL_MS, 2 * 60 * 60 * 1000),
-    ...(env.AIR_AGENT_LOGIN ? { agentLogin: env.AIR_AGENT_LOGIN } : {}),
+    accounts: readServiceLogins(env),
+    approverLogins: readApproverLogins(env),
+    allowOperatorApprover: env.AIR_ALLOW_OPERATOR_APPROVER === ENABLED,
   };
 }
 
@@ -86,34 +100,42 @@ export async function composeLocal(
   const repository = new GitHubRepositoryHttpAdapter(client);
   const identity = await repository.identity();
   const users = new GitHubUserHttpAdapter(client);
-  const agent = config.agentLogin
-    ? await users.byLogin(config.agentLogin)
-    : null;
+  const accounts = await resolveServiceAccounts(users, config.accounts);
+  const operator = await assertTokenOwner(
+    users,
+    accounts.operator,
+    "AIR_GITHUB_TOKEN",
+  );
+  const approvers = await Promise.all(
+    config.approverLogins.map((login) => users.byLogin(login)),
+  );
+  const approverIds = approvers.map(({ id }) => id);
+  if (approverIds.includes(operator.id) && !config.allowOperatorApprover)
+    throw new Error(
+      "The operator account is also an approver. Use a dedicated operator account, or set AIR_ALLOW_OPERATOR_APPROVER=true to accept the risk.",
+    );
   const comments = new GitHubIssueCommentHttpAdapter(client);
-  const evidence = agent
-    ? new RecordedDeliveryEvidence(
-        new GitHubDeliveryRecordStore(comments, agent.id),
-        new GitHubPullRequestHttpAdapter(client),
-        () => new Date(),
-        config.runTtlMs,
-      )
-    : new UnavailableEvidence();
   const handler = new CommentCommandHandler(
-    evidence,
-    new ExecuteDeliveryCommand(
-      new GitHubDeliveryStateStore(new GitHubIssueHttpAdapter(client)),
+    new RecordedDeliveryEvidence(
+      new GitHubDeliveryRecordStore(comments, accounts.agent.id),
+      new GitHubPullRequestHttpAdapter(client),
+      () => new Date(),
+      config.runTtlMs,
     ),
+    new ExecuteDeliveryCommand(verifiedStateStore(client, accounts)),
     new GitHubCommandReplyAdapter(comments),
     // Replies are posted with this token, so only its markers are trusted.
-    new GitHubProcessedCommands(comments, (await users.viewer()).id),
+    new GitHubProcessedCommands(comments, operator.id),
   );
   const ingestion = new IngestGitHubWebhook(
     new InMemoryDeliveryClaims(config.leaseMs),
-    new GitHubCollaboratorAuthorization(
-      repository,
-      identity.id,
-      agent ? [agent.id] : [],
-    ),
+    new GitHubCollaboratorAuthorization(repository, identity.id, {
+      approverIds,
+      excludedUserIds: [
+        accounts.agent.id,
+        ...(accounts.deployer ? [accounts.deployer.id] : []),
+      ],
+    }),
     handler,
   );
   return new GitHubCommentPoller(

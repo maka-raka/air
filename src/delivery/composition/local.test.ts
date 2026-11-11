@@ -11,8 +11,30 @@ const stateDir = await mkdtemp(join(tmpdir(), "air-local-"));
 after(() => rm(stateDir, { recursive: true, force: true }));
 
 /** Minimal in-memory GitHub REST API for one repository and one issue. */
+const OPERATOR = { id: 9, login: "air-bot" };
+const APPROVER = { id: 7, login: "octocat" };
+const AGENT = { id: 77, login: "air-agent" };
+const users: Record<string, { id: number; login: string }> = {
+  "air-bot": OPERATOR,
+  octocat: APPROVER,
+  "air-agent": AGENT,
+  mallory: { id: 66, login: "mallory" },
+};
+
 class FakeGitHub {
   labels: string[] = ["priority:high"];
+  readonly events: unknown[] = [];
+  viewer = OPERATOR;
+
+  /** Sets the issue state as if `actor` had added the label. */
+  setState(label: string, actor = AGENT) {
+    this.labels = [label];
+    this.events.push({
+      event: "labeled",
+      label: { name: label },
+      actor,
+    });
+  }
   readonly posted: string[] = [];
   readonly comments: unknown[] = [];
   permission = "write";
@@ -23,19 +45,32 @@ class FakeGitHub {
     this.addComment(
       id,
       `Report\n\n<!-- air:record ${JSON.stringify(record)} -->`,
-      77,
+      AGENT.id,
     );
   }
 
-  addComment(id: number, body: string, userId = 7) {
+  addComment(id: number, body: string, userId = APPROVER.id, edited = false) {
+    const login =
+      Object.values(users).find((user) => user.id === userId)?.login ?? "x";
     this.comments.push({
       id,
       body,
-      user: { id: userId, login: "octocat", type: "User" },
+      user: { id: userId, login, type: "User" },
       issue_url: "https://api.github.com/repos/example/air/issues/42",
       html_url: `https://github.com/example/air/issues/42#issuecomment-${id}`,
-      updated_at: "2026-11-10T12:00:01Z",
+      created_at: "2026-11-10T12:00:01Z",
+      updated_at: edited ? "2026-11-10T12:00:09Z" : "2026-11-10T12:00:01Z",
     });
+  }
+
+  private recordAdded(next: readonly string[]) {
+    const added = next.filter((name) => !this.labels.includes(name));
+    for (const name of added)
+      this.events.push({
+        event: "labeled",
+        label: { name },
+        actor: this.viewer,
+      });
   }
 
   readonly request: HttpRequest = async (url, init) => {
@@ -47,18 +82,24 @@ class FakeGitHub {
     });
     const body = init.body ? JSON.parse(init.body) : undefined;
     if (path === "") return respond({ id: 123, full_name: "example/air" });
-    if (path === "/user") return respond({ id: 7, login: "octocat" });
-    if (path === "/users/air-agent")
-      return respond({ id: 77, login: "air-agent" });
+    if (path === "/user") return respond(this.viewer);
+    const login = /^\/users\/([^/]+)$/.exec(path)?.[1];
+    if (login && users[login]) return respond(users[login]);
     if (path === "/issues/comments") return respond(this.comments);
-    if (path === "/collaborators/octocat/permission")
-      return respond({ permission: this.permission, user: { id: 7 } });
+    const member = /^\/collaborators\/([^/]+)\/permission$/.exec(path)?.[1];
+    if (member && users[member])
+      return respond({
+        permission: this.permission,
+        user: { id: users[member]!.id },
+      });
+    if (path === "/issues/42/events") return respond(this.events);
     if (path === "/issues/42" && init.method === "GET")
       return respond({
         state: "open",
         labels: this.labels.map((name) => ({ name })),
       });
     if (path === "/issues/42/labels" && init.method === "PUT") {
+      this.recordAdded(body.labels);
       this.labels = body.labels;
       return respond([]);
     }
@@ -73,7 +114,7 @@ class FakeGitHub {
     if (path === "/commits/abc123/status") return respond({ statuses: [] });
     if (path === "/issues/42/comments" && init.method === "POST") {
       this.posted.push(body.body);
-      this.addComment(100_000 + this.posted.length, body.body);
+      this.addComment(100_000 + this.posted.length, body.body, this.viewer.id);
       return respond({});
     }
     return respond({ message: "unexpected " + path }, 500);
@@ -88,6 +129,9 @@ const config = (dir: string): LocalConfig => ({
   stateDir: dir,
   leaseMs: 60_000,
   runTtlMs: 7_200_000,
+  accounts: { operatorLogin: "air-bot", agentLogin: "air-agent" },
+  approverLogins: ["octocat"],
+  allowOperatorApprover: false,
 });
 
 describe("local composition", () => {
@@ -160,11 +204,11 @@ describe("local composition", () => {
   it("never runs Human commands from the agent account", async () => {
     const github = new FakeGitHub();
     const poller = await composeLocal(
-      { ...config(join(stateDir, "agent")), agentLogin: "air-agent" },
+      config(join(stateDir, "agent")),
       github.request,
     );
     await poller.pollOnce();
-    github.addComment(4001, "/air initialize", 77);
+    github.addComment(4001, "/air initialize", AGENT.id);
 
     const outcomes = await poller.pollOnce();
 
@@ -177,9 +221,9 @@ describe("local composition", () => {
 
   it("advances on agent-recorded requirements facts", async () => {
     const github = new FakeGitHub();
-    github.labels = ["air:requirements:waiting"];
+    github.setState("air:requirements:waiting");
     const poller = await composeLocal(
-      { ...config(join(stateDir, "advance")), agentLogin: "air-agent" },
+      config(join(stateDir, "advance")),
       github.request,
     );
     await poller.pollOnce();
@@ -203,13 +247,10 @@ describe("local composition", () => {
   ] as const) {
     it(`gates review on CI checks (${checks})`, async () => {
       const github = new FakeGitHub();
-      github.labels = ["air:build:waiting"];
+      github.setState("air:build:waiting");
       github.checks = checks;
       const poller = await composeLocal(
-        {
-          ...config(join(stateDir, `review-${checks}`)),
-          agentLogin: "air-agent",
-        },
+        config(join(stateDir, `review-${checks}`)),
         github.request,
       );
       await poller.pollOnce();
@@ -227,9 +268,9 @@ describe("local composition", () => {
     });
   }
 
-  it("fails closed on evidence-gated commands", async () => {
+  it("fails closed when the agent recorded no report", async () => {
     const github = new FakeGitHub();
-    github.labels = ["air:requirements:waiting"];
+    github.setState("air:requirements:waiting");
     const poller = await composeLocal(
       config(join(stateDir, "evidence")),
       github.request,
@@ -244,12 +285,129 @@ describe("local composition", () => {
   });
 });
 
+describe("local composition under attack", () => {
+  const report = {
+    kind: "report",
+    phase: "requirements",
+    at: "2026-11-10T12:00:00Z",
+    facts: { taskSize: "S", miniDesign: true },
+  };
+
+  it("refuses a state label that a person added by hand", async () => {
+    const github = new FakeGitHub();
+    github.setState("air:requirements:waiting", users.mallory!);
+    const poller = await composeLocal(
+      config(join(stateDir, "forged-label")),
+      github.request,
+    );
+    await poller.pollOnce();
+    github.addRecord(8000, report);
+    github.addComment(8001, "/air advance build\nSmall task");
+
+    await poller.pollOnce();
+
+    assert.deepEqual(github.labels, ["air:requirements:waiting"]);
+    assert.match(github.posted[0]!, /untrusted-state/);
+    assert.match(github.posted[0]!, /mallory/);
+  });
+
+  it("does not count an agent report that someone edited", async () => {
+    const github = new FakeGitHub();
+    github.setState("air:requirements:waiting");
+    const poller = await composeLocal(
+      config(join(stateDir, "edited-report")),
+      github.request,
+    );
+    await poller.pollOnce();
+    github.addComment(
+      8100,
+      `Report\n\n<!-- air:record ${JSON.stringify(report)} -->`,
+      AGENT.id,
+      true,
+    );
+    github.addComment(8101, "/air advance build\nSmall task");
+
+    await poller.pollOnce();
+
+    assert.deepEqual(github.labels, ["air:requirements:waiting"]);
+    assert.match(github.posted[0]!, /precondition-failed/);
+  });
+
+  it("does not run a command that was edited before polling", async () => {
+    const github = new FakeGitHub();
+    const poller = await composeLocal(
+      config(join(stateDir, "edited-command")),
+      github.request,
+    );
+    await poller.pollOnce();
+    github.addComment(8201, "/air initialize", APPROVER.id, true);
+
+    const outcomes = await poller.pollOnce();
+
+    assert.deepEqual(
+      outcomes.map(({ decision }) => decision),
+      ["unsupported"],
+    );
+    assert.deepEqual(github.labels, ["priority:high"]);
+  });
+
+  it("refuses commands from a writer who is not an approver", async () => {
+    const github = new FakeGitHub();
+    const poller = await composeLocal(
+      config(join(stateDir, "not-approver")),
+      github.request,
+    );
+    await poller.pollOnce();
+    github.addComment(8301, "/air initialize", users.mallory!.id);
+
+    const outcomes = await poller.pollOnce();
+
+    assert.deepEqual(
+      outcomes.map(({ decision }) => decision),
+      ["unauthorized"],
+    );
+    assert.deepEqual(github.posted, []);
+  });
+
+  it("refuses a token that is not the operator's", async () => {
+    const github = new FakeGitHub();
+    github.viewer = APPROVER;
+
+    await assert.rejects(
+      composeLocal(config(join(stateDir, "wrong-token")), github.request),
+      /AIR_GITHUB_TOKEN belongs to octocat, not air-bot/,
+    );
+  });
+
+  it("refuses an operator who is also an approver unless allowed", async () => {
+    const github = new FakeGitHub();
+    const shared = {
+      ...config(join(stateDir, "shared")),
+      approverLogins: ["air-bot"],
+    };
+
+    await assert.rejects(
+      composeLocal(shared, github.request),
+      /operator account is also an approver/,
+    );
+    await composeLocal(
+      { ...shared, allowOperatorApprover: true },
+      github.request,
+    );
+  });
+});
+
 describe("readLocalConfig", () => {
-  it("reads repository, token and defaults", () => {
-    const parsed = readLocalConfig({
-      AIR_GITHUB_TOKEN: "t",
-      AIR_REPOSITORY: "example/air",
-    });
+  const base = {
+    AIR_GITHUB_TOKEN: "t",
+    AIR_REPOSITORY: "example/air",
+    AIR_OPERATOR_LOGIN: "air-bot",
+    AIR_AGENT_LOGIN: "air-agent",
+    AIR_APPROVER_LOGINS: "octocat, hubot",
+  };
+
+  it("reads repository, token, accounts and defaults", () => {
+    const parsed = readLocalConfig(base);
 
     assert.deepEqual(parsed, {
       owner: "example",
@@ -259,20 +417,22 @@ describe("readLocalConfig", () => {
       stateDir: ".air",
       leaseMs: 60_000,
       runTtlMs: 7_200_000,
+      accounts: { operatorLogin: "air-bot", agentLogin: "air-agent" },
+      approverLogins: ["octocat", "hubot"],
+      allowOperatorApprover: false,
     });
   });
 
   for (const [env, message] of [
-    [{ AIR_REPOSITORY: "example/air" }, /AIR_GITHUB_TOKEN/],
-    [{ AIR_GITHUB_TOKEN: "t", AIR_REPOSITORY: "example" }, /AIR_REPOSITORY/],
-    [
-      {
-        AIR_GITHUB_TOKEN: "t",
-        AIR_REPOSITORY: "example/air",
-        AIR_POLL_INTERVAL_MS: "100",
-      },
-      /AIR_POLL_INTERVAL_MS/,
-    ],
+    [{ ...base, AIR_GITHUB_TOKEN: "" }, /AIR_GITHUB_TOKEN/],
+    [{ ...base, AIR_REPOSITORY: "example" }, /AIR_REPOSITORY/],
+    [{ ...base, AIR_POLL_INTERVAL_MS: "100" }, /AIR_POLL_INTERVAL_MS/],
+    [{ ...base, AIR_OPERATOR_LOGIN: "" }, /AIR_OPERATOR_LOGIN/],
+    [{ ...base, AIR_AGENT_LOGIN: "" }, /AIR_AGENT_LOGIN/],
+    [{ ...base, AIR_APPROVER_LOGINS: " , " }, /AIR_APPROVER_LOGINS/],
+    [{ ...base, AIR_APPROVER_LOGINS: "a/b" }, /AIR_APPROVER_LOGINS/],
+    [{ ...base, AIR_AGENT_LOGIN: "AIR-BOT" }, /different accounts/],
+    [{ ...base, AIR_DEPLOY_LOGIN: "air-agent" }, /different accounts/],
   ] as const) {
     it(`rejects ${JSON.stringify(env)}`, () => {
       assert.throws(() => readLocalConfig(env), message);

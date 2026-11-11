@@ -86,9 +86,10 @@ function decode(value: unknown): DeliveryRecord | null {
 
 /**
  * Stores Delivery records as issue comments: readable text followed by a
- * hidden `<!-- air:record {...} -->` marker. Only comments authored by the
- * trusted agent account count; markers from anyone else are ignored, so
- * reports and run state cannot be forged by other commenters.
+ * hidden `<!-- air:record {...} -->` marker. Only unedited comments authored
+ * by the trusted agent account count. Markers from anyone else are ignored,
+ * and so are agent comments that someone edited later (write access lets
+ * people edit any comment), so reports and run state cannot be forged.
  */
 export class GitHubDeliveryRecordStore implements DeliveryRecordPort {
   constructor(
@@ -106,7 +107,9 @@ export class GitHubDeliveryRecordStore implements DeliveryRecordPort {
   async list(issue: number): Promise<readonly DeliveryRecord[]> {
     const comments = await this.comments.list(issue);
     return comments
-      .filter(({ authorId }) => authorId === this.agentUserId)
+      .filter(
+        ({ authorId, edited }) => authorId === this.agentUserId && !edited,
+      )
       .flatMap(({ body }) => {
         const marker = MARKER.exec(body);
         if (!marker) return [];

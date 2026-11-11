@@ -41,7 +41,10 @@ const later = (a: string, b: string) => (Date.parse(b) > Date.parse(a) ? b : a);
  * repository comments and feeds them to the same ingestion use case as
  * webhooks. Comments are ingested in ID order and the cursor is saved after
  * each one, so a failure retries that comment next poll and skips nothing.
- * Edited comments keep their old ID and are never re-run.
+ * Edited comments keep their old ID and are never re-run. A new comment that
+ * was edited before it was polled is passed on as `edited`, which ingestion
+ * refuses: write access lets people edit anyone's comment, so its text may
+ * not be its author's.
  */
 export class GitHubCommentPoller {
   constructor(
@@ -84,7 +87,9 @@ export class GitHubCommentPoller {
     return {
       deliveryId: `comment-${comment.id}`,
       event: GitHubWebhookEvent.IssueComment,
-      action: GitHubCommentAction.Created,
+      action: comment.edited
+        ? GitHubCommentAction.Edited
+        : GitHubCommentAction.Created,
       issue: comment.issue,
       repository: this.repository,
       senderId: comment.authorId,

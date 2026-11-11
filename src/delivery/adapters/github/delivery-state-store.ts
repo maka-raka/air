@@ -26,7 +26,7 @@ const fail = (reason: DeliveryFailure, detail?: string): DeliveryResult => ({
   reason,
   detail,
 });
-const stateLabel = (p: Position) => `air:${p.phase}:${p.status}`;
+export const stateLabel = (p: Position) => `air:${p.phase}:${p.status}`;
 function activeLabels(labels: readonly string[]): string[] {
   return labels.filter((label) => {
     const match = activePattern.exec(label);

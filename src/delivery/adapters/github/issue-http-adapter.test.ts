@@ -355,3 +355,82 @@ describe("GitHubIssueHttpAdapter", () => {
     });
   });
 });
+
+describe("GitHubIssueHttpAdapter label events", () => {
+  function events(pages: unknown[][]) {
+    const urls: string[] = [];
+    const client = createClient(async (url) => {
+      urls.push(url);
+      const page = Number(new URL(url).searchParams.get("page"));
+      return { ok: true, status: 200, json: async () => pages[page - 1] ?? [] };
+    });
+    return { urls, client };
+  }
+  const event = (name: string, actor: unknown, type = "labeled") => ({
+    event: type,
+    label: { name },
+    actor,
+  });
+
+  it("returns label changes oldest first and skips other events", async () => {
+    const { urls, client } = events([
+      [
+        event("air:build:ready", { id: 9, login: "air-bot" }),
+        { event: "closed", actor: { id: 7, login: "octocat" } },
+        event("air:build:ready", null, "unlabeled"),
+      ],
+    ]);
+
+    const history = await client.labelEvents(42);
+
+    assert.deepEqual(history, {
+      complete: true,
+      events: [
+        {
+          type: "labeled",
+          label: "air:build:ready",
+          actorId: 9,
+          actorLogin: "air-bot",
+        },
+        {
+          type: "unlabeled",
+          label: "air:build:ready",
+          actorId: 0,
+          actorLogin: "",
+        },
+      ],
+    });
+    assert.equal(
+      new URL(urls[0]!).pathname,
+      "/repos/example/air/issues/42/events",
+    );
+  });
+
+  it("reports an incomplete history instead of guessing", async () => {
+    const full = Array.from({ length: 100 }, () => ({ event: "commented" }));
+    const { urls, client } = events(Array.from({ length: 10 }, () => full));
+
+    const history = await client.labelEvents(42);
+
+    assert.equal(history.complete, false);
+    assert.equal(urls.length, 10);
+  });
+
+  for (const [name, payload] of [
+    ["a non-list response", {}],
+    ["an event without a type", [{ label: { name: "x" } }]],
+    ["a label event without a label", [{ event: "labeled", actor: null }]],
+  ] as const) {
+    it(`rejects ${name}`, async () => {
+      const client = createClient(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => payload,
+      }));
+
+      await assert.rejects(client.labelEvents(42), {
+        category: "invalid-response",
+      });
+    });
+  }
+});

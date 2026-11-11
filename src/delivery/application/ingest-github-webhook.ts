@@ -23,6 +23,8 @@ export const GitHubWebhookEvent = {
 
 export const GitHubCommentAction = {
   Created: "created",
+  /** Never executed: the author may not be the person who wrote the text. */
+  Edited: "edited",
 } as const;
 
 export const IngestionDecision = {

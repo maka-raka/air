@@ -8,6 +8,12 @@ export const GitHubPullRequestState = { Open: "open" } as const;
 
 export const GitHubUserType = { Bot: "Bot" } as const;
 
+/** Issue event types AIR reads to verify who changed delivery labels. */
+export const GitHubIssueEventType = {
+  Labeled: "labeled",
+  Unlabeled: "unlabeled",
+} as const;
+
 export const GitHubCheckRunStatus = { Completed: "completed" } as const;
 
 /** Check run conclusions and commit status states that count as passing. */

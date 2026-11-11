@@ -60,6 +60,7 @@ const comment = (id: number, updatedAt: string): IssueComment => ({
   authorIsBot: false,
   pullRequest: false,
   updatedAt,
+  edited: false,
 });
 
 const repository = { id: 123, fullName: "example/air" };
@@ -94,6 +95,16 @@ describe("GitHubCommentPoller", () => {
     assert.deepEqual(cursors.saved, [
       { since: "2026-11-10T12:00:00.000Z", lastCommentId: 0 },
     ]);
+  });
+
+  it("passes a comment edited before polling on as an edit, not a command", async () => {
+    const { ingestion, poller } = fixture(start, [
+      { ...comment(11, "2026-11-10T09:01:00Z"), edited: true },
+    ]);
+
+    await poller.pollOnce();
+
+    assert.equal(ingestion.envelopes[0]!.action, "edited");
   });
 
   it("ingests new comments in ID order as issue_comment envelopes", async () => {

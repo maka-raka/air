@@ -12,15 +12,20 @@ import { DeliveryPhase } from "../domain/state-machine.js";
 import { isEntryPoint, repository } from "./config.js";
 import type { Phase } from "../domain/state-machine.js";
 import { GitHubDeliveryRecordStore } from "../adapters/github/delivery-record-store.js";
-import { GitHubDeliveryStateStore } from "../adapters/github/delivery-state-store.js";
 import { GitHubRestClient } from "../adapters/github/github-rest-client.js";
 import type { HttpRequest } from "../adapters/github/github-rest-client.js";
 import { GitHubIssueCommentHttpAdapter } from "../adapters/github/issue-comment-http-adapter.js";
-import { GitHubIssueHttpAdapter } from "../adapters/github/issue-http-adapter.js";
 import {
   AgentIdentityPreflight,
   GitHubUserHttpAdapter,
 } from "../adapters/github/user-http-adapter.js";
+import {
+  assertTokenOwner,
+  readServiceLogins,
+  resolveServiceAccounts,
+  verifiedStateStore,
+} from "./trust.js";
+import type { ServiceLogins } from "./trust.js";
 
 export const AgentCliCommand = {
   Start: "start",
@@ -146,7 +151,7 @@ export type AgentConfig = Readonly<{
   owner: string;
   repo: string;
   token: string;
-  agentLogin: string;
+  accounts: ServiceLogins;
   runTtlMs: number;
 }>;
 
@@ -155,13 +160,11 @@ export function readAgentConfig(
 ): AgentConfig {
   const token = env.AIR_AGENT_TOKEN ?? "";
   if (!token.trim()) throw new Error("Set AIR_AGENT_TOKEN");
-  const agentLogin = env.AIR_AGENT_LOGIN ?? "";
-  if (!agentLogin) throw new Error("Set AIR_AGENT_LOGIN");
   const { owner, repo } = repository(env);
   const runTtlMs = Number(env.AIR_RUN_TTL_MS || 2 * 60 * 60 * 1000);
   if (!Number.isSafeInteger(runTtlMs) || runTtlMs <= 0)
     throw new Error("Invalid AIR_RUN_TTL_MS");
-  return { owner, repo, token, agentLogin, runTtlMs };
+  return { owner, repo, token, accounts: readServiceLogins(env), runTtlMs };
 }
 
 export type AgentServices = Readonly<{
@@ -181,14 +184,13 @@ export async function composeAgent(
     request,
   });
   const users = new GitHubUserHttpAdapter(client);
-  const viewer = await users.viewer();
-  if (viewer.login.toLowerCase() !== config.agentLogin.toLowerCase())
-    throw new Error(
-      `AIR_AGENT_TOKEN belongs to ${viewer.login}, not ${config.agentLogin}`,
-    );
-  const state = new GitHubDeliveryStateStore(
-    new GitHubIssueHttpAdapter(client),
+  const accounts = await resolveServiceAccounts(users, config.accounts);
+  const viewer = await assertTokenOwner(
+    users,
+    accounts.agent,
+    "AIR_AGENT_TOKEN",
   );
+  const state = verifiedStateStore(client, accounts);
   const executor = new ExecuteDeliveryCommand(state);
   const records = new GitHubDeliveryRecordStore(
     new GitHubIssueCommentHttpAdapter(client),

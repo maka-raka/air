@@ -11,12 +11,15 @@ import type { HttpRequest } from "../adapters/github/github-rest-client.js";
 
 const DEPLOYER = { id: 88, login: "air-deployer" };
 const AGENT = { id: 77, login: "air-agent" };
+const OPERATOR = { id: 9, login: "air-bot" };
+const MALLORY = { id: 66, login: "mallory" };
 const SHA = "abc1234";
 const MERGE = "def5678";
 
 /** Fake GitHub: issue 42, agent build report naming PR 57, one deployment. */
 class FakeGitHub {
   labels: string[];
+  readonly events: unknown[] = [];
   readonly posted: string[] = [];
   readonly paths: string[] = [];
   deploymentState = "success";
@@ -25,8 +28,15 @@ class FakeGitHub {
   constructor(
     state: string,
     private readonly viewer = DEPLOYER,
+    stateWriter = AGENT,
   ) {
     this.labels = [state];
+    this.label([state], stateWriter);
+  }
+
+  private label(names: readonly string[], actor: typeof AGENT) {
+    for (const name of names)
+      this.events.push({ event: "labeled", label: { name }, actor });
   }
 
   readonly request: HttpRequest = async (url, init) => {
@@ -48,15 +58,23 @@ class FakeGitHub {
     const routes: Record<string, () => unknown> = {
       "GET /user": () => this.viewer,
       "GET /users/air-agent": () => AGENT,
+      "GET /users/air-bot": () => OPERATOR,
+      "GET /users/air-deployer": () => DEPLOYER,
+      "GET /issues/42/events": () => this.events,
       "GET /issues/42": () => ({
         state: "open",
         labels: this.labels.map((name) => ({ name })),
       }),
       "PUT /issues/42/labels": () => {
+        this.label(
+          (body.labels as string[]).filter((n) => !this.labels.includes(n)),
+          this.viewer,
+        );
         this.labels = body.labels;
         return [];
       },
       "POST /issues/42/labels": () => {
+        this.label(body.labels, this.viewer);
         this.labels = [...this.labels, ...body.labels];
         return [];
       },
@@ -67,6 +85,7 @@ class FakeGitHub {
           user: { ...AGENT, type: "User" },
           issue_url: "https://api.github.com/repos/example/air/issues/42",
           html_url: "https://github.com/example/air/issues/42#c1",
+          created_at: "2026-11-11T10:00:00Z",
           updated_at: "2026-11-11T10:00:00Z",
         },
       ],
@@ -95,8 +114,11 @@ const config: DeployConfig = {
   owner: "example",
   repo: "air",
   token: "deploy-token",
-  deployLogin: "air-deployer",
-  agentLogin: "air-agent",
+  accounts: {
+    operatorLogin: "air-bot",
+    agentLogin: "air-agent",
+    deployLogin: "air-deployer",
+  },
   runTtlMs: 7_200_000,
   environmentNames: { stage: "staging", prod: "production" },
 };
@@ -144,6 +166,17 @@ describe("deploy CLI composition", () => {
     assert.ok(github.labels.includes("air:review:waiting"));
   });
 
+  it("does not advance from a state label a person added by hand", async () => {
+    const github = new FakeGitHub("air:review:waiting", DEPLOYER, MALLORY);
+    const deployment = await composeDeploy(config, github.request);
+
+    const outcome = await deployment.run(42, "stage", SHA);
+
+    assert.match(render(outcome), /untrusted-state/);
+    assert.ok(github.labels.includes("air:review:waiting"));
+    assert.ok(!github.labels.includes("air:accept:ready"));
+  });
+
   it("refuses a token that is not the deployer's", async () => {
     const github = new FakeGitHub("air:review:waiting", AGENT);
 
@@ -174,15 +207,24 @@ describe("parseDeployArgs and readDeployConfig", () => {
     });
   }
 
-  it("requires distinct deployer and agent accounts", () => {
+  it("requires distinct operator, deployer and agent accounts", () => {
     const env = {
       AIR_REPOSITORY: "example/air",
       AIR_DEPLOY_TOKEN: "t",
+      AIR_OPERATOR_LOGIN: "air-bot",
       AIR_DEPLOY_LOGIN: "bot",
       AIR_AGENT_LOGIN: "BOT",
     };
 
-    assert.throws(() => readDeployConfig(env), /must differ/);
+    assert.throws(() => readDeployConfig(env), /different accounts/);
+    assert.throws(
+      () => readDeployConfig({ ...env, AIR_DEPLOY_LOGIN: "AIR-BOT" }),
+      /different accounts/,
+    );
+    assert.throws(
+      () => readDeployConfig({ ...env, AIR_DEPLOY_LOGIN: "" }),
+      /AIR_DEPLOY_LOGIN/,
+    );
     assert.deepEqual(
       readDeployConfig({ ...env, AIR_AGENT_LOGIN: "air-agent" })
         .environmentNames,

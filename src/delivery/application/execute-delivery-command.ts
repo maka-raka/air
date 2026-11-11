@@ -15,6 +15,8 @@ export const DeliveryFailure = {
   WriteFailed: "write-failed",
   UncertainWrite: "uncertain-write",
   PartialCompletion: "partial-completion",
+  /** The current state label was not written by a trusted AIR account. */
+  UntrustedState: "untrusted-state",
 } as const;
 
 export type DeliveryFailure =
