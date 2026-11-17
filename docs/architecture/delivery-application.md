@@ -47,27 +47,29 @@ The exact order of posting comment and updating labels must be chosen for crash 
 
 Ports should be scoped to the consuming use case rather than forcing a universal `Tracker` or `DataAccess` interface. GitHub integrations may share internal infrastructure clients while exposing separate application ports.
 
-## Webhook ingestion
+## Human command ingestion
 
-Human commands arrive as `/air` issue comments ([ADR-0003](adr/0003-github-comment-commands.md)).
+Human commands are `/air` messages ([ADR-0003](adr/0003-github-comment-commands.md)). The application layer is platform-neutral: it receives a `HumanCommandMessage` (message ID, source project, issue, author, comment) and knows nothing about webhooks, events or bots.
 
-`IngestGitHubWebhook` admits an HMAC-verified `issue_comment.created` webhook and owns its delivery-ID claim lifecycle.
+`IngestHumanCommand` admits a message and owns its message-ID claim lifecycle.
 
-Order: supported event/action → `/air` issue comment from a non-bot → trusted actor authorization → `DeliveryClaimPort.acquire` → `AdmittedWebhookHandlerPort.handle` → `complete`.
+Order: `/air` command → trusted author authorization → `DeliveryClaimPort.acquire` → `AdmittedCommandHandlerPort.handle` → `complete`.
+
+Platform rules live in the inbound adapter. On GitHub, `GitHubCommentIngress` (`adapters/github/github-webhook.ts`) accepts only `issue_comment.created` on an issue (not a pull request) from a non-bot, and maps it to a `HumanCommandMessage`. The HMAC webhook verifier and the local comment poller both feed it. Another tracker adds its own ingress; the use case and ports stay unchanged.
 
 `CommentCommandHandler` is the handler: `CommentCommandParser` → `DeliveryEvidencePort` → `ExecuteDeliveryCommand` (actor `Human`) → `CommandReplyPort`.
 
 | Port | Required behavior |
 | --- | --- |
 | `DeliveryClaimPort` | Durable and atomic across workers. `acquire` returns `acquired` (with a fenced lease), `in-progress` (live lease held elsewhere) or `completed`. Unsettled leases expire. Operations carrying a superseded token are ignored. |
-| `WebhookActorAuthorizationPort` | Resolves permissions from trusted GitHub identity, never from webhook payload claims. Requires at least write access. |
-| `AdmittedWebhookHandlerPort` | Downstream processing; must be idempotent. |
+| `CommandAuthorizationPort` | Resolves permissions from trusted platform identity, never from message claims. Requires at least write access. |
+| `AdmittedCommandHandlerPort` | Downstream processing; must be idempotent. |
 | `DeliveryEvidencePort` | Trusted facts for a command (task size, design approval, PR and checks, active run, observe verdict). Never derived from comment text. |
 | `CommandReplyPort` | Reports `applied`, `rejected` or `invalid-command` for the source comment. |
 
 Invariants:
 
-- Irrelevant, unsupported or unauthorized deliveries never touch the claim store, so they cannot consume a delivery ID.
+- Irrelevant, unsupported or unauthorized messages never touch the claim store, so they cannot consume a message ID.
 - Comment text can only set `feedbackRecorded`, `reportRecorded`, `recoveryConfirmed` and `designApproved`.
 - Business rejections are replied to and completed; only infrastructure failures propagate.
 - A command that already has an AIR reply (hidden `air:reply` marker by AIR's account) is skipped: the comment ID is the operation ID.

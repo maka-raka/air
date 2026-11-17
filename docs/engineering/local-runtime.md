@@ -2,13 +2,14 @@
 
 > In another project, install AIR and run `npx --no air-local` instead: see [Adopting AIR](install.md). This page describes running from this repository.
 
-Run AIR on your own machine against a **test repository**. GitHub cannot reach `localhost`, so the local runtime **polls** repository comments instead of receiving webhooks. It feeds them to the same `IngestGitHubWebhook` use case a hosted webhook endpoint will use. Only the adapters differ.
+Run AIR on your own machine against a **test repository**. GitHub cannot reach `localhost`, so the local runtime **polls** repository comments instead of receiving webhooks. It feeds them through the same `GitHubCommentIngress` and platform-neutral `IngestHumanCommand` use case a hosted webhook endpoint will use. Only the adapters differ.
 
 ```text
 every AIR_POLL_INTERVAL_MS:
   GET /repos/<owner>/<repo>/issues/comments?since=<cursor>
     → GitHubCommentPoller (ID order, cursor saved after each comment)
-    → IngestGitHubWebhook: /air issue comment? → write access? → claim
+    → GitHubCommentIngress: created issue comment, not a PR, not a bot?
+    → IngestHumanCommand: /air command? → approver with write access? → claim
     → CommentCommandHandler → ExecuteDeliveryCommand (labels)
     → reply comment on the issue
 ```

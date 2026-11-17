@@ -4,13 +4,14 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { isEntryPoint, loadEnvFile, repository, required } from "./config.js";
 import { CommentCommandHandler } from "../application/comment-command-handler.js";
 import { ExecuteDeliveryCommand } from "../application/execute-delivery-command.js";
-import { IngestGitHubWebhook } from "../application/ingest-github-webhook.js";
+import { IngestHumanCommand } from "../application/ingest-human-command.js";
 import { GitHubCollaboratorAuthorization } from "../adapters/github/collaborator-authorization.js";
 import {
   GitHubCommandReplyAdapter,
   GitHubProcessedCommands,
 } from "../adapters/github/command-reply-adapter.js";
 import { GitHubCommentPoller } from "../adapters/github/comment-poller.js";
+import { GitHubCommentIngress } from "../adapters/github/github-webhook.js";
 import type { PollOutcome } from "../adapters/github/comment-poller.js";
 import { GitHubRestClient } from "../adapters/github/github-rest-client.js";
 import type { HttpRequest } from "../adapters/github/github-rest-client.js";
@@ -136,7 +137,7 @@ export async function composeLocal(
     // Replies are posted with this token, so only its markers are trusted.
     new GitHubProcessedCommands(comments, operator.id),
   );
-  const ingestion = new IngestGitHubWebhook(
+  const ingestion = new IngestHumanCommand(
     new InMemoryDeliveryClaims(config.leaseMs),
     new GitHubCollaboratorAuthorization(repository, identity.id, {
       approverIds,
@@ -149,7 +150,7 @@ export async function composeLocal(
   );
   return new GitHubCommentPoller(
     comments,
-    ingestion,
+    new GitHubCommentIngress(ingestion),
     new FilePollCursorStore(resolve(config.stateDir, "cursor.json")),
     identity,
   );

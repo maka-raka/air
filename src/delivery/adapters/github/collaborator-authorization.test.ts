@@ -21,7 +21,8 @@ class FakePermissions implements RepositoryPermissionReader {
   }
 }
 
-const sender = { repositoryId: 123, senderId: 7, senderLogin: "octocat" };
+const source = { id: 123, name: "owner/repo" };
+const author = { id: 7, login: "octocat" };
 
 function authorization(access: CollaboratorPermission) {
   const permissions = new FakePermissions(access);
@@ -44,7 +45,7 @@ describe("GitHubCollaboratorAuthorization", () => {
     it(`${expected ? "admits" : "rejects"} ${permission} access`, async () => {
       const { authorization: auth } = authorization({ userId: 7, permission });
 
-      const allowed = await auth.canIngest(sender);
+      const allowed = await auth.canCommand(source, author);
 
       assert.equal(allowed, expected);
     });
@@ -56,7 +57,7 @@ describe("GitHubCollaboratorAuthorization", () => {
       permission: RepositoryPermission.Admin,
     });
 
-    const allowed = await auth.canIngest(sender);
+    const allowed = await auth.canCommand(source, author);
 
     assert.equal(allowed, false);
   });
@@ -71,7 +72,7 @@ describe("GitHubCollaboratorAuthorization", () => {
       excludedUserIds: [77, 88],
     });
 
-    const allowed = await auth.canIngest({ ...sender, senderId: 77 });
+    const allowed = await auth.canCommand(source, { ...author, id: 77 });
 
     assert.equal(allowed, false);
     assert.deepEqual(permissions.logins, []);
@@ -87,7 +88,7 @@ describe("GitHubCollaboratorAuthorization", () => {
       excludedUserIds: [],
     });
 
-    const allowed = await auth.canIngest({ ...sender, senderId: 8 });
+    const allowed = await auth.canCommand(source, { ...author, id: 8 });
 
     assert.equal(allowed, false);
     assert.deepEqual(permissions.logins, []);
@@ -99,7 +100,7 @@ describe("GitHubCollaboratorAuthorization", () => {
       permission: RepositoryPermission.Read,
     });
 
-    assert.equal(await auth.canIngest(sender), false);
+    assert.equal(await auth.canCommand(source, author), false);
   });
 
   for (const [name, policy] of [
@@ -124,7 +125,7 @@ describe("GitHubCollaboratorAuthorization", () => {
       permission: RepositoryPermission.Admin,
     });
 
-    const allowed = await auth.canIngest({ ...sender, repositoryId: 999 });
+    const allowed = await auth.canCommand({ ...source, id: 999 }, author);
 
     assert.equal(allowed, false);
     assert.deepEqual(permissions.logins, []);

@@ -1,7 +1,8 @@
 import type {
-  WebhookActorAuthorizationPort,
-  WebhookSender,
-} from "../../application/ingest-github-webhook.js";
+  CommandAuthor,
+  CommandAuthorizationPort,
+  CommandSource,
+} from "../../application/ingest-human-command.js";
 import { RepositoryPermission } from "./repository-http-adapter.js";
 import type { RepositoryPermissionReader } from "./repository-http-adapter.js";
 
@@ -19,14 +20,14 @@ export type ApproverPolicy = Readonly<{
 
 /**
  * Admits a sender only when all of these hold:
- * - the event belongs to the configured repository;
+ * - the command was posted in the configured repository;
  * - the sender is not a service account;
  * - the sender is on the explicit approver list (by immutable user ID);
  * - the sender still has write or admin access, and the login still
  *   resolves to the same ID.
  * Write access alone is never enough. Fails closed on any mismatch.
  */
-export class GitHubCollaboratorAuthorization implements WebhookActorAuthorizationPort {
+export class GitHubCollaboratorAuthorization implements CommandAuthorizationPort {
   constructor(
     private readonly permissions: RepositoryPermissionReader,
     private readonly repositoryId: number,
@@ -41,12 +42,15 @@ export class GitHubCollaboratorAuthorization implements WebhookActorAuthorizatio
       throw new Error("A service account cannot be an approver");
   }
 
-  async canIngest(sender: WebhookSender): Promise<boolean> {
-    if (sender.repositoryId !== this.repositoryId) return false;
-    if (this.policy.excludedUserIds.includes(sender.senderId)) return false;
-    if (!this.policy.approverIds.includes(sender.senderId)) return false;
-    const access = await this.permissions.permission(sender.senderLogin);
-    if (access.userId !== sender.senderId) return false;
+  async canCommand(
+    source: CommandSource,
+    author: CommandAuthor,
+  ): Promise<boolean> {
+    if (source.id !== this.repositoryId) return false;
+    if (this.policy.excludedUserIds.includes(author.id)) return false;
+    if (!this.policy.approverIds.includes(author.id)) return false;
+    const access = await this.permissions.permission(author.login);
+    if (access.userId !== author.id) return false;
     return writers.includes(access.permission);
   }
 }

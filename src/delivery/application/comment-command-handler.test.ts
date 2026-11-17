@@ -22,11 +22,7 @@ import type {
   DeliveryCommand,
   DeliveryResult,
 } from "./execute-delivery-command.js";
-import {
-  GitHubCommentAction,
-  GitHubWebhookEvent,
-} from "./ingest-github-webhook.js";
-import type { WebhookEnvelope } from "./ingest-github-webhook.js";
+import type { HumanCommandMessage } from "./ingest-human-command.js";
 import {
   DeliveryAction,
   DeliveryActor,
@@ -89,23 +85,18 @@ function fixture(
     processed?: ProcessedCommandPort;
   }> = {},
 ) {
-  const envelope: WebhookEnvelope = {
-    deliveryId: "12345678-1234-1234-1234-123456789abc",
-    event: GitHubWebhookEvent.IssueComment,
-    action: GitHubCommentAction.Created,
+  const message: HumanCommandMessage = {
+    messageId: "12345678-1234-1234-1234-123456789abc",
+    source: { id: 123, name: "owner/repo" },
     issue: 42,
-    repository: { id: 123, fullName: "owner/repo" },
-    senderId: 7,
-    senderLogin: "octocat",
-    senderIsBot: false,
-    pullRequest: false,
+    author: { id: 7, login: "octocat" },
     comment: { id: 900, body },
   };
   const evidence = new FakeEvidence(options.facts);
   const executor = new FakeExecutor(options.result ?? applied);
   const replies = new FakeReplies();
   return {
-    envelope,
+    message,
     evidence,
     executor,
     replies,
@@ -120,12 +111,12 @@ function fixture(
 
 describe("CommentCommandHandler", () => {
   it("executes the command as Human with evidence and replies applied", async () => {
-    const { envelope, evidence, executor, replies, handler } = fixture(
+    const { message, evidence, executor, replies, handler } = fixture(
       "/air advance build\nSmall task",
       { facts: { taskSize: "S", miniDesignRecorded: true } },
     );
 
-    await handler.handle(envelope);
+    await handler.handle(message);
 
     assert.deepEqual(evidence.requests, [
       {
@@ -170,8 +161,8 @@ describe("CommentCommandHandler", () => {
     const withReason = fixture("/air rework\nCover edge cases");
     const withoutReason = fixture("/air rework");
 
-    await withReason.handler.handle(withReason.envelope);
-    await withoutReason.handler.handle(withoutReason.envelope);
+    await withReason.handler.handle(withReason.message);
+    await withoutReason.handler.handle(withoutReason.message);
 
     const facts = [withReason, withoutReason].map(
       ({ executor }) => executor.commands[0]?.request.facts?.feedbackRecorded,
@@ -183,8 +174,8 @@ describe("CommentCommandHandler", () => {
     const recover = fixture("/air recover\nAgent session crashed");
     const rework = fixture("/air rework\nAgent session crashed");
 
-    await recover.handler.handle(recover.envelope);
-    await rework.handler.handle(rework.envelope);
+    await recover.handler.handle(recover.message);
+    await rework.handler.handle(rework.message);
 
     const confirmed = [recover, rework].map(
       ({ executor }) => executor.commands[0]?.request.facts?.recoveryConfirmed,
@@ -193,7 +184,7 @@ describe("CommentCommandHandler", () => {
   });
 
   it("does not let evidence claim comment-derived facts", async () => {
-    const { envelope, executor, handler } = fixture("/air unblock", {
+    const { message, executor, handler } = fixture("/air unblock", {
       facts: {
         feedbackRecorded: true,
         recoveryConfirmed: true,
@@ -201,7 +192,7 @@ describe("CommentCommandHandler", () => {
       },
     });
 
-    await handler.handle(envelope);
+    await handler.handle(message);
 
     const facts = executor.commands[0]?.request.facts;
     assert.equal(facts?.feedbackRecorded, false);
@@ -215,11 +206,11 @@ describe("CommentCommandHandler", () => {
       reason: DeliveryFailure.InvalidTransition,
       detail: "Issue is closed",
     };
-    const { envelope, replies, handler } = fixture("/air rework\nx", {
+    const { message, replies, handler } = fixture("/air rework\nx", {
       result: rejected,
     });
 
-    await handler.handle(envelope);
+    await handler.handle(message);
 
     assert.deepEqual(replies.replies, [
       {
@@ -235,10 +226,10 @@ describe("CommentCommandHandler", () => {
   });
 
   it("replies to an invalid command without collecting evidence", async () => {
-    const { envelope, evidence, executor, replies, handler } =
+    const { message, evidence, executor, replies, handler } =
       fixture("/air advance moon");
 
-    await handler.handle(envelope);
+    await handler.handle(message);
 
     assert.deepEqual(evidence.requests, []);
     assert.deepEqual(executor.commands, []);
@@ -263,7 +254,7 @@ describe("CommentCommandHandler", () => {
         throw failure;
       },
     };
-    const { envelope } = fixture("/air advance review");
+    const { message } = fixture("/air advance review");
     const handler = new CommentCommandHandler(
       evidence,
       executor,
@@ -271,7 +262,7 @@ describe("CommentCommandHandler", () => {
       notProcessed,
     );
 
-    const result = handler.handle(envelope);
+    const result = handler.handle(message);
 
     await assert.rejects(result, (error) => error === failure);
     assert.deepEqual(executor.commands, []);
@@ -280,7 +271,7 @@ describe("CommentCommandHandler", () => {
 
   it("skips a command that already has a reply", async () => {
     const asked: number[] = [];
-    const { envelope, evidence, executor, replies, handler } = fixture(
+    const { message, evidence, executor, replies, handler } = fixture(
       "/air rework\nAgain",
       {
         processed: {
@@ -292,19 +283,10 @@ describe("CommentCommandHandler", () => {
       },
     );
 
-    await handler.handle(envelope);
+    await handler.handle(message);
 
     assert.deepEqual(asked, [900]);
     assert.deepEqual(evidence.requests, []);
-    assert.deepEqual(executor.commands, []);
-    assert.deepEqual(replies.replies, []);
-  });
-
-  it("ignores an envelope without a comment", async () => {
-    const { envelope, executor, replies, handler } = fixture("/air rework");
-
-    await handler.handle({ ...envelope, comment: null });
-
     assert.deepEqual(executor.commands, []);
     assert.deepEqual(replies.replies, []);
   });

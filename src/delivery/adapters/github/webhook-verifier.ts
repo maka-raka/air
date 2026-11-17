@@ -1,10 +1,7 @@
 import { GitHubUserType } from "./github-protocol.js";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { GitHubWebhookEvent } from "../../application/ingest-github-webhook.js";
-import type {
-  WebhookComment,
-  WebhookEnvelope,
-} from "../../application/ingest-github-webhook.js";
+import { GitHubWebhookEvent } from "./github-webhook.js";
+import type { WebhookComment, WebhookEnvelope } from "./github-webhook.js";
 
 export const WebhookRejection = {
   InvalidSignature: "invalid-signature",
