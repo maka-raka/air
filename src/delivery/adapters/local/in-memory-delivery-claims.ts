@@ -1,9 +1,9 @@
-import { ClaimOutcome } from "../../application/ingest-github-webhook.js";
+import { ClaimOutcome } from "../../application/ingest-human-command.js";
 import type {
   ClaimResult,
   DeliveryClaimPort,
   DeliveryLease,
-} from "../../application/ingest-github-webhook.js";
+} from "../../application/ingest-human-command.js";
 
 type Claim =
   | Readonly<{ completed: false; token: string; expiresAt: number }>

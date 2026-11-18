@@ -11,9 +11,9 @@ import type {
   DeliveryResult,
 } from "./execute-delivery-command.js";
 import type {
-  AdmittedWebhookHandlerPort,
-  WebhookEnvelope,
-} from "./ingest-github-webhook.js";
+  AdmittedCommandHandlerPort,
+  HumanCommandMessage,
+} from "./ingest-human-command.js";
 
 /** Trusted, externally verified facts. Never derived from comment text. */
 export interface DeliveryEvidencePort {
@@ -73,7 +73,7 @@ export interface DeliveryCommandExecutor {
  * a reply is skipped; one that crashed between execution and reply may run
  * again and is then typically rejected as invalid-transition.
  */
-export class CommentCommandHandler implements AdmittedWebhookHandlerPort {
+export class CommentCommandHandler implements AdmittedCommandHandlerPort {
   constructor(
     private readonly evidence: DeliveryEvidencePort,
     private readonly executor: DeliveryCommandExecutor,
@@ -82,27 +82,23 @@ export class CommentCommandHandler implements AdmittedWebhookHandlerPort {
     private readonly parser: CommentCommandParser = new CommentCommandParser(),
   ) {}
 
-  async handle(envelope: WebhookEnvelope): Promise<void> {
-    const comment = envelope.comment;
-    if (!comment) return;
-    if (await this.processed.wasProcessed(envelope.issue, comment.id)) return;
+  async handle(message: HumanCommandMessage): Promise<void> {
+    const { issue, comment } = message;
+    if (await this.processed.wasProcessed(issue, comment.id)) return;
 
     const parsed = this.parser.parse(comment.body);
     if (!parsed.ok)
-      return this.replies.reply(envelope.issue, {
+      return this.replies.reply(issue, {
         outcome: CommandOutcome.InvalidCommand,
         commentId: comment.id,
         error: parsed.error,
         detail: parsed.detail,
       });
 
-    const request = await this.request(envelope.issue, parsed.command);
-    const result = await this.executor.execute({
-      issue: envelope.issue,
-      request,
-    });
+    const request = await this.request(issue, parsed.command);
+    const result = await this.executor.execute({ issue, request });
     await this.replies.reply(
-      envelope.issue,
+      issue,
       result.ok
         ? {
             outcome: CommandOutcome.Applied,

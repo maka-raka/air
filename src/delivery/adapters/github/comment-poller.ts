@@ -1,11 +1,6 @@
-import {
-  GitHubCommentAction,
-  GitHubWebhookEvent,
-} from "../../application/ingest-github-webhook.js";
-import type {
-  IngestionDecision,
-  WebhookEnvelope,
-} from "../../application/ingest-github-webhook.js";
+import { GitHubCommentAction, GitHubWebhookEvent } from "./github-webhook.js";
+import type { WebhookEnvelope } from "./github-webhook.js";
+import type { IngestionDecision } from "../../application/ingest-human-command.js";
 import type {
   IssueComment,
   IssueCommentFeed,

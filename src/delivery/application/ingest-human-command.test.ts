@@ -2,20 +2,19 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   ClaimOutcome,
-  GitHubCommentAction,
-  GitHubWebhookEvent,
-  IngestGitHubWebhook,
+  IngestHumanCommand,
   IngestionDecision,
-} from "./ingest-github-webhook.js";
+} from "./ingest-human-command.js";
 import type {
-  AdmittedWebhookHandlerPort,
+  AdmittedCommandHandlerPort,
   ClaimResult,
+  CommandAuthor,
+  CommandAuthorizationPort,
+  CommandSource,
   DeliveryClaimPort,
   DeliveryLease,
-  WebhookActorAuthorizationPort,
-  WebhookEnvelope,
-  WebhookSender,
-} from "./ingest-github-webhook.js";
+  HumanCommandMessage,
+} from "./ingest-human-command.js";
 
 type ClaimCall = Readonly<{ operation: string; deliveryId: string }>;
 
@@ -53,20 +52,28 @@ class FakeClaims implements DeliveryClaimPort {
   }
 }
 
-class FakeAuthorization implements WebhookActorAuthorizationPort {
-  readonly requests: WebhookSender[] = [];
+type AuthorizationRequest = Readonly<{
+  source: CommandSource;
+  author: CommandAuthor;
+}>;
+
+class FakeAuthorization implements CommandAuthorizationPort {
+  readonly requests: AuthorizationRequest[] = [];
   constructor(private readonly allowed = true) {}
-  async canIngest(sender: WebhookSender): Promise<boolean> {
-    this.requests.push(sender);
+  async canCommand(
+    source: CommandSource,
+    author: CommandAuthor,
+  ): Promise<boolean> {
+    this.requests.push({ source, author });
     return this.allowed;
   }
 }
 
-class FakeHandler implements AdmittedWebhookHandlerPort {
-  readonly handled: WebhookEnvelope[] = [];
+class FakeHandler implements AdmittedCommandHandlerPort {
+  readonly handled: HumanCommandMessage[] = [];
   constructor(private readonly failures: Error[] = []) {}
-  async handle(envelope: WebhookEnvelope): Promise<void> {
-    this.handled.push(envelope);
+  async handle(message: HumanCommandMessage): Promise<void> {
+    this.handled.push(message);
     const failure = this.failures.shift();
     if (failure) throw failure;
   }
@@ -76,31 +83,26 @@ function fixture(
   options: Readonly<{
     allowed?: boolean;
     claims?: DeliveryClaimPort;
-    authorization?: WebhookActorAuthorizationPort;
+    authorization?: CommandAuthorizationPort;
     handler?: FakeHandler;
   }> = {},
 ) {
-  const envelope: WebhookEnvelope = {
-    deliveryId: "12345678-1234-1234-1234-123456789abc",
-    event: GitHubWebhookEvent.IssueComment,
-    action: GitHubCommentAction.Created,
+  const message: HumanCommandMessage = {
+    messageId: "12345678-1234-1234-1234-123456789abc",
+    source: { id: 123, name: "owner/repo" },
     issue: 42,
-    repository: { id: 123, fullName: "owner/repo" },
-    senderId: 7,
-    senderLogin: "octocat",
-    senderIsBot: false,
-    pullRequest: false,
+    author: { id: 7, login: "octocat" },
     comment: { id: 900, body: "/air rework\nPlease cover edge cases." },
   };
   const claims = new FakeClaims();
   const authorization = new FakeAuthorization(options.allowed ?? true);
   const handler = options.handler ?? new FakeHandler();
   return {
-    envelope,
+    message,
     claims,
     authorization,
     handler,
-    useCase: new IngestGitHubWebhook(
+    useCase: new IngestHumanCommand(
       options.claims ?? claims,
       options.authorization ?? authorization,
       handler,
@@ -111,47 +113,50 @@ function fixture(
 const operations = (claims: FakeClaims) =>
   claims.calls.map(({ operation }) => operation);
 
-describe("IngestGitHubWebhook", () => {
+describe("IngestHumanCommand", () => {
   it("handles an authorized delivery and completes its claim", async () => {
-    const { envelope, claims, authorization, handler, useCase } = fixture();
+    const { message, claims, authorization, handler, useCase } = fixture();
 
-    const decision = await useCase.execute(envelope);
+    const decision = await useCase.execute(message);
 
     assert.equal(decision, IngestionDecision.Accepted);
     assert.deepEqual(authorization.requests, [
-      { repositoryId: 123, senderId: 7, senderLogin: "octocat" },
+      {
+        source: { id: 123, name: "owner/repo" },
+        author: { id: 7, login: "octocat" },
+      },
     ]);
-    assert.deepEqual(handler.handled, [envelope]);
+    assert.deepEqual(handler.handled, [message]);
     assert.deepEqual(operations(claims), ["acquire", "complete"]);
   });
 
   it("reports a completed delivery as duplicate without handling it", async () => {
-    const { envelope, handler, useCase } = fixture();
-    await useCase.execute(envelope);
+    const { message, handler, useCase } = fixture();
+    await useCase.execute(message);
 
-    const decision = await useCase.execute(envelope);
+    const decision = await useCase.execute(message);
 
     assert.equal(decision, IngestionDecision.Duplicate);
     assert.equal(handler.handled.length, 1);
   });
 
   it("reports a live lease as in progress without handling it", async () => {
-    const { envelope, claims, handler, useCase } = fixture();
-    await claims.acquire(envelope.deliveryId);
+    const { message, claims, handler, useCase } = fixture();
+    await claims.acquire(message.messageId);
 
-    const decision = await useCase.execute(envelope);
+    const decision = await useCase.execute(message);
 
     assert.equal(decision, IngestionDecision.InProgress);
     assert.deepEqual(handler.handled, []);
   });
 
   it("handles distinct delivery IDs independently", async () => {
-    const { envelope, useCase } = fixture();
+    const { message, useCase } = fixture();
 
-    const first = await useCase.execute(envelope);
+    const first = await useCase.execute(message);
     const second = await useCase.execute({
-      ...envelope,
-      deliveryId: "another-id",
+      ...message,
+      messageId: "another-id",
     });
 
     assert.equal(first, IngestionDecision.Accepted);
@@ -161,9 +166,9 @@ describe("IngestGitHubWebhook", () => {
   it("releases the lease and rethrows when the handler fails", async () => {
     const failure = new Error("Handler failed");
     const handler = new FakeHandler([failure]);
-    const { envelope, claims, useCase } = fixture({ handler });
+    const { message, claims, useCase } = fixture({ handler });
 
-    const result = useCase.execute(envelope);
+    const result = useCase.execute(message);
 
     await assert.rejects(result, (error) => error === failure);
     assert.deepEqual(operations(claims), ["acquire", "release"]);
@@ -171,10 +176,10 @@ describe("IngestGitHubWebhook", () => {
 
   it("processes a redelivery after a failed attempt", async () => {
     const handler = new FakeHandler([new Error("Transient")]);
-    const { envelope, useCase } = fixture({ handler });
-    await assert.rejects(useCase.execute(envelope));
+    const { message, useCase } = fixture({ handler });
+    await assert.rejects(useCase.execute(message));
 
-    const decision = await useCase.execute(envelope);
+    const decision = await useCase.execute(message);
 
     assert.equal(decision, IngestionDecision.Accepted);
     assert.equal(handler.handled.length, 2);
@@ -191,9 +196,9 @@ describe("IngestGitHubWebhook", () => {
       },
     };
     const handler = new FakeHandler([failure]);
-    const { envelope, useCase } = fixture({ claims, handler });
+    const { message, useCase } = fixture({ claims, handler });
 
-    const result = useCase.execute(envelope);
+    const result = useCase.execute(message);
 
     await assert.rejects(result, (error) => error === failure);
   });
@@ -208,55 +213,49 @@ describe("IngestGitHubWebhook", () => {
       },
       release: (lease) => inner.release(lease),
     };
-    const { envelope, handler, useCase } = fixture({ claims });
+    const { message, handler, useCase } = fixture({ claims });
 
-    const result = useCase.execute(envelope);
+    const result = useCase.execute(message);
 
     await assert.rejects(result, (error) => error === failure);
-    assert.deepEqual(handler.handled, [envelope]);
+    assert.deepEqual(handler.handled, [message]);
     assert.deepEqual(operations(inner), ["acquire"]);
   });
 
   it("does not claim or handle a delivery from an unauthorized sender", async () => {
-    const { envelope, claims, handler, useCase } = fixture({ allowed: false });
+    const { message, claims, handler, useCase } = fixture({ allowed: false });
 
-    const decision = await useCase.execute(envelope);
+    const decision = await useCase.execute(message);
 
     assert.equal(decision, IngestionDecision.Unauthorized);
     assert.deepEqual(claims.calls, []);
     assert.deepEqual(handler.handled, []);
   });
 
-  for (const unsupported of [
-    { event: "issues" },
-    { action: "edited" },
-    { pullRequest: true },
-    { senderIsBot: true },
-    { comment: null },
-    { comment: { id: 900, body: "Looks good to me" } },
-  ]) {
-    it(`rejects ${JSON.stringify(unsupported)} before calling ports`, async () => {
-      const { envelope, claims, authorization, handler, useCase } = fixture();
+  it("drops a message that is not an /air command before calling ports", async () => {
+    const { message, claims, authorization, handler, useCase } = fixture();
 
-      const decision = await useCase.execute({ ...envelope, ...unsupported });
-
-      assert.equal(decision, IngestionDecision.Unsupported);
-      assert.deepEqual(authorization.requests, []);
-      assert.deepEqual(claims.calls, []);
-      assert.deepEqual(handler.handled, []);
+    const decision = await useCase.execute({
+      ...message,
+      comment: { id: 900, body: "Looks good to me" },
     });
-  }
+
+    assert.equal(decision, IngestionDecision.Unsupported);
+    assert.deepEqual(authorization.requests, []);
+    assert.deepEqual(claims.calls, []);
+    assert.deepEqual(handler.handled, []);
+  });
 
   it("propagates authorization failure without claiming a delivery", async () => {
     const failure = new Error("Authorization unavailable");
-    const authorization: WebhookActorAuthorizationPort = {
-      async canIngest() {
+    const authorization: CommandAuthorizationPort = {
+      async canCommand() {
         throw failure;
       },
     };
-    const { envelope, claims, useCase } = fixture({ authorization });
+    const { message, claims, useCase } = fixture({ authorization });
 
-    const result = useCase.execute(envelope);
+    const result = useCase.execute(message);
 
     await assert.rejects(result, (error) => error === failure);
     assert.deepEqual(claims.calls, []);
@@ -272,9 +271,9 @@ describe("IngestGitHubWebhook", () => {
       complete: (lease) => inner.complete(lease),
       release: (lease) => inner.release(lease),
     };
-    const { envelope, handler, useCase } = fixture({ claims });
+    const { message, handler, useCase } = fixture({ claims });
 
-    const result = useCase.execute(envelope);
+    const result = useCase.execute(message);
 
     await assert.rejects(result, (error) => error === failure);
     assert.deepEqual(handler.handled, []);

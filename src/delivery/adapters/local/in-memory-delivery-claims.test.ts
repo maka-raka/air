@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { InMemoryDeliveryClaims } from "./in-memory-delivery-claims.js";
-import { ClaimOutcome } from "../../application/ingest-github-webhook.js";
-import type { DeliveryLease } from "../../application/ingest-github-webhook.js";
+import { ClaimOutcome } from "../../application/ingest-human-command.js";
+import type { DeliveryLease } from "../../application/ingest-human-command.js";
 
 class FakeClock {
   time = 1_000;

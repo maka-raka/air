@@ -10,12 +10,9 @@ import type {
   IssueComment,
   IssueCommentFeed,
 } from "./issue-comment-http-adapter.js";
-import {
-  GitHubCommentAction,
-  GitHubWebhookEvent,
-  IngestionDecision,
-} from "../../application/ingest-github-webhook.js";
-import type { WebhookEnvelope } from "../../application/ingest-github-webhook.js";
+import { GitHubCommentAction, GitHubWebhookEvent } from "./github-webhook.js";
+import type { WebhookEnvelope } from "./github-webhook.js";
+import { IngestionDecision } from "../../application/ingest-human-command.js";
 
 class MemoryCursors implements PollCursorStore {
   readonly saved: PollCursor[] = [];
