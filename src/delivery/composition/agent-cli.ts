@@ -12,7 +12,8 @@ import type { RecordResult } from "../application/agent-commands.js";
 import type { ReportFacts } from "../application/delivery-record.js";
 import type { DeliveryResult } from "../application/execute-delivery-command.js";
 import { DeliveryPhase } from "../domain/state-machine.js";
-import { isEntryPoint, loadEnvFile, repository } from "./config.js";
+import { isEntryPoint, loadEnvFile, repository, required } from "./config.js";
+import type { StateAnchorMode } from "../domain/trust-policy.js";
 import { initProject, renderInit } from "./project-init.js";
 import {
   composeDoctor,
@@ -32,7 +33,12 @@ import {
 } from "../adapters/github/user-http-adapter.js";
 import {
   assertTokenOwner,
+  keyNames,
+  KeyRole,
+  readAnchorMode,
   readApproverLogins,
+  recordVerifier,
+  stateAnchorStore,
   readServiceLogins,
   recordSigner,
   resolveServiceAccounts,
@@ -85,7 +91,7 @@ export const USAGE = `Usage:
   air block <issue> (--question <text> | --question-file <path>)
   air report <issue> <phase> (--summary <text> | --summary-file <path>) [--facts <json>]
   air gate <issue>
-  air keygen
+  air keygen [agent|operator|deployer]
   air init
   air doctor [--strict]
 
@@ -203,6 +209,11 @@ export type AgentConfig = Readonly<{
   approverLogins: readonly string[];
   /** See `AIR_ALLOW_OPERATOR_APPROVER`; must match the poller's setting. */
   allowOperatorApprover: boolean;
+  /** Operator public key: verifies the state anchors the poller writes. */
+  operatorPublicKey: string;
+  /** Deployer public key; required when a deployer is configured. */
+  deployPublicKey?: string;
+  stateAnchors: StateAnchorMode;
 }>;
 
 export function readAgentConfig(
@@ -228,6 +239,11 @@ export function readAgentConfig(
     runTtlMs,
     approverLogins: readApproverLogins(env),
     allowOperatorApprover: env.AIR_ALLOW_OPERATOR_APPROVER === ENABLED,
+    operatorPublicKey: required(env, "AIR_OPERATOR_PUBLIC_KEY"),
+    ...(env.AIR_DEPLOY_PUBLIC_KEY
+      ? { deployPublicKey: env.AIR_DEPLOY_PUBLIC_KEY }
+      : {}),
+    stateAnchors: readAnchorMode(env),
   };
 }
 
@@ -261,14 +277,29 @@ export async function composeAgent(
   const approvers = await Promise.all(
     config.approverLogins.map((login) => users.byLogin(login)),
   );
-  const trust = trustPolicy(
+  const trust = trustPolicy(identity.id, accounts, {
+    approverIds: approvers.map(({ id }) => id),
+    operatorMayApprove: config.allowOperatorApprover,
+    stateAnchors: config.stateAnchors,
+  });
+  const comments = new GitHubIssueCommentHttpAdapter(client);
+  const anchors = stateAnchorStore(
+    comments,
     identity.id,
     accounts,
-    approvers.map(({ id }) => id),
-    config.allowOperatorApprover,
+    {
+      operator: recordVerifier(
+        config.operatorPublicKey,
+        "AIR_OPERATOR_PUBLIC_KEY",
+      ),
+      agent: signer.verifier,
+      deployer: config.deployPublicKey
+        ? recordVerifier(config.deployPublicKey, "AIR_DEPLOY_PUBLIC_KEY")
+        : null,
+    },
+    signer,
   );
-  const comments = new GitHubIssueCommentHttpAdapter(client);
-  const executor = trustedExecutor(client, trust);
+  const executor = trustedExecutor(client, anchors, trust);
   const records = new TrustedDeliveryRecords(
     new GitHubDeliveryRecordStore(comments, {
       repositoryId: identity.id,
@@ -361,26 +392,46 @@ export function render({ result, problems = [] }: CliOutcome): string {
 
 export const ExitCode = { Ok: 0, Error: 1, Rejected: 2 } as const;
 
+const keyUse: Readonly<Record<KeyRole, string>> = {
+  [KeyRole.Agent]:
+    "# Agent only (secret): signs records and state. Keep it out of git and CI logs.",
+  [KeyRole.Operator]:
+    "# Poller only (secret): signs the state it sets. Keep it out of git and CI.",
+  [KeyRole.Deployer]:
+    "# Deploy environment secret only: signs the state air-deploy sets.",
+};
+
+/** `air keygen [agent|operator|deployer]`: the role, agent by default. */
+export function keyRole(value: string | undefined): KeyRole {
+  const roles: readonly string[] = Object.values(KeyRole);
+  if (value === undefined) return KeyRole.Agent;
+  if (!roles.includes(value))
+    throw new Error(`air keygen takes one of: ${roles.join(", ")}`);
+  return value as KeyRole;
+}
+
 /** Output of `air keygen`: where each key belongs. */
 export function keygen(
   keys: Readonly<{
     privateKey: string;
     publicKey: string;
   }> = generateRecordKeys(),
+  role: KeyRole = KeyRole.Agent,
 ): string {
+  const names = keyNames[role];
   return [
-    "# Agent only (secret): signs records. Keep it out of git and CI logs.",
-    `AIR_AGENT_SIGNING_KEY=${keys.privateKey}`,
+    keyUse[role],
+    `${names.signing}=${keys.privateKey}`,
     "",
-    "# Every AIR process (poller, agent, deploy workflow): verifies records.",
-    `AIR_AGENT_PUBLIC_KEY=${keys.publicKey}`,
+    "# Every AIR process (poller, agent, deploy workflow): verifies it. Not secret.",
+    `${names.public}=${keys.publicKey}`,
   ].join("\n");
 }
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   if (argv[0] === AgentCliCommand.Keygen) {
-    console.log(keygen());
+    console.log(keygen(generateRecordKeys(), keyRole(argv[1])));
     return;
   }
   if (argv[0] === AgentCliCommand.Init) {

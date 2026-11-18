@@ -6,8 +6,11 @@ import type { IssueLabelsPort, ReadIssue } from "./delivery-state-store.js";
 import type { Request } from "../../domain/state-machine.js";
 import { ExecuteDeliveryCommand } from "../../application/execute-delivery-command.js";
 import type { DeliveryFailure } from "../../application/execute-delivery-command.js";
-import { TrustPolicy } from "../../domain/trust-policy.js";
-import type { StateProvenancePort } from "../../application/execute-delivery-command.js";
+import { StateAnchorMode, TrustPolicy } from "../../domain/trust-policy.js";
+import type {
+  StateAnchorPort,
+  StateProvenancePort,
+} from "../../application/execute-delivery-command.js";
 
 /** Every test state counts as written by the operator account. */
 const trust = new TrustPolicy({
@@ -17,6 +20,7 @@ const trust = new TrustPolicy({
   agentId: 2,
   deployerId: null,
   operatorMayApprove: false,
+  stateAnchors: StateAnchorMode.Bootstrap,
 });
 const trustedWriter: StateProvenancePort = {
   provenance: async () => ({
@@ -24,6 +28,11 @@ const trustedWriter: StateProvenancePort = {
     writerId: 1,
     writerLogin: "air-bot",
   }),
+};
+/** No anchors: rosters here use bootstrap mode (anchor tests opt in). */
+const noAnchors: StateAnchorPort = {
+  candidates: async () => [],
+  append: async () => undefined,
 };
 
 let checks = 0;
@@ -65,6 +74,7 @@ const execute = (fake: Fake, request: Request) =>
   new ExecuteDeliveryCommand(
     new GitHubDeliveryStateStore(fake),
     trustedWriter,
+    noAnchors,
     trust,
   ).execute({
     issue: 42,

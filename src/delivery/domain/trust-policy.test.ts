@@ -1,5 +1,17 @@
-import { ContentTrust, TrustDenial, TrustPolicy } from "./trust-policy.js";
-import type { TrustDecision, TrustRoster } from "./trust-policy.js";
+import {
+  ContentTrust,
+  StateAnchorMode,
+  TrustDenial,
+  TrustPolicy,
+} from "./trust-policy.js";
+import { DeliveryPhase, DeliveryStatus } from "./state-machine.js";
+import type { Position } from "./state-machine.js";
+import type {
+  AnchorEvidence,
+  StateProvenance,
+  TrustDecision,
+  TrustRoster,
+} from "./trust-policy.js";
 
 // Domain tests import nothing from node: (dependency-cruiser keeps the
 // domain pure), so they assert by hand and fail by throwing.
@@ -30,6 +42,7 @@ const roster: TrustRoster = {
   agentId: AGENT,
   deployerId: DEPLOYER,
   operatorMayApprove: false,
+  stateAnchors: StateAnchorMode.Require,
 };
 const policy = new TrustPolicy(roster);
 const denial = (decision: TrustDecision) =>
@@ -100,28 +113,43 @@ for (const [name, access, expected] of [
   );
 
 // state
+const HERE = { phase: DeliveryPhase.Build, status: DeliveryStatus.Working };
+const EARLIER = { phase: DeliveryPhase.Build, status: DeliveryStatus.Ready };
+const anchor = (
+  authorId: number,
+  position: Position = HERE,
+): AnchorEvidence => ({
+  authorId,
+  edited: false,
+  signatureValid: true,
+  position,
+});
+const by = (writerId: number, writerLogin = "air") =>
+  ({ known: true, writerId, writerLogin }) as const;
+const stateOf = (
+  provenance: StateProvenance,
+  anchors: readonly AnchorEvidence[],
+  rules = policy,
+) => rules.state(provenance, HERE, anchors);
+
 for (const writerId of [OPERATOR, AGENT, DEPLOYER])
   check(
-    policy.state({ known: true, writerId, writerLogin: "air" }).trusted,
-    `trusts state written by service account ${writerId}`,
+    stateOf(by(writerId), [anchor(writerId)]).trusted,
+    `trusts state written and anchored by service account ${writerId}`,
   );
-const byPerson = policy.state({
-  known: true,
-  writerId: APPROVER,
-  writerLogin: "octocat",
-});
+const byPerson = stateOf(by(APPROVER, "octocat"), [anchor(APPROVER)]);
 check(
   denial(byPerson) === TrustDenial.UntrustedStateWriter,
   "denies state written by a person",
 );
 check(detail(byPerson).includes("octocat"), "names the person");
 check(
-  detail(policy.state({ known: true, writerId: 0, writerLogin: "" })).includes(
-    "deleted account",
-  ),
+  detail(stateOf(by(0, ""), [])).includes("deleted account"),
   "names a deleted writer account",
 );
-const unknown = policy.state({ known: false, reason: "History cut" });
+const unknown = stateOf({ known: false, reason: "History cut" }, [
+  anchor(OPERATOR),
+]);
 check(
   denial(unknown) === TrustDenial.UnknownStateWriter,
   "denies an unknown writer",
@@ -129,13 +157,61 @@ check(
 check(detail(unknown) === "History cut", "keeps the reason");
 check(
   denial(
-    new TrustPolicy({ ...roster, deployerId: null }).state({
-      known: true,
-      writerId: DEPLOYER,
-      writerLogin: "x",
-    }),
+    stateOf(
+      by(DEPLOYER),
+      [anchor(DEPLOYER)],
+      new TrustPolicy({ ...roster, deployerId: null }),
+    ),
   ) === TrustDenial.UntrustedStateWriter,
   "does not trust a deployer that is not configured",
+);
+
+// state anchors
+check(
+  denial(stateOf(by(OPERATOR), [])) === TrustDenial.StateAnchorMissing,
+  "requires an anchor by default",
+);
+for (const [name, untrusted] of [
+  ["edited", { ...anchor(OPERATOR), edited: true }],
+  ["badly signed", { ...anchor(OPERATOR), signatureValid: false }],
+  ["by a person", anchor(APPROVER)],
+] as const)
+  check(
+    denial(stateOf(by(OPERATOR), [untrusted])) ===
+      TrustDenial.StateAnchorMissing,
+    `ignores an anchor that is ${name}`,
+  );
+check(
+  stateOf(by(OPERATOR), [anchor(OPERATOR), anchor(APPROVER, EARLIER)]).trusted,
+  "ignores an untrusted anchor posted after the real one",
+);
+check(
+  denial(stateOf(by(OPERATOR), [anchor(OPERATOR, EARLIER)])) ===
+    TrustDenial.StateAnchorMismatch,
+  "denies when the latest anchor names another state",
+);
+check(
+  denial(stateOf(by(OPERATOR), [anchor(OPERATOR), anchor(AGENT, EARLIER)])) ===
+    TrustDenial.StateAnchorMismatch,
+  "denies when a later anchor moved on (the newest one was deleted or the state rolled back)",
+);
+check(
+  denial(stateOf(by(OPERATOR), [anchor(AGENT)])) ===
+    TrustDenial.StateAnchorMismatch,
+  "denies when the anchor and the stored state have different writers",
+);
+const bootstrap = new TrustPolicy({
+  ...roster,
+  stateAnchors: StateAnchorMode.Bootstrap,
+});
+check(
+  stateOf(by(OPERATOR), [], bootstrap).trusted,
+  "bootstrap trusts write history alone while an issue has no anchor",
+);
+check(
+  denial(stateOf(by(OPERATOR), [anchor(OPERATOR, EARLIER)], bootstrap)) ===
+    TrustDenial.StateAnchorMismatch,
+  "bootstrap still requires a match once an issue has an anchor",
 );
 
 // record

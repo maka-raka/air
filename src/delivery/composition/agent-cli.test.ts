@@ -1,9 +1,11 @@
+import { StateAnchorMode } from "../domain/trust-policy.js";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   AgentCliCommand,
   composeAgent,
   keygen,
+  keyRole,
   parseAgentArgs,
   readAgentConfig,
   render,
@@ -18,6 +20,8 @@ import {
 } from "../adapters/github/record-signature.js";
 
 const KEYS = generateRecordKeys();
+const OPERATOR_KEYS = generateRecordKeys();
+const DEPLOY_KEYS = generateRecordKeys();
 
 const AGENT = { id: 77, login: "air-agent" };
 const OPERATOR = { id: 9, login: "air-bot" };
@@ -116,6 +120,8 @@ const config: AgentConfig = {
   runTtlMs: 7_200_000,
   approverLogins: ["alice"],
   allowOperatorApprover: false,
+  operatorPublicKey: OPERATOR_KEYS.publicKey,
+  stateAnchors: StateAnchorMode.Bootstrap,
 };
 
 describe("agent CLI composition", () => {
@@ -149,7 +155,11 @@ describe("agent CLI composition", () => {
 
     assert.equal(render(outcome), "ok: air:requirements:working");
     assert.deepEqual(github.labels, ["air:requirements:working"]);
-    assert.match(github.comments[0]!.body, /air:record \{"kind":"run-start"/);
+    assert.match(
+      github.comments[0]!.body,
+      /^AIR state: `air:requirements:working`[\s\S]*<!-- air:state \{"phase":"requirements","status":"working"/,
+    );
+    assert.match(github.comments[1]!.body, /air:record \{"kind":"run-start"/);
   });
 
   it("refuses a second start while the run is active", async () => {
@@ -181,8 +191,21 @@ describe("agent CLI composition", () => {
 
     assert.equal(render(outcome), "ok: air:requirements:blocked");
     assert.deepEqual(
-      github.comments.map(({ body }) => /"kind":"([a-z-]+)"/.exec(body)?.[1]),
-      ["run-start", "block", "run-end"],
+      github.comments.map(
+        ({ body }) =>
+          /"kind":"([a-z-]+)"/.exec(body)?.[1] ??
+          /air:state \{"phase":"([a-z]+)","status":"([a-z]+)"/
+            .exec(body)
+            ?.slice(1)
+            .join(":"),
+      ),
+      [
+        "requirements:working",
+        "run-start",
+        "block",
+        "requirements:blocked",
+        "run-end",
+      ],
     );
   });
 
@@ -272,13 +295,46 @@ describe("agent CLI composition", () => {
     assert.deepEqual(github.comments, []);
   });
 
-  it("signs its records so other processes can verify them", async () => {
+  it("signs its state anchors and records so other processes can verify them", async () => {
     const github = new FakeGitHub();
     const services = await composeAgent(config, github.request);
 
     await runAgent(services, { command: AgentCliCommand.Start, issue: 42 });
 
-    assert.match(github.comments[0]!.body, / sig=[A-Za-z0-9+/]+={0,2} -->$/);
+    for (const comment of github.comments)
+      assert.match(comment.body, / sig=[A-Za-z0-9+/]+={0,2} -->$/);
+    assert.equal(github.comments.length, 2);
+  });
+
+  it("requires a signed anchor once bootstrap mode is off", async () => {
+    const github = new FakeGitHub();
+    const strict = await composeAgent(
+      { ...config, stateAnchors: StateAnchorMode.Require },
+      github.request,
+    );
+
+    const refused = await strict.commands.start(42);
+
+    assert.equal(!refused.ok && refused.reason, DeliveryFailure.UntrustedState);
+    assert.match((!refused.ok && refused.detail) || "", /anchor/);
+  });
+
+  it("trusts its own anchored state in require mode", async () => {
+    const github = new FakeGitHub();
+    const bootstrap = await composeAgent(config, github.request);
+    await bootstrap.commands.start(42);
+    const strict = await composeAgent(
+      { ...config, stateAnchors: StateAnchorMode.Require },
+      github.request,
+    );
+
+    const second = await strict.commands.start(42);
+
+    // Trusted state, refused only by the delivery rules (run already active).
+    assert.equal(
+      !second.ok && second.reason,
+      DeliveryFailure.InvalidTransition,
+    );
   });
 
   it("refuses a public key that does not match the signing key", async () => {
@@ -363,6 +419,20 @@ describe("keygen", () => {
     assert.match(text, /^# Agent only[^\n]*\nAIR_AGENT_SIGNING_KEY=PRIV$/m);
     assert.match(text, /^AIR_AGENT_PUBLIC_KEY=PUB$/m);
   });
+
+  it("prints operator and deployer keys under their own names", () => {
+    const keys = { privateKey: "PRIV", publicKey: "PUB" };
+
+    assert.match(
+      keygen(keys, keyRole("operator")),
+      /^AIR_OPERATOR_SIGNING_KEY=PRIV$[\s\S]*^AIR_OPERATOR_PUBLIC_KEY=PUB$/m,
+    );
+    assert.match(
+      keygen(keys, keyRole("deployer")),
+      /^AIR_DEPLOY_SIGNING_KEY=PRIV$[\s\S]*^AIR_DEPLOY_PUBLIC_KEY=PUB$/m,
+    );
+    assert.throws(() => keyRole("admin"), /agent, operator, deployer/);
+  });
 });
 
 describe("readAgentConfig", () => {
@@ -376,6 +446,7 @@ describe("readAgentConfig", () => {
       AIR_OPERATOR_LOGIN: "air-bot",
       AIR_AGENT_LOGIN: "air-agent",
       AIR_APPROVER_LOGINS: "alice",
+      AIR_OPERATOR_PUBLIC_KEY: "b3A=",
     };
 
     assert.throws(() => readAgentConfig(base), /AIR_AGENT_TOKEN/);
@@ -405,6 +476,16 @@ describe("readAgentConfig", () => {
       runTtlMs: 7_200_000,
       approverLogins: ["alice"],
       allowOperatorApprover: false,
+      operatorPublicKey: "b3A=",
+      stateAnchors: StateAnchorMode.Require,
     });
+    assert.throws(
+      () => readAgentConfig({ ...full, AIR_OPERATOR_PUBLIC_KEY: "" }),
+      /AIR_OPERATOR_PUBLIC_KEY/,
+    );
+    assert.throws(
+      () => readAgentConfig({ ...full, AIR_STATE_ANCHORS: "off" }),
+      /AIR_STATE_ANCHORS/,
+    );
   });
 });

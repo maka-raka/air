@@ -12,7 +12,7 @@ import {
 } from "../../application/delivery-record.js";
 import type { DeliveryRecord } from "../../application/delivery-record.js";
 import { DeliveryPhase } from "../../domain/state-machine.js";
-import { TrustPolicy } from "../../domain/trust-policy.js";
+import { StateAnchorMode, TrustPolicy } from "../../domain/trust-policy.js";
 import { Ed25519RecordSigner, generateRecordKeys } from "./record-signature.js";
 
 const AGENT = 77;
@@ -25,6 +25,7 @@ const TRUST = new TrustPolicy({
   agentId: AGENT,
   deployerId: null,
   operatorMayApprove: false,
+  stateAnchors: StateAnchorMode.Bootstrap,
 });
 
 /** A marker signed with the agent key, as the agent would write it. */

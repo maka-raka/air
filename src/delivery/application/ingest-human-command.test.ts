@@ -15,7 +15,7 @@ import type {
   DeliveryLease,
   HumanCommandMessage,
 } from "./ingest-human-command.js";
-import { TrustPolicy } from "../domain/trust-policy.js";
+import { StateAnchorMode, TrustPolicy } from "../domain/trust-policy.js";
 import type { AuthorAccess } from "../domain/trust-policy.js";
 
 const trust = new TrustPolicy({
@@ -25,6 +25,7 @@ const trust = new TrustPolicy({
   agentId: 77,
   deployerId: null,
   operatorMayApprove: false,
+  stateAnchors: StateAnchorMode.Bootstrap,
 });
 
 type ClaimCall = Readonly<{ operation: string; deliveryId: string }>;

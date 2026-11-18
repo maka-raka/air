@@ -8,7 +8,13 @@ import type {
 } from "../adapters/github/user-http-adapter.js";
 import { ExecuteDeliveryCommand } from "../application/execute-delivery-command.js";
 import type { DeliveryStatePort } from "../application/execute-delivery-command.js";
-import { TrustPolicy } from "../domain/trust-policy.js";
+import { StateAnchorMode, TrustPolicy } from "../domain/trust-policy.js";
+import { GitHubStateAnchorStore } from "../adapters/github/state-anchor-store.js";
+import type { StateAnchorPort } from "../application/execute-delivery-command.js";
+import type {
+  IssueCommentReader,
+  IssueCommentWriter,
+} from "../adapters/github/issue-comment-http-adapter.js";
 import {
   Ed25519RecordSigner,
   Ed25519RecordVerifier,
@@ -77,8 +83,11 @@ export function readApproverLogins(env: Env): readonly string[] {
 }
 
 /** The agent's public key; every process that reads records needs it. */
-export function recordVerifier(publicKey: string): Ed25519RecordVerifier {
-  return Ed25519RecordVerifier.fromBase64(publicKey);
+export function recordVerifier(
+  publicKey: string,
+  name = "AIR_AGENT_PUBLIC_KEY",
+): Ed25519RecordVerifier {
+  return Ed25519RecordVerifier.fromBase64(publicKey, name);
 }
 
 /**
@@ -89,16 +98,83 @@ export function recordVerifier(publicKey: string): Ed25519RecordVerifier {
 export function recordSigner(
   signingKey: string,
   publicKey?: string,
+  role: KeyRole = KeyRole.Agent,
 ): Ed25519RecordSigner {
-  const signer = Ed25519RecordSigner.fromBase64(signingKey);
+  const names = keyNames[role];
+  const signer = Ed25519RecordSigner.fromBase64(signingKey, names.signing);
+  const configured = publicKey && recordVerifier(publicKey, names.public);
   if (
-    publicKey &&
-    recordVerifier(publicKey).exportBase64() !== signer.verifier.exportBase64()
+    configured &&
+    configured.exportBase64() !== signer.verifier.exportBase64()
   )
-    throw new Error(
-      "AIR_AGENT_PUBLIC_KEY does not match AIR_AGENT_SIGNING_KEY",
-    );
+    throw new Error(`${names.public} does not match ${names.signing}`);
   return signer;
+}
+
+/** Each account that writes state has its own key pair (ADR-0010). */
+export const KeyRole = {
+  Agent: "agent",
+  Operator: "operator",
+  Deployer: "deployer",
+} as const;
+export type KeyRole = (typeof KeyRole)[keyof typeof KeyRole];
+
+export const keyNames: Readonly<
+  Record<KeyRole, Readonly<{ signing: string; public: string }>>
+> = {
+  [KeyRole.Agent]: {
+    signing: "AIR_AGENT_SIGNING_KEY",
+    public: "AIR_AGENT_PUBLIC_KEY",
+  },
+  [KeyRole.Operator]: {
+    signing: "AIR_OPERATOR_SIGNING_KEY",
+    public: "AIR_OPERATOR_PUBLIC_KEY",
+  },
+  [KeyRole.Deployer]: {
+    signing: "AIR_DEPLOY_SIGNING_KEY",
+    public: "AIR_DEPLOY_PUBLIC_KEY",
+  },
+};
+
+/** `AIR_STATE_ANCHORS`: `require` (default) or `bootstrap` while upgrading. */
+export function readAnchorMode(env: Env): StateAnchorMode {
+  const value = env.AIR_STATE_ANCHORS || StateAnchorMode.Require;
+  const modes: readonly string[] = Object.values(StateAnchorMode);
+  if (!modes.includes(value))
+    throw new Error(`AIR_STATE_ANCHORS must be ${modes.join(" or ")}`);
+  return value as StateAnchorMode;
+}
+
+/** Public keys of every account that writes state. */
+export type StateKeys = Readonly<{
+  operator: Ed25519RecordVerifier;
+  agent: Ed25519RecordVerifier;
+  /** Required when a deployer account is configured. */
+  deployer: Ed25519RecordVerifier | null;
+}>;
+
+/** Signed state anchors, verified with each writer account's own key. */
+export function stateAnchorStore(
+  comments: IssueCommentReader & IssueCommentWriter,
+  repositoryId: number,
+  accounts: ServiceAccounts,
+  keys: StateKeys,
+  signer: Ed25519RecordSigner,
+): StateAnchorPort {
+  if (accounts.deployer && !keys.deployer)
+    throw new Error("Set AIR_DEPLOY_PUBLIC_KEY");
+  const verifiers = new Map([
+    [accounts.operator.id, keys.operator],
+    [accounts.agent.id, keys.agent],
+    ...(accounts.deployer && keys.deployer
+      ? ([[accounts.deployer.id, keys.deployer]] as const)
+      : []),
+  ]);
+  return new GitHubStateAnchorStore(comments, {
+    repositoryId,
+    verifiers,
+    signer,
+  });
 }
 
 /** Resolves logins to immutable IDs once, at startup. */
@@ -151,16 +227,20 @@ export async function assertTokenOwner(
 export function trustPolicy(
   repositoryId: number,
   accounts: ServiceAccounts,
-  approverIds: readonly number[] = [],
-  operatorMayApprove = false,
+  options: Readonly<{
+    approverIds?: readonly number[];
+    operatorMayApprove?: boolean;
+    stateAnchors: StateAnchorMode;
+  }>,
 ): TrustPolicy {
   return new TrustPolicy({
     sourceId: repositoryId,
-    approverIds,
+    approverIds: options.approverIds ?? [],
     operatorId: accounts.operator.id,
     agentId: accounts.agent.id,
     deployerId: accounts.deployer?.id ?? null,
-    operatorMayApprove,
+    operatorMayApprove: options.operatorMayApprove ?? false,
+    stateAnchors: options.stateAnchors,
   });
 }
 
@@ -172,11 +252,13 @@ export function labelStateStore(client: GitHubRestClient): DeliveryStatePort {
 /** Executes commands only on state the trust policy accepts. */
 export function trustedExecutor(
   client: GitHubRestClient,
+  anchors: StateAnchorPort,
   trust: TrustPolicy,
 ): ExecuteDeliveryCommand {
   return new ExecuteDeliveryCommand(
     labelStateStore(client),
     new GitHubLabelProvenance(new GitHubIssueHttpAdapter(client)),
+    anchors,
     trust,
   );
 }

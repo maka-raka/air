@@ -6,7 +6,11 @@ import type {
   AuthorAccessPort,
   CommandAuthor,
 } from "./ingest-human-command.js";
-import { ContentTrust, TrustPolicy } from "../domain/trust-policy.js";
+import {
+  ContentTrust,
+  StateAnchorMode,
+  TrustPolicy,
+} from "../domain/trust-policy.js";
 import type { AuthorAccess } from "../domain/trust-policy.js";
 
 const ALICE = { id: 7, login: "alice" };
@@ -20,6 +24,7 @@ const trust = new TrustPolicy({
   agentId: AGENT.id,
   deployerId: null,
   operatorMayApprove: false,
+  stateAnchors: StateAnchorMode.Bootstrap,
 });
 const source = { id: 123, name: "owner/repo" };
 

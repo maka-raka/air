@@ -1,3 +1,4 @@
+import { StateAnchorMode } from "../domain/trust-policy.js";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
@@ -14,6 +15,8 @@ import {
 } from "../adapters/github/record-signature.js";
 
 const KEYS = generateRecordKeys();
+const OPERATOR_KEYS = generateRecordKeys();
+const DEPLOY_KEYS = generateRecordKeys();
 const SIGNER = Ed25519RecordSigner.fromBase64(KEYS.privateKey);
 /** A record marker signed with the agent key for issue 42 of repository 123. */
 const signedMarker = (record: unknown) => {
@@ -134,6 +137,9 @@ const config: DeployConfig = {
     deployLogin: "air-deployer",
   },
   recordPublicKey: KEYS.publicKey,
+  deploySigningKey: DEPLOY_KEYS.privateKey,
+  operatorPublicKey: OPERATOR_KEYS.publicKey,
+  stateAnchors: StateAnchorMode.Bootstrap,
   runTtlMs: 7_200_000,
   environmentNames: { stage: "staging", prod: "production" },
 };
@@ -150,7 +156,11 @@ describe("deploy CLI composition", () => {
       "air:accept:ready",
       "air:deployed:stage",
     ]);
-    assert.deepEqual(github.posted, []);
+    assert.equal(github.posted.length, 1);
+    assert.match(
+      github.posted[0]!,
+      /<!-- air:state \{"phase":"accept","status":"ready".* sig=/,
+    );
   });
 
   it("never overwrites blocked: marks, preserves state and notifies", async () => {
@@ -230,6 +240,8 @@ describe("parseDeployArgs and readDeployConfig", () => {
       AIR_DEPLOY_LOGIN: "bot",
       AIR_AGENT_LOGIN: "BOT",
       AIR_AGENT_PUBLIC_KEY: "cHVibGlj",
+      AIR_DEPLOY_SIGNING_KEY: "c2VjcmV0",
+      AIR_OPERATOR_PUBLIC_KEY: "b3A=",
     };
 
     assert.throws(() => readDeployConfig(env), /different accounts/);
@@ -245,6 +257,15 @@ describe("parseDeployArgs and readDeployConfig", () => {
       readDeployConfig({ ...env, AIR_AGENT_LOGIN: "air-agent" })
         .environmentNames,
       { stage: "stage", prod: "prod" },
+    );
+    assert.throws(
+      () =>
+        readDeployConfig({
+          ...env,
+          AIR_AGENT_LOGIN: "air-agent",
+          AIR_DEPLOY_SIGNING_KEY: "",
+        }),
+      /AIR_DEPLOY_SIGNING_KEY/,
     );
   });
 });

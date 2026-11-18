@@ -56,11 +56,19 @@ If a token cannot read check runs, `advance review` fails closed with `precondit
 - [ ] Run the agent with Claude Code permission rules that deny destructive commands and pushes to the default branch; prefer a container or VM with only the repository checked out.
 - [ ] Keep `.env` out of git (it is ignored) and readable only by you (`chmod 600 .env`).
 
-## 5. Record-signing key
+## 5. Signing keys
 
-- [ ] Run `npx air keygen` once. Put `AIR_AGENT_SIGNING_KEY` **only** where the agent runs. Put `AIR_AGENT_PUBLIC_KEY` in every AIR process: poller, agent and deploy workflow (it is not secret).
-- [ ] Never store the signing key in CI, in the repository or in a shared password vault entry that others can read.
-- [ ] If the signing key may have leaked, generate a new pair and update the public key everywhere. Records signed with the old key stop counting, so open deliveries must re-report.
+Each account that writes state has its own Ed25519 key pair ([ADR-0010](../architecture/adr/0010-zero-trust.md)): the agent signs records and state anchors, the operator and the deployer sign the state anchors they write.
+
+| Key pair | `npx air keygen …` | Private key goes only to | Public key goes to |
+| --- | --- | --- | --- |
+| Agent | `agent` (default) | where the agent runs (`AIR_AGENT_SIGNING_KEY`) | every process (`AIR_AGENT_PUBLIC_KEY`) |
+| Operator | `operator` | the poller (`AIR_OPERATOR_SIGNING_KEY`) | every process (`AIR_OPERATOR_PUBLIC_KEY`) |
+| Deployer | `deployer` | the deploy environments, as a secret (`AIR_DEPLOY_SIGNING_KEY`) | every process (`AIR_DEPLOY_PUBLIC_KEY`) |
+
+- [ ] Never put the agent or operator private key in CI, in the repository or in a shared password vault entry that others can read. The deployer key lives only in the deploy environments' secrets.
+- [ ] If a private key may have leaked, generate a new pair and update the public key everywhere. Records and state anchors signed with the old key stop counting: open deliveries become `untrusted-state` and must be repaired by an administrator (or re-anchored in bootstrap mode, below).
+- [ ] **Upgrading from an AIR without state anchors:** open deliveries have no anchor yet. Set `AIR_STATE_ANCHORS=bootstrap` in every process until each open delivery has moved once (each move writes an anchor), then remove it. In bootstrap mode an issue without any anchor is judged by its label history alone, as before.
 
 ## 6. Running AIR
 
