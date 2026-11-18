@@ -70,6 +70,9 @@ Additional automated guards:
 - ESLint `no-restricted-imports`: delivery adapters may import domain types
   and constants but not `DeliveryStateMachine` or `DeliveryTransitionPolicy`,
   so persistence adapters cannot decide transitions.
+- `tools/architecture/platform-neutral.mjs`: identifiers and strings in domain
+  and application must not name a hosting platform or its mechanisms
+  (GitHub, webhook, label, ...). See ADR-0009.
 
 These guards check imports, not intent. Review still owns SRP.
 

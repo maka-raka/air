@@ -114,7 +114,7 @@ describe("ExecuteDeliveryCommand", () => {
     const failure: DeliveryResult = {
       ok: false,
       reason: DeliveryFailure.InvalidState,
-      detail: "Malformed labels",
+      detail: "Malformed stored state",
     };
     const state = new FakeState(failure);
     const useCase = new ExecuteDeliveryCommand(state);
