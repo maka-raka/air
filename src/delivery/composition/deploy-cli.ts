@@ -5,6 +5,11 @@ import {
 } from "../application/record-deployment.js";
 import type { DeploymentOutcome } from "../application/record-deployment.js";
 import { GitHubDeliveryRecordStore } from "../adapters/github/delivery-record-store.js";
+import { TrustedDeliveryRecords } from "../application/delivery-record.js";
+import {
+  HashChainedAuditLog,
+  StreamAuditLines,
+} from "../adapters/local/hash-chained-audit-log.js";
 import { GitHubDeploymentHttpAdapter } from "../adapters/github/deployment-http-adapter.js";
 import { GitHubRestClient } from "../adapters/github/github-rest-client.js";
 import type { HttpRequest } from "../adapters/github/github-rest-client.js";
@@ -22,14 +27,19 @@ import {
 import type { Env } from "./config.js";
 import {
   assertTokenOwner,
+  KeyRole,
+  readAnchorMode,
   readServiceLogins,
+  recordSigner,
   recordVerifier,
+  stateAnchorStore,
   resolveServiceAccounts,
   trustPolicy,
   trustedExecutor,
 } from "./trust.js";
 import { GitHubRepositoryHttpAdapter } from "../adapters/github/repository-http-adapter.js";
 import type { ServiceLogins } from "./trust.js";
+import type { StateAnchorMode } from "../domain/trust-policy.js";
 
 export const USAGE = "Usage: air-deploy <stage|prod> <issue> <sha>";
 
@@ -66,6 +76,13 @@ export type DeployConfig = Readonly<{
   recordPublicKey: string;
   runTtlMs: number;
   environmentNames: Readonly<Record<DeploymentEnvironment, string>>;
+  /** Deployer private key: signs the state anchors this reporter writes. */
+  deploySigningKey: string;
+  /** Optional; when set it must match the deployer signing key. */
+  deployPublicKey?: string;
+  /** Operator public key: verifies the poller's state anchors. */
+  operatorPublicKey: string;
+  stateAnchors: StateAnchorMode;
 }>;
 
 export function readDeployConfig(env: Env): DeployConfig {
@@ -80,6 +97,12 @@ export function readDeployConfig(env: Env): DeployConfig {
       [DeploymentEnvironment.Stage]: env.AIR_ENVIRONMENT_STAGE || "stage",
       [DeploymentEnvironment.Prod]: env.AIR_ENVIRONMENT_PROD || "prod",
     },
+    deploySigningKey: required(env, "AIR_DEPLOY_SIGNING_KEY"),
+    ...(env.AIR_DEPLOY_PUBLIC_KEY
+      ? { deployPublicKey: env.AIR_DEPLOY_PUBLIC_KEY }
+      : {}),
+    operatorPublicKey: required(env, "AIR_OPERATOR_PUBLIC_KEY"),
+    stateAnchors: readAnchorMode(env),
   };
 }
 
@@ -87,6 +110,8 @@ export function readDeployConfig(env: Env): DeployConfig {
 export async function composeDeploy(
   config: DeployConfig,
   request?: HttpRequest,
+  /** Audit lines; the job log by default. */
+  write: (text: string) => void = (text) => process.stdout.write(text),
 ): Promise<RecordDeployment> {
   const client = new GitHubRestClient({
     owner: config.owner,
@@ -102,7 +127,6 @@ export async function composeDeploy(
     accounts.deployer,
     "AIR_DEPLOY_TOKEN",
   );
-  const agent = accounts.agent;
   const identity = await new GitHubRepositoryHttpAdapter(client).identity();
   const verifier = recordVerifier(config.recordPublicKey);
   const comments = new GitHubIssueCommentHttpAdapter(client);
@@ -110,13 +134,40 @@ export async function composeDeploy(
     client,
     config.environmentNames,
   );
+  // CI has no durable disk: audit lines go to the job log (ADR-0010 step 6).
+  const audit = new HashChainedAuditLog(new StreamAuditLines(write));
+  const trust = trustPolicy(identity.id, accounts, {
+    stateAnchors: config.stateAnchors,
+  });
+  const signer = recordSigner(
+    config.deploySigningKey,
+    config.deployPublicKey,
+    KeyRole.Deployer,
+  );
+  const anchors = stateAnchorStore(
+    comments,
+    identity.id,
+    accounts,
+    {
+      operator: recordVerifier(
+        config.operatorPublicKey,
+        "AIR_OPERATOR_PUBLIC_KEY",
+      ),
+      agent: verifier,
+      deployer: signer.verifier,
+    },
+    signer,
+  );
   return new RecordDeployment(
-    trustedExecutor(client, trustPolicy(identity.id, accounts)),
-    new GitHubDeliveryRecordStore(comments, {
-      agentUserId: agent.id,
-      repositoryId: identity.id,
-      verifier,
-    }),
+    trustedExecutor(client, anchors, trust, audit),
+    new TrustedDeliveryRecords(
+      new GitHubDeliveryRecordStore(comments, {
+        repositoryId: identity.id,
+        verifier,
+      }),
+      trust,
+      audit,
+    ),
     deployments,
     deployments,
     comments,

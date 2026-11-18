@@ -16,8 +16,16 @@ import {
   DeliveryStatus,
 } from "../domain/state-machine.js";
 import type { Position, Request } from "../domain/state-machine.js";
-import { TrustPolicy } from "../domain/trust-policy.js";
-import type { StateProvenancePort } from "./execute-delivery-command.js";
+import { StateAnchorMode, TrustPolicy } from "../domain/trust-policy.js";
+import type { AnchorEvidence } from "../domain/trust-policy.js";
+import type {
+  StateAnchorPort,
+  StateProvenancePort,
+} from "./execute-delivery-command.js";
+import type { AuditPort } from "./audit.js";
+
+/** Audit is covered by its own tests. */
+const noAudit: AuditPort = { record: async () => undefined };
 
 /** Every test state counts as written by the operator account. */
 const trust = new TrustPolicy({
@@ -27,6 +35,7 @@ const trust = new TrustPolicy({
   agentId: 2,
   deployerId: null,
   operatorMayApprove: false,
+  stateAnchors: StateAnchorMode.Bootstrap,
 });
 const trustedWriter: StateProvenancePort = {
   provenance: async () => ({
@@ -34,6 +43,11 @@ const trustedWriter: StateProvenancePort = {
     writerId: 1,
     writerLogin: "air-bot",
   }),
+};
+/** No anchors: rosters here use bootstrap mode (anchor tests opt in). */
+const noAnchors: StateAnchorPort = {
+  candidates: async () => [],
+  append: async () => undefined,
 };
 
 type SaveCall = Readonly<{
@@ -111,7 +125,9 @@ describe("ExecuteDeliveryCommand trust (ADR-0010)", () => {
       const result = await new ExecuteDeliveryCommand(
         state,
         port,
+        noAnchors,
         trust,
+        noAudit,
       ).execute({ issue: 42, request: start });
 
       assert.equal(!result.ok && result.reason, DeliveryFailure.UntrustedState);
@@ -125,7 +141,13 @@ describe("ExecuteDeliveryCommand trust (ADR-0010)", () => {
       writerId: 2,
       writerLogin: "air-agent",
     });
-    const useCase = new ExecuteDeliveryCommand(state, port, trust);
+    const useCase = new ExecuteDeliveryCommand(
+      state,
+      port,
+      noAnchors,
+      trust,
+      noAudit,
+    );
 
     await useCase.execute({ issue: 42, request: start });
     await useCase.execute({ issue: 42, request: start });
@@ -139,25 +161,146 @@ describe("ExecuteDeliveryCommand trust (ADR-0010)", () => {
     );
     const { port, reads } = writtenBy({ known: false, reason: "unused" });
 
-    const result = await new ExecuteDeliveryCommand(state, port, trust).execute(
-      {
-        issue: 42,
-        request: {
-          action: DeliveryAction.Initialize,
-          actor: DeliveryActor.Human,
-        },
+    const result = await new ExecuteDeliveryCommand(
+      state,
+      port,
+      noAnchors,
+      trust,
+      noAudit,
+    ).execute({
+      issue: 42,
+      request: {
+        action: DeliveryAction.Initialize,
+        actor: DeliveryActor.Human,
       },
-    );
+    });
 
     assert.equal(result.ok, true);
     assert.deepEqual(reads, []);
   });
 });
 
+describe("ExecuteDeliveryCommand state anchors (ADR-0010 step 4)", () => {
+  class FakeAnchors implements StateAnchorPort {
+    readonly appended: Position[] = [];
+    constructor(
+      private readonly stored: readonly AnchorEvidence[] = [],
+      private readonly failure: Error | null = null,
+    ) {}
+    async candidates(): Promise<readonly AnchorEvidence[]> {
+      return this.stored;
+    }
+    async append(_issue: number, position: Position): Promise<void> {
+      if (this.failure) throw this.failure;
+      this.appended.push(position);
+    }
+  }
+  const strict = new TrustPolicy({
+    sourceId: 1,
+    approverIds: [],
+    operatorId: 1,
+    agentId: 2,
+    deployerId: null,
+    operatorMayApprove: false,
+    stateAnchors: StateAnchorMode.Require,
+  });
+  const working = {
+    phase: DeliveryPhase.Requirements,
+    status: DeliveryStatus.Working,
+  };
+  const saved = (position: Position | null): DeliveryResult => ({
+    ok: true,
+    snapshot: { position, closed: position === null, revision: "r2" },
+  });
+
+  it("anchors the new state right after writing it", async () => {
+    const anchors = new FakeAnchors();
+    const state = new FakeState(loaded(ready), saved(working));
+
+    const result = await new ExecuteDeliveryCommand(
+      state,
+      trustedWriter,
+      anchors,
+      trust,
+      noAudit,
+    ).execute({ issue: 42, request: start });
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(anchors.appended, [working]);
+  });
+
+  it("writes no anchor when the save fails", async () => {
+    const anchors = new FakeAnchors();
+    const conflict: DeliveryResult = {
+      ok: false,
+      reason: DeliveryFailure.StateConflict,
+    };
+    const state = new FakeState(loaded(ready), conflict);
+
+    await new ExecuteDeliveryCommand(
+      state,
+      trustedWriter,
+      anchors,
+      trust,
+      noAudit,
+    ).execute({ issue: 42, request: start });
+
+    assert.deepEqual(anchors.appended, []);
+  });
+
+  it("reports partial completion when the anchor cannot be written", async () => {
+    const anchors = new FakeAnchors([], new Error("comments unavailable"));
+    const state = new FakeState(loaded(ready), saved(working));
+
+    const result = await new ExecuteDeliveryCommand(
+      state,
+      trustedWriter,
+      anchors,
+      trust,
+      noAudit,
+    ).execute({ issue: 42, request: start });
+
+    assert.equal(
+      !result.ok && result.reason,
+      DeliveryFailure.PartialCompletion,
+    );
+    assert.match((!result.ok && result.detail) || "", /anchor/);
+  });
+
+  it("trusts an anchored state and refuses an unanchored one in require mode", async () => {
+    const anchored = new FakeAnchors([
+      {
+        authorId: 1,
+        edited: false,
+        signatureValid: true,
+        position: ready.position!,
+      },
+    ]);
+    const run = (anchors: StateAnchorPort) =>
+      new ExecuteDeliveryCommand(
+        new FakeState(loaded(ready), saved(working)),
+        trustedWriter,
+        anchors,
+        strict,
+        noAudit,
+      ).execute({ issue: 42, request: start });
+
+    assert.equal((await run(anchored)).ok, true);
+    const refused = await run(new FakeAnchors());
+    assert.equal(!refused.ok && refused.reason, DeliveryFailure.UntrustedState);
+  });
+});
+
 describe("ExecuteDeliveryCommand", () => {
   it("saves the policy decision against the loaded snapshot", async () => {
     const state = new FakeState(loaded(ready));
-    const useCase = new ExecuteDeliveryCommand(state, trustedWriter, trust);
+    const useCase = new ExecuteDeliveryCommand(
+      state,
+      trustedWriter,
+      noAnchors,
+      trust,
+      noAudit,
+    );
 
     const result = await useCase.execute({ issue: 42, request: start });
 
@@ -180,7 +323,13 @@ describe("ExecuteDeliveryCommand", () => {
       reason: DeliveryFailure.StateConflict,
     };
     const state = new FakeState(loaded(ready), conflict);
-    const useCase = new ExecuteDeliveryCommand(state, trustedWriter, trust);
+    const useCase = new ExecuteDeliveryCommand(
+      state,
+      trustedWriter,
+      noAnchors,
+      trust,
+      noAudit,
+    );
 
     const result = await useCase.execute({ issue: 42, request: start });
 
@@ -189,7 +338,13 @@ describe("ExecuteDeliveryCommand", () => {
 
   it("rejects an invalid issue number without touching state", async () => {
     const state = new FakeState(loaded(ready));
-    const useCase = new ExecuteDeliveryCommand(state, trustedWriter, trust);
+    const useCase = new ExecuteDeliveryCommand(
+      state,
+      trustedWriter,
+      noAnchors,
+      trust,
+      noAudit,
+    );
 
     const result = await useCase.execute({ issue: 0, request: start });
 
@@ -204,7 +359,13 @@ describe("ExecuteDeliveryCommand", () => {
       detail: "Malformed stored state",
     };
     const state = new FakeState(failure);
-    const useCase = new ExecuteDeliveryCommand(state, trustedWriter, trust);
+    const useCase = new ExecuteDeliveryCommand(
+      state,
+      trustedWriter,
+      noAnchors,
+      trust,
+      noAudit,
+    );
 
     const result = await useCase.execute({ issue: 42, request: start });
 
@@ -216,7 +377,13 @@ describe("ExecuteDeliveryCommand", () => {
     const state = new FakeState(
       loaded({ position: null, closed: true, revision: "r1" }),
     );
-    const useCase = new ExecuteDeliveryCommand(state, trustedWriter, trust);
+    const useCase = new ExecuteDeliveryCommand(
+      state,
+      trustedWriter,
+      noAnchors,
+      trust,
+      noAudit,
+    );
 
     const result = await useCase.execute({ issue: 42, request: start });
 
@@ -231,7 +398,13 @@ describe("ExecuteDeliveryCommand", () => {
     const state = new FakeState(
       loaded({ position: null, closed: false, revision: "r1" }),
     );
-    const useCase = new ExecuteDeliveryCommand(state, trustedWriter, trust);
+    const useCase = new ExecuteDeliveryCommand(
+      state,
+      trustedWriter,
+      noAnchors,
+      trust,
+      noAudit,
+    );
 
     const result = await useCase.execute({ issue: 42, request: start });
 
@@ -246,7 +419,13 @@ describe("ExecuteDeliveryCommand", () => {
       revision: "r1",
     };
     const state = new FakeState(loaded(empty));
-    const useCase = new ExecuteDeliveryCommand(state, trustedWriter, trust);
+    const useCase = new ExecuteDeliveryCommand(
+      state,
+      trustedWriter,
+      noAnchors,
+      trust,
+      noAudit,
+    );
 
     await useCase.execute({
       issue: 42,
@@ -264,7 +443,13 @@ describe("ExecuteDeliveryCommand", () => {
 
   it("returns the policy rejection without saving", async () => {
     const state = new FakeState(loaded(ready));
-    const useCase = new ExecuteDeliveryCommand(state, trustedWriter, trust);
+    const useCase = new ExecuteDeliveryCommand(
+      state,
+      trustedWriter,
+      noAnchors,
+      trust,
+      noAudit,
+    );
 
     const result = await useCase.execute({
       issue: 42,

@@ -52,17 +52,34 @@ If a token cannot read check runs, `advance review` fails closed with `precondit
 ## 4. Agent environment
 
 - [ ] Use **private** repositories. In a public repository anyone can comment, and the agent reads comments: that is a prompt-injection channel to an account with write access.
-- [ ] Tell the agent to treat issue and PR text from non-approvers as untrusted data, never as instructions.
+- [ ] The agent reads issues only through `npx air context <n>`, which marks approver instructions and fences everything else as data ([ADR-0010](../architecture/adr/0010-zero-trust.md)). Back it with a Claude Code deny rule, e.g. `Bash(gh issue view:*)` and `Bash(gh api:*comments*)`, so the agent cannot read unclassified issue text. The installed skill says so; projects that ran `air init` before this change must copy the new `SKILL.md`.
 - [ ] Run the agent with Claude Code permission rules that deny destructive commands and pushes to the default branch; prefer a container or VM with only the repository checked out.
 - [ ] Keep `.env` out of git (it is ignored) and readable only by you (`chmod 600 .env`).
 
-## 5. Record-signing key
+## 5. Signing keys
 
-- [ ] Run `npx air keygen` once. Put `AIR_AGENT_SIGNING_KEY` **only** where the agent runs. Put `AIR_AGENT_PUBLIC_KEY` in every AIR process: poller, agent and deploy workflow (it is not secret).
-- [ ] Never store the signing key in CI, in the repository or in a shared password vault entry that others can read.
-- [ ] If the signing key may have leaked, generate a new pair and update the public key everywhere. Records signed with the old key stop counting, so open deliveries must re-report.
+Each account that writes state has its own Ed25519 key pair ([ADR-0010](../architecture/adr/0010-zero-trust.md)): the agent signs records and state anchors, the operator and the deployer sign the state anchors they write.
 
-## 6. Running AIR
+| Key pair | `npx air keygen …` | Private key goes only to | Public key goes to |
+| --- | --- | --- | --- |
+| Agent | `agent` (default) | where the agent runs (`AIR_AGENT_SIGNING_KEY`) | every process (`AIR_AGENT_PUBLIC_KEY`) |
+| Operator | `operator` | the poller (`AIR_OPERATOR_SIGNING_KEY`) | every process (`AIR_OPERATOR_PUBLIC_KEY`) |
+| Deployer | `deployer` | the deploy environments, as a secret (`AIR_DEPLOY_SIGNING_KEY`) | every process (`AIR_DEPLOY_PUBLIC_KEY`) |
+
+- [ ] Never put the agent or operator private key in CI, in the repository or in a shared password vault entry that others can read. The deployer key lives only in the deploy environments' secrets.
+- [ ] If a private key may have leaked, generate a new pair and update the public key everywhere. Records and state anchors signed with the old key stop counting: open deliveries become `untrusted-state` and must be repaired by an administrator (or re-anchored in bootstrap mode, below).
+- [ ] **Upgrading from an AIR without state anchors:** open deliveries have no anchor yet. Set `AIR_STATE_ANCHORS=bootstrap` in every process until each open delivery has moved once (each move writes an anchor), then remove it. In bootstrap mode an issue without any anchor is judged by its label history alone, as before.
+
+## 6. Audit log
+
+Every AIR process records its trust decisions in a hash-chained audit log ([ADR-0010](../architecture/adr/0010-zero-trust.md)): the poller in `.air/audit-poller.jsonl`, the agent CLI in `.air/audit-agent.jsonl` (override with `AIR_AUDIT_LOG`), and the deploy reporter as `air-audit:` lines in the job log.
+
+- [ ] Keep one writer per log file: never point two processes at the same `AIR_AUDIT_LOG`.
+- [ ] Copy the log files off the machine regularly (backup, log shipping). The chain detects edited, deleted or reordered entries, but not the newest entries being cut off.
+- [ ] Check a log with `npx --no air audit verify .air/audit-poller.jsonl`.
+- [ ] If the log cannot be written, AIR refuses to act: fix the disk or permissions, not the check.
+
+## 7. Running AIR
 
 - [ ] Set `AIR_OPERATOR_LOGIN`, `AIR_AGENT_LOGIN`, `AIR_APPROVER_LOGINS` and, if you deploy, `AIR_DEPLOY_LOGIN` in **every** AIR process (poller, agent CLI, deploy workflow). They must match, or legitimate state is rejected as `untrusted-state`.
 - [ ] Do not set `AIR_ALLOW_OPERATOR_APPROVER` outside a throwaway test repository.

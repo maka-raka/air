@@ -4,6 +4,7 @@
  * I/O or remembers an earlier answer. Anything not explicitly trusted is
  * denied, including facts that could not be established.
  */
+import type { Position } from "./state-machine.js";
 
 export const TrustDenial = {
   /** The request belongs to another project than the configured one. */
@@ -18,12 +19,39 @@ export const TrustDenial = {
   UnknownStateWriter: "unknown-state-writer",
   /** The current state was written by an account that is not AIR's. */
   UntrustedStateWriter: "untrusted-state-writer",
+  /** No trusted signed anchor vouches for the current state. */
+  StateAnchorMissing: "state-anchor-missing",
+  /** The latest trusted anchor names another state or another writer. */
+  StateAnchorMismatch: "state-anchor-mismatch",
+  /** A delivery record not written by the agent account. */
+  RecordNotByAgent: "record-not-by-agent",
+  /** A delivery record changed after it was written. */
+  RecordEdited: "record-edited",
+  /** A delivery record whose signature does not verify for this issue. */
+  RecordSignatureInvalid: "record-signature-invalid",
+  /** A "command processed" reply marker not written by the operator. */
+  ReplyNotByOperator: "reply-not-by-operator",
+  /** A "command processed" reply marker changed after posting. */
+  ReplyEdited: "reply-edited",
 } as const;
 export type TrustDenial = (typeof TrustDenial)[keyof typeof TrustDenial];
 
 export type TrustDecision =
   | Readonly<{ trusted: true }>
   | Readonly<{ trusted: false; denial: TrustDenial; detail: string }>;
+
+/** Whether a delivery state needs a signed anchor (ADR-0010 step 4). */
+export const StateAnchorMode = {
+  /** Every active state needs one. The default. */
+  Require: "require",
+  /**
+   * Upgrade only: an issue with no trusted anchor at all is judged by its
+   * write history alone; once it has one, anchors are required.
+   */
+  Bootstrap: "bootstrap",
+} as const;
+export type StateAnchorMode =
+  (typeof StateAnchorMode)[keyof typeof StateAnchorMode];
 
 /** Who AIR trusts for what, by immutable account ID. */
 export type TrustRoster = Readonly<{
@@ -39,6 +67,7 @@ export type TrustRoster = Readonly<{
    * and approve, so it is refused unless explicitly accepted.
    */
   operatorMayApprove: boolean;
+  stateAnchors: StateAnchorMode;
 }>;
 
 /** Fresh facts about a command author's access, read for every command. */
@@ -52,6 +81,48 @@ export type AuthorAccess = Readonly<{
 export type StateProvenance =
   | Readonly<{ known: true; writerId: number; writerLogin: string }>
   | Readonly<{ known: false; reason: string }>;
+
+/** Facts about one signed state anchor, oldest first when listed. */
+export type AnchorEvidence = Readonly<{
+  authorId: number;
+  edited: boolean;
+  /** Verified with the public key of the author's AIR account. */
+  signatureValid: boolean;
+  /** The state the anchor vouches for. */
+  position: Position;
+}>;
+
+/** Facts about one stored delivery record, read every time it is used. */
+export type RecordEvidence = Readonly<{
+  authorId: number;
+  /** Changed after posting: people with write access can edit any comment. */
+  edited: boolean;
+  /** Verified with the agent's public key, for this project and issue. */
+  signatureValid: boolean;
+}>;
+
+/**
+ * How the agent may treat a piece of text. Only `instruction` may direct
+ * its work; everything else is data, whatever it says.
+ */
+export const ContentTrust = {
+  /** Written by an approver and unchanged since: may direct the agent. */
+  Instruction: "instruction",
+  /** Written by one of AIR's accounts and unchanged: context, not orders. */
+  Air: "air",
+  /** Anything else: describe it, never obey it. */
+  Data: "data",
+} as const;
+export type ContentTrust = (typeof ContentTrust)[keyof typeof ContentTrust];
+
+export type ContentDecision = Readonly<{ trust: ContentTrust; reason: string }>;
+
+/** Facts about one piece of text the agent is about to read. */
+export type ContentFacts = Readonly<{
+  authorId: number;
+  /** Changed after posting, or not known to be unchanged. */
+  edited: boolean;
+}>;
 
 const TRUSTED: TrustDecision = { trusted: true };
 const deny = (denial: TrustDenial, detail: string): TrustDecision => ({
@@ -110,15 +181,131 @@ export class TrustPolicy {
     return TRUSTED;
   }
 
-  /** Current delivery state counts only if one of AIR's accounts wrote it. */
-  state(provenance: StateProvenance): TrustDecision {
+  /**
+   * Current delivery state counts only if both hold:
+   * - one of AIR's accounts wrote it (the store's write history);
+   * - the latest trusted signed anchor names the same state and writer.
+   * Anchors alone could be undone by deleting the newest; a platform's write
+   * history alone can be rewritten (on GitHub, by renaming labels).
+   * Together, either attack only denies.
+   */
+  state(
+    provenance: StateProvenance,
+    position: Position,
+    anchors: readonly AnchorEvidence[],
+  ): TrustDecision {
     if (!provenance.known)
       return deny(TrustDenial.UnknownStateWriter, provenance.reason);
-    if (this.serviceIds.includes(provenance.writerId)) return TRUSTED;
-    const who = provenance.writerLogin || "a deleted account";
+    if (!this.serviceIds.includes(provenance.writerId)) {
+      const who = provenance.writerLogin || "a deleted account";
+      return deny(
+        TrustDenial.UntrustedStateWriter,
+        `The current state was set by ${who}, not by AIR.`,
+      );
+    }
+    return this.anchored(provenance.writerId, position, anchors);
+  }
+
+  private anchored(
+    writerId: number,
+    position: Position,
+    anchors: readonly AnchorEvidence[],
+  ): TrustDecision {
+    const latest = anchors
+      .filter((anchor) => this.trustedAnchor(anchor))
+      .at(-1);
+    if (!latest) return this.unanchored();
+    const named = `${latest.position.phase}:${latest.position.status}`;
+    const samePosition =
+      latest.position.phase === position.phase &&
+      latest.position.status === position.status;
+    if (!samePosition)
+      return deny(
+        TrustDenial.StateAnchorMismatch,
+        `The latest signed state anchor says ${named}.`,
+      );
+    if (latest.authorId !== writerId)
+      return deny(
+        TrustDenial.StateAnchorMismatch,
+        "The latest signed state anchor and the stored state have different writers.",
+      );
+    return TRUSTED;
+  }
+
+  /** No trusted anchor at all: only bootstrap mode falls back to history. */
+  private unanchored(): TrustDecision {
+    if (this.roster.stateAnchors === StateAnchorMode.Bootstrap) return TRUSTED;
     return deny(
-      TrustDenial.UntrustedStateWriter,
-      `The current state was set by ${who}, not by AIR.`,
+      TrustDenial.StateAnchorMissing,
+      "No signed state anchor from AIR vouches for the current state.",
     );
+  }
+
+  private trustedAnchor(anchor: AnchorEvidence): boolean {
+    const byAir = this.serviceIds.includes(anchor.authorId);
+    return byAir && !anchor.edited && anchor.signatureValid;
+  }
+
+  /**
+   * A record is evidence only if the agent wrote it, nobody edited it, and
+   * its signature verifies. Each alone is not enough: an admin can edit an
+   * agent comment, and anyone can copy a signed marker into their own.
+   */
+  record(evidence: RecordEvidence): TrustDecision {
+    if (evidence.authorId !== this.roster.agentId)
+      return deny(TrustDenial.RecordNotByAgent, `Account ${evidence.authorId}`);
+    if (evidence.edited)
+      return deny(TrustDenial.RecordEdited, "Edited after it was written");
+    if (!evidence.signatureValid)
+      return deny(TrustDenial.RecordSignatureInvalid, "Signature invalid");
+    return TRUSTED;
+  }
+
+  /**
+   * First content check, without lookups. An approver's text is only a
+   * candidate instruction: confirm current access with `contentAccess`.
+   */
+  content(facts: ContentFacts): ContentDecision {
+    if (facts.edited)
+      return {
+        trust: ContentTrust.Data,
+        reason: "Edited after posting: the author may not be who wrote it",
+      };
+    if (this.serviceIds.includes(facts.authorId))
+      return { trust: ContentTrust.Air, reason: "Written by an AIR account" };
+    const author = this.commandAuthor(this.roster.sourceId, facts.authorId);
+    if (!author.trusted)
+      return { trust: ContentTrust.Data, reason: "Not written by an approver" };
+    return {
+      trust: ContentTrust.Instruction,
+      reason: "Written by an approver",
+    };
+  }
+
+  /** Second content check: an approver's text counts only with access now. */
+  contentAccess(authorId: number, access: AuthorAccess): ContentDecision {
+    const decision = this.commandAccess(authorId, access);
+    if (decision.trusted)
+      return {
+        trust: ContentTrust.Instruction,
+        reason: "Written by an approver",
+      };
+    return {
+      trust: ContentTrust.Data,
+      reason: `Approver access not confirmed (${decision.denial})`,
+    };
+  }
+
+  /**
+   * A "command processed" marker counts only from the operator, which posts
+   * replies, and only unedited. Anyone else's marker could make AIR skip a
+   * command, so it is ignored.
+   */
+  reply(facts: ContentFacts): TrustDecision {
+    if (facts.authorId !== this.roster.operatorId)
+      return deny(TrustDenial.ReplyNotByOperator, `Account ${facts.authorId}`);
+    if (facts.edited)
+      return deny(TrustDenial.ReplyEdited, "Edited after posting");
+    return TRUSTED;
   }
 }

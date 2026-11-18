@@ -1,5 +1,7 @@
+import { StateAnchorMode } from "../domain/trust-policy.js";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { verifyAuditChain } from "../adapters/local/hash-chained-audit-log.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
@@ -12,6 +14,8 @@ import {
 } from "../adapters/github/record-signature.js";
 
 const KEYS = generateRecordKeys();
+const OPERATOR_KEYS = generateRecordKeys();
+const DEPLOY_KEYS = generateRecordKeys();
 const SIGNER = Ed25519RecordSigner.fromBase64(KEYS.privateKey);
 /** A record marker signed with the agent key for issue 42 of repository 123. */
 const signedMarker = (record: unknown) => {
@@ -136,10 +140,13 @@ const config = (dir: string): LocalConfig => ({
   token: "test-token",
   pollIntervalMs: 5_000,
   stateDir: dir,
+  auditLog: join(dir, "audit-poller.jsonl"),
   leaseMs: 60_000,
   runTtlMs: 7_200_000,
   accounts: { operatorLogin: "air-bot", agentLogin: "air-agent" },
   recordPublicKey: KEYS.publicKey,
+  operatorSigningKey: OPERATOR_KEYS.privateKey,
+  stateAnchors: StateAnchorMode.Bootstrap,
   approverLogins: ["octocat"],
   allowOperatorApprover: false,
 });
@@ -163,8 +170,36 @@ describe("local composition", () => {
       "air:requirements:ready",
       "priority:high",
     ]);
-    assert.equal(github.posted.length, 1);
-    assert.match(github.posted[0]!, /air:requirements:ready/);
+    assert.equal(github.posted.length, 2);
+    assert.match(
+      github.posted[0]!,
+      /<!-- air:state \{"phase":"requirements","status":"ready"/,
+    );
+    assert.match(github.posted[1]!, /air:requirements:ready/);
+  });
+
+  it("writes a verifiable audit trail of the command and the transition", async () => {
+    const github = new FakeGitHub();
+    const dir = join(stateDir, "audit");
+    const poller = await composeLocal(config(dir), github.request);
+    await poller.pollOnce();
+    github.addComment(1001, "/air initialize");
+
+    await poller.pollOnce();
+
+    const text = await readFile(join(dir, "audit-poller.jsonl"), "utf8");
+    assert.deepEqual(verifyAuditChain(text), { ok: true, entries: 2 });
+    const events = text
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line).event);
+    assert.deepEqual(
+      events.map(({ kind, allowed, reason }) => [kind, allowed, reason]),
+      [
+        ["command", true, "admitted"],
+        ["transition", true, "applied"],
+      ],
+    );
   });
 
   it("does not run a command twice when it is polled again", async () => {
@@ -183,7 +218,7 @@ describe("local composition", () => {
 
     await restarted.pollOnce();
 
-    assert.equal(github.posted.length, 1);
+    assert.equal(github.posted.length, 2);
     assert.deepEqual(github.labels.sort(), [
       "air:requirements:ready",
       "priority:high",
@@ -435,6 +470,7 @@ describe("readLocalConfig", () => {
     AIR_AGENT_LOGIN: "air-agent",
     AIR_APPROVER_LOGINS: "octocat, hubot",
     AIR_AGENT_PUBLIC_KEY: "cHVibGlj",
+    AIR_OPERATOR_SIGNING_KEY: "c2VjcmV0",
   };
 
   it("reads repository, token, accounts and defaults", () => {
@@ -452,7 +488,17 @@ describe("readLocalConfig", () => {
       recordPublicKey: "cHVibGlj",
       approverLogins: ["octocat", "hubot"],
       allowOperatorApprover: false,
+      operatorSigningKey: "c2VjcmV0",
+      stateAnchors: StateAnchorMode.Require,
+      auditLog: join(".air", "audit-poller.jsonl"),
     });
+  });
+
+  it("accepts bootstrap mode for upgrades", () => {
+    assert.equal(
+      readLocalConfig({ ...base, AIR_STATE_ANCHORS: "bootstrap" }).stateAnchors,
+      StateAnchorMode.Bootstrap,
+    );
   });
 
   for (const [env, message] of [
@@ -462,6 +508,8 @@ describe("readLocalConfig", () => {
     [{ ...base, AIR_OPERATOR_LOGIN: "" }, /AIR_OPERATOR_LOGIN/],
     [{ ...base, AIR_AGENT_LOGIN: "" }, /AIR_AGENT_LOGIN/],
     [{ ...base, AIR_AGENT_PUBLIC_KEY: "" }, /AIR_AGENT_PUBLIC_KEY/],
+    [{ ...base, AIR_OPERATOR_SIGNING_KEY: "" }, /AIR_OPERATOR_SIGNING_KEY/],
+    [{ ...base, AIR_STATE_ANCHORS: "off" }, /AIR_STATE_ANCHORS/],
     [{ ...base, AIR_APPROVER_LOGINS: " , " }, /AIR_APPROVER_LOGINS/],
     [{ ...base, AIR_APPROVER_LOGINS: "a/b" }, /AIR_APPROVER_LOGINS/],
     [{ ...base, AIR_AGENT_LOGIN: "AIR-BOT" }, /different accounts/],

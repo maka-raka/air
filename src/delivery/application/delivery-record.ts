@@ -3,6 +3,9 @@ import type {
   DeliveryVerdict,
   Phase,
 } from "../domain/state-machine.js";
+import type { RecordEvidence, TrustPolicy } from "../domain/trust-policy.js";
+import { AuditKind } from "./audit.js";
+import type { AuditPort } from "./audit.js";
 
 export const DeliveryRecordKind = {
   RunStart: "run-start",
@@ -57,12 +60,63 @@ export type ReportRecord = Extract<
 >;
 
 /**
- * Append-only records on an issue. Adapters must return only records
- * authored by the trusted agent identity, in chronological order.
+ * Append-only records on an issue. `list` returns only records the trust
+ * policy accepts, in chronological order: use `TrustedDeliveryRecords`.
  */
 export interface DeliveryRecordPort {
   append(issue: number, record: DeliveryRecord, text: string): Promise<void>;
   list(issue: number): Promise<readonly DeliveryRecord[]>;
+}
+
+/** A stored record and the facts that decide whether it counts. */
+export type RecordCandidate = Readonly<{
+  record: DeliveryRecord;
+  evidence: RecordEvidence;
+}>;
+
+/**
+ * Raw record storage (a policy information point). Returns every
+ * well-formed record, from anyone, with its evidence; decides nothing.
+ */
+export interface DeliveryRecordSource {
+  append(issue: number, record: DeliveryRecord, text: string): Promise<void>;
+  candidates(issue: number): Promise<readonly RecordCandidate[]>;
+}
+
+/**
+ * Zero trust (ADR-0010): enforces `TrustPolicy.record` on every read, so no
+ * use case can see a record the policy has not accepted.
+ */
+export class TrustedDeliveryRecords implements DeliveryRecordPort {
+  constructor(
+    private readonly source: DeliveryRecordSource,
+    private readonly trust: TrustPolicy,
+    private readonly audit: AuditPort,
+  ) {}
+
+  append(issue: number, record: DeliveryRecord, text: string): Promise<void> {
+    return this.source.append(issue, record, text);
+  }
+
+  /** Every record that does not count is audited, with the reason. */
+  async list(issue: number): Promise<readonly DeliveryRecord[]> {
+    const candidates = await this.source.candidates(issue);
+    const accepted: DeliveryRecord[] = [];
+    for (const { record, evidence } of candidates) {
+      const decision = this.trust.record(evidence);
+      if (decision.trusted) accepted.push(record);
+      else
+        await this.audit.record({
+          kind: AuditKind.RecordDenied,
+          issue,
+          allowed: false,
+          reason: decision.denial,
+          actorId: evidence.authorId,
+          details: { record: record.kind, at: record.at },
+        });
+    }
+    return accepted;
+  }
 }
 
 /** Pure queries over an issue's trusted record history. */

@@ -19,7 +19,7 @@ AIR keeps delivery state in GitHub labels and evidence in issue comments. Before
 
 ## Decision
 
-Since [ADR-0010](0010-zero-trust.md), checks 1, 4 and 5 below are decided by the domain `TrustPolicy`; adapters only supply the facts.
+Since [ADR-0010](0010-zero-trust.md), checks 1 to 5 below are decided by the domain `TrustPolicy` ; adapters only supply the facts.
 
 ### Actors
 
@@ -56,9 +56,9 @@ The checks above protect AIR's state. They cannot stop a writer from pushing cod
 | Risk | Status | Plan |
 | --- | --- | --- |
 | A repository admin can forge records | **closed** by signed records | — |
-| Anyone with write access can delete record comments (evidence disappears) | open; deletion can only remove evidence, so gates fail closed | audit log outside GitHub |
+| Anyone with write access can delete record comments (evidence disappears) | mitigated: deletion can only remove evidence, so gates fail closed; the decisions made on it are in AIR's hash-chained audit log outside GitHub ([ADR-0010](0010-zero-trust.md) step 6) | — |
 | The agent's signing key leaks | open | keep it only in the agent environment; rotate by generating a new pair and updating `AIR_AGENT_PUBLIC_KEY` everywhere (old records then stop counting) |
-| Renaming a label in repository settings changes it on every issue; whether the event history then shows the old or the new name is unverified | open | verify on the live run; signed state anchors would close it either way |
+| Renaming a label in repository settings changes it on every issue; whether the event history then shows the old or the new name is unverified | **closed** by signed state anchors ([ADR-0010](0010-zero-trust.md) step 4): the label must also match the latest anchor | — |
 | Prompt injection: the agent reads text from any commenter and holds a write token | open | private repositories only; agent reads only approver-authored text; sandbox and Claude Code deny rules (P1) |
 | Agent token can push code and edit workflows | mitigated by repository settings | branch protection, CODEOWNERS for `.github/`, token without *Workflows* permission |
 | GitHub bumps `updated_at` for a non-content change, so a valid record is ignored | fails closed | if seen on the live run, drop the edit check for records: signatures already cover them |
