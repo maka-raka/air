@@ -4,6 +4,8 @@ import type {
   Phase,
 } from "../domain/state-machine.js";
 import type { RecordEvidence, TrustPolicy } from "../domain/trust-policy.js";
+import { AuditKind } from "./audit.js";
+import type { AuditPort } from "./audit.js";
 
 export const DeliveryRecordKind = {
   RunStart: "run-start",
@@ -89,17 +91,31 @@ export class TrustedDeliveryRecords implements DeliveryRecordPort {
   constructor(
     private readonly source: DeliveryRecordSource,
     private readonly trust: TrustPolicy,
+    private readonly audit: AuditPort,
   ) {}
 
   append(issue: number, record: DeliveryRecord, text: string): Promise<void> {
     return this.source.append(issue, record, text);
   }
 
+  /** Every record that does not count is audited, with the reason. */
   async list(issue: number): Promise<readonly DeliveryRecord[]> {
     const candidates = await this.source.candidates(issue);
-    return candidates
-      .filter(({ evidence }) => this.trust.record(evidence).trusted)
-      .map(({ record }) => record);
+    const accepted: DeliveryRecord[] = [];
+    for (const { record, evidence } of candidates) {
+      const decision = this.trust.record(evidence);
+      if (decision.trusted) accepted.push(record);
+      else
+        await this.audit.record({
+          kind: AuditKind.RecordDenied,
+          issue,
+          allowed: false,
+          reason: decision.denial,
+          actorId: evidence.authorId,
+          details: { record: record.kind, at: record.at },
+        });
+    }
+    return accepted;
   }
 }
 

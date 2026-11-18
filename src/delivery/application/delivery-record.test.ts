@@ -11,6 +11,10 @@ import type {
 } from "./delivery-record.js";
 import { StateAnchorMode, TrustPolicy } from "../domain/trust-policy.js";
 import type { RecordEvidence } from "../domain/trust-policy.js";
+import type { AuditPort } from "./audit.js";
+
+/** Audit is covered by its own tests. */
+const noAudit: AuditPort = { record: async () => undefined };
 
 const AGENT = 77;
 const trust = new TrustPolicy({
@@ -64,7 +68,11 @@ describe("TrustedDeliveryRecords", () => {
       { record: block("2026-11-18T05:00:00Z"), evidence: valid },
     ]);
 
-    const records = await new TrustedDeliveryRecords(source, trust).list(42);
+    const records = await new TrustedDeliveryRecords(
+      source,
+      trust,
+      noAudit,
+    ).list(42);
 
     assert.deepEqual(records, [
       block("2026-11-18T01:00:00Z"),
@@ -74,7 +82,7 @@ describe("TrustedDeliveryRecords", () => {
 
   it("re-reads the evidence on every list", async () => {
     const source = new FakeSource([]);
-    const records = new TrustedDeliveryRecords(source, trust);
+    const records = new TrustedDeliveryRecords(source, trust, noAudit);
 
     await records.list(42);
     await records.list(42);
@@ -85,7 +93,7 @@ describe("TrustedDeliveryRecords", () => {
   it("appends through the source", async () => {
     const source = new FakeSource([]);
 
-    await new TrustedDeliveryRecords(source, trust).append(
+    await new TrustedDeliveryRecords(source, trust, noAudit).append(
       42,
       block("2026-11-18T01:00:00Z"),
       "Blocked.",

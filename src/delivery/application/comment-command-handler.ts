@@ -1,5 +1,6 @@
 import { DeliveryAction, DeliveryActor } from "../domain/state-machine.js";
 import type { Facts, Position, Request } from "../domain/state-machine.js";
+import type { ContentFacts, TrustPolicy } from "../domain/trust-policy.js";
 import { CommentCommandParser } from "./comment-command-parser.js";
 import type {
   CommandParseError,
@@ -58,7 +59,11 @@ export interface CommandReplyPort {
  * operation ID: a redelivery after a completed reply is a no-op.
  */
 export interface ProcessedCommandPort {
-  wasProcessed(issue: number, commentId: number): Promise<boolean>;
+  /**
+   * Every comment carrying the "processed" marker for this command, with its
+   * author and edit flag; the trust policy decides which count.
+   */
+  markers(issue: number, commentId: number): Promise<readonly ContentFacts[]>;
 }
 
 export interface DeliveryCommandExecutor {
@@ -79,12 +84,13 @@ export class CommentCommandHandler implements AdmittedCommandHandlerPort {
     private readonly executor: DeliveryCommandExecutor,
     private readonly replies: CommandReplyPort,
     private readonly processed: ProcessedCommandPort,
+    private readonly trust: TrustPolicy,
     private readonly parser: CommentCommandParser = new CommentCommandParser(),
   ) {}
 
   async handle(message: HumanCommandMessage): Promise<void> {
     const { issue, comment } = message;
-    if (await this.processed.wasProcessed(issue, comment.id)) return;
+    if (await this.wasProcessed(issue, comment.id)) return;
 
     const parsed = this.parser.parse(comment.body);
     if (!parsed.ok)
@@ -141,5 +147,10 @@ export class CommentCommandHandler implements AdmittedCommandHandlerPort {
       // ADR-0003: a write-access Human advancing out of design approves it.
       designApproved: command.action === DeliveryAction.Advance,
     };
+  }
+
+  private async wasProcessed(issue: number, commentId: number) {
+    const markers = await this.processed.markers(issue, commentId);
+    return markers.some((marker) => this.trust.reply(marker).trusted);
   }
 }

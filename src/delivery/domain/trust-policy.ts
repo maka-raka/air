@@ -29,6 +29,10 @@ export const TrustDenial = {
   RecordEdited: "record-edited",
   /** A delivery record whose signature does not verify for this issue. */
   RecordSignatureInvalid: "record-signature-invalid",
+  /** A "command processed" reply marker not written by the operator. */
+  ReplyNotByOperator: "reply-not-by-operator",
+  /** A "command processed" reply marker changed after posting. */
+  ReplyEdited: "reply-edited",
 } as const;
 export type TrustDenial = (typeof TrustDenial)[keyof typeof TrustDenial];
 
@@ -290,5 +294,18 @@ export class TrustPolicy {
       trust: ContentTrust.Data,
       reason: `Approver access not confirmed (${decision.denial})`,
     };
+  }
+
+  /**
+   * A "command processed" marker counts only from the operator, which posts
+   * replies, and only unedited. Anyone else's marker could make AIR skip a
+   * command, so it is ignored.
+   */
+  reply(facts: ContentFacts): TrustDecision {
+    if (facts.authorId !== this.roster.operatorId)
+      return deny(TrustDenial.ReplyNotByOperator, `Account ${facts.authorId}`);
+    if (facts.edited)
+      return deny(TrustDenial.ReplyEdited, "Edited after posting");
+    return TRUSTED;
   }
 }

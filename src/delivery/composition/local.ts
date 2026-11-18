@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { isEntryPoint, loadEnvFile, repository, required } from "./config.js";
 import { CommentCommandHandler } from "../application/comment-command-handler.js";
@@ -32,6 +32,7 @@ import {
   KeyRole,
   readAnchorMode,
   recordSigner,
+  fileAuditLog,
   stateAnchorStore,
   trustPolicy,
   trustedExecutor,
@@ -66,6 +67,8 @@ export type LocalConfig = Readonly<{
   /** Deployer public key; required when a deployer is configured. */
   deployPublicKey?: string;
   stateAnchors: StateAnchorMode;
+  /** Hash-chained audit log file; one writer per file. */
+  auditLog: string;
 }>;
 
 const ENABLED = "true";
@@ -110,6 +113,9 @@ export function readLocalConfig(
       ? { deployPublicKey: env.AIR_DEPLOY_PUBLIC_KEY }
       : {}),
     stateAnchors: readAnchorMode(env),
+    auditLog:
+      env.AIR_AUDIT_LOG ||
+      join(env.AIR_STATE_DIR || ".air", "audit-poller.jsonl"),
   };
 }
 
@@ -128,11 +134,7 @@ export async function composeLocal(
   const identity = await repository.identity();
   const users = new GitHubUserHttpAdapter(client);
   const accounts = await resolveServiceAccounts(users, config.accounts);
-  const operator = await assertTokenOwner(
-    users,
-    accounts.operator,
-    "AIR_GITHUB_TOKEN",
-  );
+  await assertTokenOwner(users, accounts.operator, "AIR_GITHUB_TOKEN");
   const approvers = await Promise.all(
     config.approverLogins.map((login) => users.byLogin(login)),
   );
@@ -142,6 +144,7 @@ export async function composeLocal(
     stateAnchors: config.stateAnchors,
   });
   const comments = new GitHubIssueCommentHttpAdapter(client);
+  const audit = fileAuditLog(config.auditLog);
   const signer = recordSigner(
     config.operatorSigningKey,
     config.operatorPublicKey,
@@ -169,21 +172,24 @@ export async function composeLocal(
           verifier: agentKey,
         }),
         trust,
+        audit,
       ),
       new GitHubPullRequestHttpAdapter(client),
       () => new Date(),
       config.runTtlMs,
     ),
-    trustedExecutor(client, anchors, trust),
+    trustedExecutor(client, anchors, trust, audit),
     new GitHubCommandReplyAdapter(comments),
     // Replies are posted with this token, so only its markers are trusted.
-    new GitHubProcessedCommands(comments, operator.id),
+    new GitHubProcessedCommands(comments),
+    trust,
   );
   const ingestion = new IngestHumanCommand(
     new InMemoryDeliveryClaims(config.leaseMs),
     new GitHubCollaboratorAccess(repository),
     trust,
     handler,
+    audit,
   );
   return new GitHubCommentPoller(
     comments,

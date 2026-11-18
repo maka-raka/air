@@ -1,6 +1,7 @@
 import { StateAnchorMode } from "../domain/trust-policy.js";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { verifyAuditChain } from "../adapters/local/hash-chained-audit-log.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
@@ -139,6 +140,7 @@ const config = (dir: string): LocalConfig => ({
   token: "test-token",
   pollIntervalMs: 5_000,
   stateDir: dir,
+  auditLog: join(dir, "audit-poller.jsonl"),
   leaseMs: 60_000,
   runTtlMs: 7_200_000,
   accounts: { operatorLogin: "air-bot", agentLogin: "air-agent" },
@@ -174,6 +176,30 @@ describe("local composition", () => {
       /<!-- air:state \{"phase":"requirements","status":"ready"/,
     );
     assert.match(github.posted[1]!, /air:requirements:ready/);
+  });
+
+  it("writes a verifiable audit trail of the command and the transition", async () => {
+    const github = new FakeGitHub();
+    const dir = join(stateDir, "audit");
+    const poller = await composeLocal(config(dir), github.request);
+    await poller.pollOnce();
+    github.addComment(1001, "/air initialize");
+
+    await poller.pollOnce();
+
+    const text = await readFile(join(dir, "audit-poller.jsonl"), "utf8");
+    assert.deepEqual(verifyAuditChain(text), { ok: true, entries: 2 });
+    const events = text
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line).event);
+    assert.deepEqual(
+      events.map(({ kind, allowed, reason }) => [kind, allowed, reason]),
+      [
+        ["command", true, "admitted"],
+        ["transition", true, "applied"],
+      ],
+    );
   });
 
   it("does not run a command twice when it is polled again", async () => {
@@ -464,6 +490,7 @@ describe("readLocalConfig", () => {
       allowOperatorApprover: false,
       operatorSigningKey: "c2VjcmV0",
       stateAnchors: StateAnchorMode.Require,
+      auditLog: join(".air", "audit-poller.jsonl"),
     });
   });
 

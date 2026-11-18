@@ -1,5 +1,7 @@
 import { ContentTrust } from "../domain/trust-policy.js";
 import type { ContentDecision, TrustPolicy } from "../domain/trust-policy.js";
+import { AuditKind } from "./audit.js";
+import type { AuditEvent, AuditPort } from "./audit.js";
 import type {
   AuthorAccessPort,
   CommandAuthor,
@@ -61,6 +63,7 @@ export class ReadAgentContext {
     private readonly access: AuthorAccessPort,
     private readonly trust: TrustPolicy,
     private readonly source: CommandSource,
+    private readonly audit: AuditPort,
   ) {}
 
   async read(issue: number): Promise<AgentContext> {
@@ -77,7 +80,7 @@ export class ReadAgentContext {
         .filter(({ first }) => first.trust === ContentTrust.Instruction)
         .map(({ comment }) => comment.author),
     );
-    return {
+    const context: AgentContext = {
       issue,
       description: {
         commentId: null,
@@ -94,6 +97,26 @@ export class ReadAgentContext {
             ? confirmed.get(comment.author.id)!
             : first,
       })),
+    };
+    await this.audit.record(this.summary(context));
+    return context;
+  }
+
+  /** What the agent was shown: counts per trust class. */
+  private summary(context: AgentContext): AuditEvent {
+    const items = [context.description, ...context.comments];
+    const count = (trust: ContentTrust) =>
+      items.filter((item) => item.trust.trust === trust).length;
+    return {
+      kind: AuditKind.AgentContext,
+      issue: context.issue,
+      allowed: true,
+      reason: "read",
+      details: {
+        instruction: count(ContentTrust.Instruction),
+        air: count(ContentTrust.Air),
+        data: count(ContentTrust.Data),
+      },
     };
   }
 

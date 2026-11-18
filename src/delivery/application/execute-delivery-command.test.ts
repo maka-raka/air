@@ -22,6 +22,10 @@ import type {
   StateAnchorPort,
   StateProvenancePort,
 } from "./execute-delivery-command.js";
+import type { AuditPort } from "./audit.js";
+
+/** Audit is covered by its own tests. */
+const noAudit: AuditPort = { record: async () => undefined };
 
 /** Every test state counts as written by the operator account. */
 const trust = new TrustPolicy({
@@ -123,6 +127,7 @@ describe("ExecuteDeliveryCommand trust (ADR-0010)", () => {
         port,
         noAnchors,
         trust,
+        noAudit,
       ).execute({ issue: 42, request: start });
 
       assert.equal(!result.ok && result.reason, DeliveryFailure.UntrustedState);
@@ -136,7 +141,13 @@ describe("ExecuteDeliveryCommand trust (ADR-0010)", () => {
       writerId: 2,
       writerLogin: "air-agent",
     });
-    const useCase = new ExecuteDeliveryCommand(state, port, noAnchors, trust);
+    const useCase = new ExecuteDeliveryCommand(
+      state,
+      port,
+      noAnchors,
+      trust,
+      noAudit,
+    );
 
     await useCase.execute({ issue: 42, request: start });
     await useCase.execute({ issue: 42, request: start });
@@ -155,6 +166,7 @@ describe("ExecuteDeliveryCommand trust (ADR-0010)", () => {
       port,
       noAnchors,
       trust,
+      noAudit,
     ).execute({
       issue: 42,
       request: {
@@ -210,6 +222,7 @@ describe("ExecuteDeliveryCommand state anchors (ADR-0010 step 4)", () => {
       trustedWriter,
       anchors,
       trust,
+      noAudit,
     ).execute({ issue: 42, request: start });
 
     assert.equal(result.ok, true);
@@ -229,6 +242,7 @@ describe("ExecuteDeliveryCommand state anchors (ADR-0010 step 4)", () => {
       trustedWriter,
       anchors,
       trust,
+      noAudit,
     ).execute({ issue: 42, request: start });
 
     assert.deepEqual(anchors.appended, []);
@@ -243,6 +257,7 @@ describe("ExecuteDeliveryCommand state anchors (ADR-0010 step 4)", () => {
       trustedWriter,
       anchors,
       trust,
+      noAudit,
     ).execute({ issue: 42, request: start });
 
     assert.equal(
@@ -267,6 +282,7 @@ describe("ExecuteDeliveryCommand state anchors (ADR-0010 step 4)", () => {
         trustedWriter,
         anchors,
         strict,
+        noAudit,
       ).execute({ issue: 42, request: start });
 
     assert.equal((await run(anchored)).ok, true);
@@ -283,6 +299,7 @@ describe("ExecuteDeliveryCommand", () => {
       trustedWriter,
       noAnchors,
       trust,
+      noAudit,
     );
 
     const result = await useCase.execute({ issue: 42, request: start });
@@ -311,6 +328,7 @@ describe("ExecuteDeliveryCommand", () => {
       trustedWriter,
       noAnchors,
       trust,
+      noAudit,
     );
 
     const result = await useCase.execute({ issue: 42, request: start });
@@ -325,6 +343,7 @@ describe("ExecuteDeliveryCommand", () => {
       trustedWriter,
       noAnchors,
       trust,
+      noAudit,
     );
 
     const result = await useCase.execute({ issue: 0, request: start });
@@ -345,6 +364,7 @@ describe("ExecuteDeliveryCommand", () => {
       trustedWriter,
       noAnchors,
       trust,
+      noAudit,
     );
 
     const result = await useCase.execute({ issue: 42, request: start });
@@ -362,6 +382,7 @@ describe("ExecuteDeliveryCommand", () => {
       trustedWriter,
       noAnchors,
       trust,
+      noAudit,
     );
 
     const result = await useCase.execute({ issue: 42, request: start });
@@ -382,6 +403,7 @@ describe("ExecuteDeliveryCommand", () => {
       trustedWriter,
       noAnchors,
       trust,
+      noAudit,
     );
 
     const result = await useCase.execute({ issue: 42, request: start });
@@ -402,6 +424,7 @@ describe("ExecuteDeliveryCommand", () => {
       trustedWriter,
       noAnchors,
       trust,
+      noAudit,
     );
 
     await useCase.execute({
@@ -425,6 +448,7 @@ describe("ExecuteDeliveryCommand", () => {
       trustedWriter,
       noAnchors,
       trust,
+      noAudit,
     );
 
     const result = await useCase.execute({

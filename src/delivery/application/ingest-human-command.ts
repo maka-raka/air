@@ -1,5 +1,11 @@
 import { CommentCommandParser } from "./comment-command-parser.js";
-import type { AuthorAccess, TrustPolicy } from "../domain/trust-policy.js";
+import type {
+  AuthorAccess,
+  TrustDecision,
+  TrustPolicy,
+} from "../domain/trust-policy.js";
+import { AuditKind } from "./audit.js";
+import type { AuditPort } from "./audit.js";
 
 /** Platform account that wrote a command. `id` is immutable; `login` is not. */
 export type CommandAuthor = Readonly<{
@@ -98,6 +104,7 @@ export class IngestHumanCommand {
     private readonly access: AuthorAccessPort,
     private readonly trust: TrustPolicy,
     private readonly handler: AdmittedCommandHandlerPort,
+    private readonly audit: AuditPort,
     private readonly parser: CommentCommandParser = new CommentCommandParser(),
   ) {}
 
@@ -118,10 +125,29 @@ export class IngestHumanCommand {
   }
 
   private async admitted(message: HumanCommandMessage): Promise<boolean> {
+    const decision = await this.decide(message);
+    await this.audit.record({
+      kind: AuditKind.Command,
+      issue: message.issue,
+      allowed: decision.trusted,
+      reason: decision.trusted ? "admitted" : decision.denial,
+      actorId: message.author.id,
+      details: {
+        login: message.author.login,
+        source: message.source.id,
+        comment: message.comment.id,
+        message: message.messageId,
+      },
+    });
+    return decision.trusted;
+  }
+
+  private async decide(message: HumanCommandMessage): Promise<TrustDecision> {
     const { source, author } = message;
-    if (!this.trust.commandAuthor(source.id, author.id).trusted) return false;
+    const claimed = this.trust.commandAuthor(source.id, author.id);
+    if (!claimed.trusted) return claimed;
     const access = await this.access.access(source, author);
-    return this.trust.commandAccess(author.id, access).trusted;
+    return this.trust.commandAccess(author.id, access);
   }
 
   private async process(

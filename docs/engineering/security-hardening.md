@@ -70,7 +70,16 @@ Each account that writes state has its own Ed25519 key pair ([ADR-0010](../archi
 - [ ] If a private key may have leaked, generate a new pair and update the public key everywhere. Records and state anchors signed with the old key stop counting: open deliveries become `untrusted-state` and must be repaired by an administrator (or re-anchored in bootstrap mode, below).
 - [ ] **Upgrading from an AIR without state anchors:** open deliveries have no anchor yet. Set `AIR_STATE_ANCHORS=bootstrap` in every process until each open delivery has moved once (each move writes an anchor), then remove it. In bootstrap mode an issue without any anchor is judged by its label history alone, as before.
 
-## 6. Running AIR
+## 6. Audit log
+
+Every AIR process records its trust decisions in a hash-chained audit log ([ADR-0010](../architecture/adr/0010-zero-trust.md)): the poller in `.air/audit-poller.jsonl`, the agent CLI in `.air/audit-agent.jsonl` (override with `AIR_AUDIT_LOG`), and the deploy reporter as `air-audit:` lines in the job log.
+
+- [ ] Keep one writer per log file: never point two processes at the same `AIR_AUDIT_LOG`.
+- [ ] Copy the log files off the machine regularly (backup, log shipping). The chain detects edited, deleted or reordered entries, but not the newest entries being cut off.
+- [ ] Check a log with `npx --no air audit verify .air/audit-poller.jsonl`.
+- [ ] If the log cannot be written, AIR refuses to act: fix the disk or permissions, not the check.
+
+## 7. Running AIR
 
 - [ ] Set `AIR_OPERATOR_LOGIN`, `AIR_AGENT_LOGIN`, `AIR_APPROVER_LOGINS` and, if you deploy, `AIR_DEPLOY_LOGIN` in **every** AIR process (poller, agent CLI, deploy workflow). They must match, or legitimate state is rejected as `untrusted-state`.
 - [ ] Do not set `AIR_ALLOW_OPERATOR_APPROVER` outside a throwaway test repository.

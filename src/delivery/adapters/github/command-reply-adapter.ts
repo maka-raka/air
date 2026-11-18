@@ -1,3 +1,4 @@
+import type { ContentFacts } from "../../domain/trust-policy.js";
 import { CommandOutcome } from "../../application/comment-command-handler.js";
 import type {
   CommandReply,
@@ -86,24 +87,22 @@ export class GitHubCommandReplyAdapter implements CommandReplyPort {
 }
 
 /**
- * A command is processed once AIR's own account replied to it. Markers from
- * any other author, and edited replies, are ignored, so nobody can pre-empt
- * someone's command by posting or planting a fake reply.
+ * Finds the reply markers for a command. Whether one counts (AIR's own
+ * account, unedited) is decided by `TrustPolicy.reply`, so nobody can
+ * pre-empt someone's command by planting a fake reply.
  */
 export class GitHubProcessedCommands implements ProcessedCommandPort {
-  constructor(
-    private readonly comments: IssueCommentReader,
-    private readonly replierId: number,
-  ) {}
+  constructor(private readonly comments: IssueCommentReader) {}
 
-  async wasProcessed(issue: number, commentId: number): Promise<boolean> {
+  /** Facts only: every comment ending with this command's reply marker. */
+  async markers(
+    issue: number,
+    commentId: number,
+  ): Promise<readonly ContentFacts[]> {
     const marker = replyMarker(commentId);
     const comments = await this.comments.list(issue);
-    return comments.some(
-      ({ authorId, body, edited }) =>
-        authorId === this.replierId &&
-        !edited &&
-        body.trimEnd().endsWith(marker),
-    );
+    return comments
+      .filter(({ body }) => body.trimEnd().endsWith(marker))
+      .map(({ authorId, edited }) => ({ authorId, edited }));
   }
 }

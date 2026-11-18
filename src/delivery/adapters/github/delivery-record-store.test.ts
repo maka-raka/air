@@ -14,6 +14,10 @@ import type { DeliveryRecord } from "../../application/delivery-record.js";
 import { DeliveryPhase } from "../../domain/state-machine.js";
 import { StateAnchorMode, TrustPolicy } from "../../domain/trust-policy.js";
 import { Ed25519RecordSigner, generateRecordKeys } from "./record-signature.js";
+import type { AuditPort } from "../../application/audit.js";
+
+/** Audit is covered by its own tests. */
+const noAudit: AuditPort = { record: async () => undefined };
 
 const AGENT = 77;
 const REPOSITORY = 123;
@@ -72,10 +76,11 @@ function fixture() {
   return {
     comments,
     source,
-    store: new TrustedDeliveryRecords(source, TRUST),
+    store: new TrustedDeliveryRecords(source, TRUST, noAudit),
     reader: new TrustedDeliveryRecords(
       new GitHubDeliveryRecordStore(comments, keys),
       TRUST,
+      noAudit,
     ),
   };
 }

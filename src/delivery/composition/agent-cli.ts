@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { AgentCommands } from "../application/agent-commands.js";
 import { EvaluatePhaseGate } from "../application/phase-gate.js";
 import { ReadAgentContext } from "../application/agent-context.js";
@@ -38,6 +39,7 @@ import {
   readAnchorMode,
   readApproverLogins,
   recordVerifier,
+  fileAuditLog,
   stateAnchorStore,
   readServiceLogins,
   recordSigner,
@@ -49,6 +51,7 @@ import {
 import { GitHubRepositoryHttpAdapter } from "../adapters/github/repository-http-adapter.js";
 import type { ServiceLogins } from "./trust.js";
 import { generateRecordKeys } from "../adapters/github/record-signature.js";
+import { verifyAuditChain } from "../adapters/local/hash-chained-audit-log.js";
 
 export const AgentCliCommand = {
   /** Prints the issue's text, classified as instructions or data. */
@@ -63,6 +66,8 @@ export const AgentCliCommand = {
   Init: "init",
   /** Audits repository settings against the hardening checklist. */
   Doctor: "doctor",
+  /** `air audit verify <file>`: checks an audit log's hash chain. */
+  Audit: "audit",
 } as const;
 
 export type AgentInvocation =
@@ -94,6 +99,7 @@ export const USAGE = `Usage:
   air keygen [agent|operator|deployer]
   air init
   air doctor [--strict]
+  air audit verify <file>
 
 Options: --env-file <path> (default: .env.air when present)`;
 
@@ -214,6 +220,8 @@ export type AgentConfig = Readonly<{
   /** Deployer public key; required when a deployer is configured. */
   deployPublicKey?: string;
   stateAnchors: StateAnchorMode;
+  /** Hash-chained audit log file; one writer per file. */
+  auditLog: string;
 }>;
 
 export function readAgentConfig(
@@ -244,6 +252,9 @@ export function readAgentConfig(
       ? { deployPublicKey: env.AIR_DEPLOY_PUBLIC_KEY }
       : {}),
     stateAnchors: readAnchorMode(env),
+    auditLog:
+      env.AIR_AUDIT_LOG ||
+      join(env.AIR_STATE_DIR || ".air", "audit-agent.jsonl"),
   };
 }
 
@@ -283,6 +294,7 @@ export async function composeAgent(
     stateAnchors: config.stateAnchors,
   });
   const comments = new GitHubIssueCommentHttpAdapter(client);
+  const audit = fileAuditLog(config.auditLog);
   const anchors = stateAnchorStore(
     comments,
     identity.id,
@@ -299,7 +311,7 @@ export async function composeAgent(
     },
     signer,
   );
-  const executor = trustedExecutor(client, anchors, trust);
+  const executor = trustedExecutor(client, anchors, trust, audit);
   const records = new TrustedDeliveryRecords(
     new GitHubDeliveryRecordStore(comments, {
       repositoryId: identity.id,
@@ -307,6 +319,7 @@ export async function composeAgent(
       signer,
     }),
     trust,
+    audit,
   );
   const preflight = new AgentIdentityPreflight(users, viewer.id);
   const now = () => new Date();
@@ -329,6 +342,7 @@ export async function composeAgent(
       new GitHubCollaboratorAccess(new GitHubRepositoryHttpAdapter(client)),
       trust,
       { id: identity.id, name: client.fullName },
+      audit,
     ),
   };
 }
@@ -401,6 +415,22 @@ const keyUse: Readonly<Record<KeyRole, string>> = {
     "# Deploy environment secret only: signs the state air-deploy sets.",
 };
 
+const VERIFY = "verify";
+
+/** `air audit verify <file>`: one line for people, and the exit code. */
+export async function auditVerify(
+  args: readonly string[],
+  read: (path: string) => Promise<string> = (path) => readFile(path, "utf8"),
+): Promise<Readonly<{ text: string; ok: boolean }>> {
+  const [action, path, ...rest] = args;
+  const usage = new Error("Usage: air audit verify <file>");
+  if (action !== VERIFY || rest.length > 0) throw usage;
+  if (!path) throw usage;
+  const check = verifyAuditChain(await read(path));
+  if (check.ok) return { ok: true, text: `ok: ${check.entries} entries` };
+  return { ok: false, text: `broken at line ${check.line}: ${check.reason}` };
+}
+
 /** `air keygen [agent|operator|deployer]`: the role, agent by default. */
 export function keyRole(value: string | undefined): KeyRole {
   const roles: readonly string[] = Object.values(KeyRole);
@@ -436,6 +466,12 @@ async function main(): Promise<void> {
   }
   if (argv[0] === AgentCliCommand.Init) {
     console.log(renderInit(await initProject(process.cwd())));
+    return;
+  }
+  if (argv[0] === AgentCliCommand.Audit) {
+    const { text, ok } = await auditVerify(argv.slice(1));
+    console.log(text);
+    process.exitCode = ok ? ExitCode.Ok : ExitCode.Rejected;
     return;
   }
   if (argv[0] === AgentCliCommand.Doctor) {

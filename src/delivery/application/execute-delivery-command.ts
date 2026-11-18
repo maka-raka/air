@@ -3,6 +3,8 @@ import {
   DeliveryTransitionPolicy,
 } from "../domain/state-machine.js";
 import type { Position, Request } from "../domain/state-machine.js";
+import { AuditKind } from "./audit.js";
+import type { AuditPort } from "./audit.js";
 import type {
   AnchorEvidence,
   StateProvenance,
@@ -107,10 +109,30 @@ export class ExecuteDeliveryCommand {
     private readonly provenance: StateProvenancePort,
     private readonly anchors: StateAnchorPort,
     private readonly trust: TrustPolicy,
+    private readonly audit: AuditPort,
     private readonly policy: DeliveryTransitionPolicy = new DeliveryTransitionPolicy(),
   ) {}
 
+  /** Every outcome, applied or rejected, is audited before it is returned. */
   async execute(command: DeliveryCommand): Promise<DeliveryResult> {
+    const result = await this.run(command);
+    const to = result.ok ? result.snapshot.position : null;
+    await this.audit.record({
+      kind: AuditKind.Transition,
+      issue: command.issue,
+      allowed: result.ok,
+      reason: result.ok ? "applied" : result.reason,
+      details: {
+        action: command.request.action,
+        actor: command.request.actor,
+        to: to ? `${to.phase}:${to.status}` : null,
+        detail: result.ok ? null : (result.detail ?? null),
+      },
+    });
+    return result;
+  }
+
+  private async run(command: DeliveryCommand): Promise<DeliveryResult> {
     if (!Number.isSafeInteger(command.issue) || command.issue < 1)
       return fail(DeliveryFailure.InvalidState, "Invalid issue number");
 

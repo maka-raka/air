@@ -1,4 +1,5 @@
 import { StateAnchorMode } from "../domain/trust-policy.js";
+import { verifyAuditChain } from "../adapters/local/hash-chained-audit-log.js";
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
@@ -144,10 +145,30 @@ const config: DeployConfig = {
   environmentNames: { stage: "staging", prod: "production" },
 };
 
+/** Collects the audit lines the deploy reporter writes to the job log. */
+class JobLog {
+  text = "";
+  readonly write = (line: string) => {
+    this.text += line;
+  };
+}
+const audit = new JobLog();
+
 describe("deploy CLI composition", () => {
+  it("writes a verifiable audit chain to the job log", async () => {
+    const log = new JobLog();
+    const github = new FakeGitHub("air:review:waiting");
+    const deployment = await composeDeploy(config, github.request, log.write);
+
+    await deployment.run(42, "stage", SHA);
+
+    assert.match(log.text, /^air-audit: \{"seq":1,/);
+    assert.equal(verifyAuditChain(log.text).ok, true);
+  });
+
   it("advances review:waiting to accept:ready on a verified stage deploy", async () => {
     const github = new FakeGitHub("air:review:waiting");
-    const deployment = await composeDeploy(config, github.request);
+    const deployment = await composeDeploy(config, github.request, audit.write);
 
     const outcome = await deployment.run(42, "stage", SHA);
 
@@ -165,7 +186,7 @@ describe("deploy CLI composition", () => {
 
   it("never overwrites blocked: marks, preserves state and notifies", async () => {
     const github = new FakeGitHub("air:review:blocked");
-    const deployment = await composeDeploy(config, github.request);
+    const deployment = await composeDeploy(config, github.request, audit.write);
 
     const outcome = await deployment.run(42, "stage", SHA);
 
@@ -180,7 +201,7 @@ describe("deploy CLI composition", () => {
   it("preserves state when the deployed commit lacks the change", async () => {
     const github = new FakeGitHub("air:review:waiting");
     github.compareStatus = "behind";
-    const deployment = await composeDeploy(config, github.request);
+    const deployment = await composeDeploy(config, github.request, audit.write);
 
     const outcome = await deployment.run(42, "stage", SHA);
 
@@ -193,7 +214,7 @@ describe("deploy CLI composition", () => {
 
   it("does not advance from a state label a person added by hand", async () => {
     const github = new FakeGitHub("air:review:waiting", DEPLOYER, MALLORY);
-    const deployment = await composeDeploy(config, github.request);
+    const deployment = await composeDeploy(config, github.request, audit.write);
 
     const outcome = await deployment.run(42, "stage", SHA);
 
@@ -206,7 +227,7 @@ describe("deploy CLI composition", () => {
     const github = new FakeGitHub("air:review:waiting", AGENT);
 
     await assert.rejects(
-      composeDeploy(config, github.request),
+      composeDeploy(config, github.request, audit.write),
       /not air-deployer/,
     );
   });
