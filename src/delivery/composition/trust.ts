@@ -144,9 +144,9 @@ export async function assertTokenOwner(
 }
 
 /**
- * The process's single trust policy (ADR-0010). Processes that never admit
- * Human commands (agent CLI, deploy reporter) pass no approvers, so every
- * command is denied there by construction.
+ * The process's single trust policy (ADR-0010). The deploy reporter passes
+ * no approvers, so every command is denied there by construction; the agent
+ * CLI passes them only to classify text for `air context`.
  */
 export function trustPolicy(
   repositoryId: number,

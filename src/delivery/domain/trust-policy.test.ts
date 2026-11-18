@@ -1,4 +1,4 @@
-import { TrustDenial, TrustPolicy } from "./trust-policy.js";
+import { ContentTrust, TrustDenial, TrustPolicy } from "./trust-policy.js";
 import type { TrustDecision, TrustRoster } from "./trust-policy.js";
 
 // Domain tests import nothing from node: (dependency-cruiser keeps the
@@ -167,6 +167,42 @@ for (const [name, evidence, expected] of [
   ],
 ] as const)
   check(denial(policy.record(evidence)) === expected, `denies ${name}`);
+
+// content
+for (const [name, facts, expected] of [
+  [
+    "an approver",
+    { authorId: APPROVER, edited: false },
+    ContentTrust.Instruction,
+  ],
+  ["the agent", { authorId: AGENT, edited: false }, ContentTrust.Air],
+  ["the operator", { authorId: OPERATOR, edited: false }, ContentTrust.Air],
+  ["anyone else", { authorId: 66, edited: false }, ContentTrust.Data],
+  [
+    "an edited approver comment",
+    { authorId: APPROVER, edited: true },
+    ContentTrust.Data,
+  ],
+  [
+    "an edited AIR comment",
+    { authorId: AGENT, edited: true },
+    ContentTrust.Data,
+  ],
+] as const)
+  check(policy.content(facts).trust === expected, `classifies ${name}`);
+check(
+  policy.contentAccess(APPROVER, { currentId: APPROVER, canWrite: true })
+    .trust === ContentTrust.Instruction,
+  "keeps an approver's text as instruction with current access",
+);
+for (const [name, access] of [
+  ["lost write access", { currentId: APPROVER, canWrite: false }],
+  ["changed identity", { currentId: 99, canWrite: true }],
+] as const)
+  check(
+    policy.contentAccess(APPROVER, access).trust === ContentTrust.Data,
+    `demotes an approver's text to data after ${name}`,
+  );
 
 // roster
 for (const [name, change] of [

@@ -52,7 +52,7 @@ If a token cannot read check runs, `advance review` fails closed with `precondit
 ## 4. Agent environment
 
 - [ ] Use **private** repositories. In a public repository anyone can comment, and the agent reads comments: that is a prompt-injection channel to an account with write access.
-- [ ] Tell the agent to treat issue and PR text from non-approvers as untrusted data, never as instructions.
+- [ ] The agent reads issues only through `npx air context <n>`, which marks approver instructions and fences everything else as data ([ADR-0010](../architecture/adr/0010-zero-trust.md)). Back it with a Claude Code deny rule, e.g. `Bash(gh issue view:*)` and `Bash(gh api:*comments*)`, so the agent cannot read unclassified issue text. The installed skill says so; projects that ran `air init` before this change must copy the new `SKILL.md`.
 - [ ] Run the agent with Claude Code permission rules that deny destructive commands and pushes to the default branch; prefer a container or VM with only the repository checked out.
 - [ ] Keep `.env` out of git (it is ignored) and readable only by you (`chmod 600 .env`).
 

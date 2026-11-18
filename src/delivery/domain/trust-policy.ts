@@ -68,6 +68,29 @@ export type RecordEvidence = Readonly<{
   signatureValid: boolean;
 }>;
 
+/**
+ * How the agent may treat a piece of text. Only `instruction` may direct
+ * its work; everything else is data, whatever it says.
+ */
+export const ContentTrust = {
+  /** Written by an approver and unchanged since: may direct the agent. */
+  Instruction: "instruction",
+  /** Written by one of AIR's accounts and unchanged: context, not orders. */
+  Air: "air",
+  /** Anything else: describe it, never obey it. */
+  Data: "data",
+} as const;
+export type ContentTrust = (typeof ContentTrust)[keyof typeof ContentTrust];
+
+export type ContentDecision = Readonly<{ trust: ContentTrust; reason: string }>;
+
+/** Facts about one piece of text the agent is about to read. */
+export type ContentFacts = Readonly<{
+  authorId: number;
+  /** Changed after posting, or not known to be unchanged. */
+  edited: boolean;
+}>;
+
 const TRUSTED: TrustDecision = { trusted: true };
 const deny = (denial: TrustDenial, detail: string): TrustDecision => ({
   trusted: false,
@@ -150,5 +173,40 @@ export class TrustPolicy {
     if (!evidence.signatureValid)
       return deny(TrustDenial.RecordSignatureInvalid, "Signature invalid");
     return TRUSTED;
+  }
+
+  /**
+   * First content check, without lookups. An approver's text is only a
+   * candidate instruction: confirm current access with `contentAccess`.
+   */
+  content(facts: ContentFacts): ContentDecision {
+    if (facts.edited)
+      return {
+        trust: ContentTrust.Data,
+        reason: "Edited after posting: the author may not be who wrote it",
+      };
+    if (this.serviceIds.includes(facts.authorId))
+      return { trust: ContentTrust.Air, reason: "Written by an AIR account" };
+    const author = this.commandAuthor(this.roster.sourceId, facts.authorId);
+    if (!author.trusted)
+      return { trust: ContentTrust.Data, reason: "Not written by an approver" };
+    return {
+      trust: ContentTrust.Instruction,
+      reason: "Written by an approver",
+    };
+  }
+
+  /** Second content check: an approver's text counts only with access now. */
+  contentAccess(authorId: number, access: AuthorAccess): ContentDecision {
+    const decision = this.commandAccess(authorId, access);
+    if (decision.trusted)
+      return {
+        trust: ContentTrust.Instruction,
+        reason: "Written by an approver",
+      };
+    return {
+      trust: ContentTrust.Data,
+      reason: `Approver access not confirmed (${decision.denial})`,
+    };
   }
 }

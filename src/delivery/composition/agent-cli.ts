@@ -3,6 +3,10 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { AgentCommands } from "../application/agent-commands.js";
 import { EvaluatePhaseGate } from "../application/phase-gate.js";
+import { ReadAgentContext } from "../application/agent-context.js";
+import { AgentContextRenderer } from "./agent-context-render.js";
+import { GitHubIssueTextAdapter } from "../adapters/github/issue-text-adapter.js";
+import { GitHubCollaboratorAccess } from "../adapters/github/collaborator-authorization.js";
 import { GitHubPullRequestHttpAdapter } from "../adapters/github/pull-request-http-adapter.js";
 import type { RecordResult } from "../application/agent-commands.js";
 import type { ReportFacts } from "../application/delivery-record.js";
@@ -28,6 +32,7 @@ import {
 } from "../adapters/github/user-http-adapter.js";
 import {
   assertTokenOwner,
+  readApproverLogins,
   readServiceLogins,
   recordSigner,
   resolveServiceAccounts,
@@ -40,6 +45,8 @@ import type { ServiceLogins } from "./trust.js";
 import { generateRecordKeys } from "../adapters/github/record-signature.js";
 
 export const AgentCliCommand = {
+  /** Prints the issue's text, classified as instructions or data. */
+  Context: "context",
   Start: "start",
   Block: "block",
   Report: "report",
@@ -53,6 +60,7 @@ export const AgentCliCommand = {
 } as const;
 
 export type AgentInvocation =
+  | Readonly<{ command: typeof AgentCliCommand.Context; issue: number }>
   | Readonly<{ command: typeof AgentCliCommand.Start; issue: number }>
   | Readonly<{ command: typeof AgentCliCommand.Gate; issue: number }>
   | Readonly<{
@@ -72,6 +80,7 @@ export type AgentInvocation =
 export type TextSource = Readonly<{ text: string } | { file: string }>;
 
 export const USAGE = `Usage:
+  air context <issue>
   air start <issue>
   air block <issue> (--question <text> | --question-file <path>)
   air report <issue> <phase> (--summary <text> | --summary-file <path>) [--facts <json>]
@@ -83,6 +92,7 @@ export const USAGE = `Usage:
 Options: --env-file <path> (default: .env.air when present)`;
 
 const phases: readonly string[] = Object.values(DeliveryPhase);
+const ENABLED = "true";
 
 function issueNumber(value: string | undefined): number {
   const issue = Number(value);
@@ -113,6 +123,14 @@ function textSource(parsed: Map<string, string>, name: string): TextSource {
 function parseStart(issue: string | undefined, rest: readonly string[]) {
   if (rest.length > 0) throw new Error("start takes only an issue");
   return { command: AgentCliCommand.Start, issue: issueNumber(issue) } as const;
+}
+
+function parseContext(issue: string | undefined, rest: readonly string[]) {
+  if (rest.length > 0) throw new Error("context takes only an issue");
+  return {
+    command: AgentCliCommand.Context,
+    issue: issueNumber(issue),
+  } as const;
 }
 
 function parseGate(issue: string | undefined, rest: readonly string[]) {
@@ -156,6 +174,7 @@ const parsers: Readonly<
     (issue: string | undefined, rest: readonly string[]) => AgentInvocation
   >
 > = {
+  [AgentCliCommand.Context]: parseContext,
   [AgentCliCommand.Start]: parseStart,
   [AgentCliCommand.Block]: parseBlock,
   [AgentCliCommand.Report]: parseReport,
@@ -180,6 +199,10 @@ export type AgentConfig = Readonly<{
   /** Optional; when set it must match the signing key. */
   publicKey?: string;
   runTtlMs: number;
+  /** Whose comments count as instructions in `air context`. */
+  approverLogins: readonly string[];
+  /** See `AIR_ALLOW_OPERATOR_APPROVER`; must match the poller's setting. */
+  allowOperatorApprover: boolean;
 }>;
 
 export function readAgentConfig(
@@ -203,12 +226,15 @@ export function readAgentConfig(
       ? { publicKey: env.AIR_AGENT_PUBLIC_KEY }
       : {}),
     runTtlMs,
+    approverLogins: readApproverLogins(env),
+    allowOperatorApprover: env.AIR_ALLOW_OPERATOR_APPROVER === ENABLED,
   };
 }
 
 export type AgentServices = Readonly<{
   commands: AgentCommands;
   gate: EvaluatePhaseGate;
+  context: ReadAgentContext;
 }>;
 
 /** Wires agent commands; refuses to start unless the token is the agent's. */
@@ -232,10 +258,19 @@ export async function composeAgent(
   );
   const identity = await new GitHubRepositoryHttpAdapter(client).identity();
   const state = labelStateStore(client);
-  const trust = trustPolicy(identity.id, accounts);
+  const approvers = await Promise.all(
+    config.approverLogins.map((login) => users.byLogin(login)),
+  );
+  const trust = trustPolicy(
+    identity.id,
+    accounts,
+    approvers.map(({ id }) => id),
+    config.allowOperatorApprover,
+  );
+  const comments = new GitHubIssueCommentHttpAdapter(client);
   const executor = trustedExecutor(client, trust);
   const records = new TrustedDeliveryRecords(
-    new GitHubDeliveryRecordStore(new GitHubIssueCommentHttpAdapter(client), {
+    new GitHubDeliveryRecordStore(comments, {
       repositoryId: identity.id,
       verifier: signer.verifier,
       signer,
@@ -258,6 +293,12 @@ export async function composeAgent(
       preflight,
       { now, runTtlMs: config.runTtlMs },
     ),
+    context: new ReadAgentContext(
+      new GitHubIssueTextAdapter(client, comments),
+      new GitHubCollaboratorAccess(new GitHubRepositoryHttpAdapter(client)),
+      trust,
+      { id: identity.id, name: client.fullName },
+    ),
   };
 }
 
@@ -270,10 +311,16 @@ export type CliOutcome = Readonly<{
   problems?: readonly string[];
 }>;
 
+/** Invocations that act on delivery state or records. */
+export type ActionInvocation = Exclude<
+  AgentInvocation,
+  Readonly<{ command: typeof AgentCliCommand.Context }>
+>;
+
 /** Executes one invocation. */
 export async function runAgent(
   services: AgentServices,
-  invocation: AgentInvocation,
+  invocation: ActionInvocation,
 ): Promise<CliOutcome> {
   const { commands } = services;
   if (invocation.command === AgentCliCommand.Gate) {
@@ -359,6 +406,11 @@ async function main(): Promise<void> {
     return;
   }
   const services = await composeAgent(readAgentConfig(process.env));
+  if (invocation.command === AgentCliCommand.Context) {
+    const context = await services.context.read(invocation.issue);
+    console.log(new AgentContextRenderer().render(context));
+    return;
+  }
   const outcome = await runAgent(services, invocation);
   console.log(render(outcome));
   process.exitCode = outcome.result.ok ? ExitCode.Ok : ExitCode.Rejected;

@@ -1,6 +1,6 @@
 # ADR-0010 — Zero Trust
 
-- **Status:** Proposed for review (steps 1–2 implemented: single trust policy for commands, state and records)
+- **Status:** Proposed for review (steps 1–3 implemented: single trust policy for commands, state, records and the agent's input)
 - **Date:** 2026-11-18
 - **Scope:** How AIR decides whom to trust for every request, and the roadmap to close the remaining gaps
 - **Builds on:** [ADR-0007](0007-threat-model-and-trust-boundaries.md) (actors and checks), [ADR-0009](0009-platform-neutral-core.md) (platform-neutral core)
@@ -33,8 +33,9 @@ ADR-0007 already removed implicit trust in collaborators: state labels are trust
 | `commandAccess`: does the author still have access? | ID the login resolves to now, write access (read per command) | `IngestHumanCommand` |
 | `state`: may AIR act on the current delivery state? | who wrote it (`StateProvenance`), or why that is unknown | `ExecuteDeliveryCommand`, on every command |
 | `record`: does this delivery record count as evidence? | author, edited, signature valid for this project and issue (`RecordEvidence`) | `TrustedDeliveryRecords`, on every read |
+| `content` + `contentAccess`: may this text direct the agent? | author, edited; then the approver's current access | `ReadAgentContext` (`npx air context`), on every read |
 
-The roster is validated once, when the process starts: service accounts must be distinct, none may be an approver, and the operator may approve only with `AIR_ALLOW_OPERATOR_APPROVER=true`. Processes that never admit Human commands (agent CLI, deploy reporter) have no approvers, so they deny every command by construction.
+The roster is validated once, when the process starts: service accounts must be distinct, none may be an approver, and the operator may approve only with `AIR_ALLOW_OPERATOR_APPROVER=true`. The deploy reporter has no approvers, so it denies every command by construction. The agent CLI has approvers only to classify text for `air context`; it never ingests commands.
 
 ### Policy information points
 
@@ -42,6 +43,7 @@ The roster is validated once, when the process starts: service accounts must be 
 | --- | --- | --- |
 | `AuthorAccessPort` | `GitHubCollaboratorAccess` | current ID of the login, write access |
 | `StateProvenancePort` | `GitHubLabelProvenance` | actor of the latest event that added the state label; unknown if none or the history is cut short |
+| `IssueTextPort` | `GitHubIssueTextAdapter` | issue title, description and comments with authors and edit flags |
 | `DeliveryRecordSource` | `GitHubDeliveryRecordStore` | every well-formed record marker from any author, with its evidence; verifies signatures but decides nothing |
 
 Adapters report facts only. Denial reasons reach people through the existing `untrusted-state` reply.
@@ -52,12 +54,14 @@ Adapters report facts only. Denial reasons reach people through the existing `un
 | --- | --- | --- | --- |
 | 1 | **Single decision point** | 3 | **done in this ADR's first PR** (commands and state) |
 | 2 | **Agent records verified inside the adapter** | 3 | **done**: `TrustPolicy.record`, enforced by `TrustedDeliveryRecords`. Still in an adapter: `GitHubProcessedCommands` trusts reply markers only from the operator, unedited; a forged marker can only make AIR skip a command, so it fails safe; move it with step 6 |
-| 3 | The agent reads text from anyone | 1, 5 | give the agent only approver-authored text, mark the rest as untrusted data; enforce it in AIR, not only in the skill |
+| 3 | **The agent reads text from anyone** | 1, 5 | **done**: `npx air context` classifies every piece of text as *instruction* (unedited, by an approver with write access now), *AIR* or *data*; everything but instructions is fenced with a per-run random boundary. The skill and a Claude Code deny rule keep the agent on this channel. Open: the title and description are always data, because REST does not show body edits (GraphQL `lastEditedAt` could promote an unedited approver description); PR text is not yet classified |
 | 4 | State is trusted from platform event history | 1 | signed state transitions: each writer signs the state it sets, like agent records; closes the label-rename risk |
 | 5 | Long-lived personal access tokens | 4 | GitHub App with installation tokens valid for an hour; deploy reporting via GitHub Actions OIDC instead of `AIR_DEPLOY_TOKEN` |
 | 6 | No audit trail outside the platform | 5 | append-only audit log of every decision (allowed and denied), behind a port |
 
 Each step is a separate PR; this table is updated as they land.
+
+Agent input: the policy decides what may *direct* the agent, not what it may *read*. Data stays visible, because a bug report from a non-approver is still the task; it just cannot give orders. Fencing uses a boundary the text's author cannot predict, so a comment cannot end the fence and append fake instructions.
 
 Records: each of the three conditions alone is insufficient. An admin can edit an agent comment (author stays the agent), and anyone can copy a signed marker into their own comment (signature stays valid), so the policy requires all three.
 
