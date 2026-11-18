@@ -24,3 +24,7 @@ AI Relay (AIR) is an AI-assisted software delivery orchestration project. Humans
 - Least-privilege, human-controlled release and production mitigation
 
 This repository is initially **architecture-first**. Domain boundaries and contracts will be validated before implementation packages are introduced.
+
+## License
+
+AIR is licensed under the [Apache License, Version 2.0](LICENSE).

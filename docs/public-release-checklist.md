@@ -1,13 +1,13 @@
 # AI Relay — Public Release Readiness Checklist
 
-> Status: **NOT CLEARED FOR PUBLIC RELEASE**. This is a decision gate, not proof of permission or safety.
+> Status: **Public.** The repository was made public and the owner decided on 2026-11-18 to keep it public under Apache-2.0. Unchecked items below still need the owner's sign-off. This is a decision gate, not proof of permission or safety.
 
 ## Ownership and legal review — mandatory manual approval
 
 - [ ] Confirm that all pre-existing material, architecture descriptions and derivations are owned by the publisher or are authorized for public release.
 - [ ] Confirm no employer, contractor, partner or confidentiality terms restrict publication.
 - [ ] Identify any third-party material and comply with its license/attribution terms.
-- [ ] Choose and add an explicit root `LICENSE` **only after** rights are confirmed.
+- [x] Choose and add an explicit root `LICENSE` **only after** rights are confirmed. Apache-2.0, chosen by the owner on 2026-11-18.
 - [ ] Record owner approval outside the repository if confidential.
 
 Without an explicit license, third parties do not automatically gain permission to copy, modify or redistribute the repository contents.
@@ -33,11 +33,11 @@ Without an explicit license, third parties do not automatically gain permission 
 
 ## Release decision
 
-- Decision owner:
-- Date:
+- Decision owner: repository owner (maka-raka)
+- Date: 2026-11-18
 - Rights confirmation reference (non-sensitive):
-- Approved license:
+- Approved license: Apache-2.0
 - Security review:
-- Final decision: **PENDING**
+- Final decision: **Public, Apache-2.0** (2026-11-18)
 
-**Do not enable public visibility or GitHub Pages publishing while this gate is pending.**
+Publishing GitHub Pages is a separate decision. Projects that run the AIR agent should stay private: see `air doctor` and [security hardening](engineering/security-hardening.md).

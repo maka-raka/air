@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "AIR delivery runtime: comment-command poller, agent CLI and deploy reporter for GitHub issues.",
+  "license": "Apache-2.0",
   "engines": {
     "node": ">=22"
   },
