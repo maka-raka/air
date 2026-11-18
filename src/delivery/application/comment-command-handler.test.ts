@@ -12,9 +12,21 @@ import type {
   ProcessedCommandPort,
 } from "./comment-command-handler.js";
 
+import { StateAnchorMode, TrustPolicy } from "../domain/trust-policy.js";
+
 const notProcessed: ProcessedCommandPort = {
-  wasProcessed: async () => false,
+  markers: async () => [],
 };
+const OPERATOR = 9;
+const trust = new TrustPolicy({
+  sourceId: 123,
+  approverIds: [7],
+  operatorId: OPERATOR,
+  agentId: 77,
+  deployerId: null,
+  operatorMayApprove: false,
+  stateAnchors: StateAnchorMode.Require,
+});
 import { CommandParseError } from "./comment-command-parser.js";
 import type { ParsedCommand } from "./comment-command-parser.js";
 import { DeliveryFailure } from "./execute-delivery-command.js";
@@ -105,6 +117,7 @@ function fixture(
       executor,
       replies,
       options.processed ?? notProcessed,
+      trust,
     ),
   };
 }
@@ -260,6 +273,7 @@ describe("CommentCommandHandler", () => {
       executor,
       replies,
       notProcessed,
+      trust,
     );
 
     const result = handler.handle(message);
@@ -275,9 +289,9 @@ describe("CommentCommandHandler", () => {
       "/air rework\nAgain",
       {
         processed: {
-          wasProcessed: async (_issue, commentId) => {
+          markers: async (_issue, commentId) => {
             asked.push(commentId);
-            return true;
+            return [{ authorId: OPERATOR, edited: false }];
           },
         },
       },
@@ -290,4 +304,18 @@ describe("CommentCommandHandler", () => {
     assert.deepEqual(executor.commands, []);
     assert.deepEqual(replies.replies, []);
   });
+
+  for (const [name, marker] of [
+    ["by someone else", { authorId: 66, edited: false }],
+    ["edited", { authorId: OPERATOR, edited: true }],
+  ] as const)
+    it(`runs a command whose only reply marker is ${name}`, async () => {
+      const { message, executor, handler } = fixture("/air rework\nAgain", {
+        processed: { markers: async () => [marker] },
+      });
+
+      await handler.handle(message);
+
+      assert.equal(executor.commands.length, 1);
+    });
 });

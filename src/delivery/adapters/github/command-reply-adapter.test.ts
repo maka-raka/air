@@ -111,26 +111,26 @@ describe("GitHubProcessedCommands", () => {
     edited: false,
   });
   const processed = (comments: IssueComment[]) =>
-    new GitHubProcessedCommands({ list: async () => comments }, 5);
+    new GitHubProcessedCommands({ list: async () => comments });
 
-  it("recognizes AIR's own reply to the command", async () => {
-    const replies = processed([comment(5, `Applied\n\n${replyMarker(900)}\n`)]);
-
-    assert.equal(await replies.wasProcessed(42, 900), true);
-    assert.equal(await replies.wasProcessed(42, 901), false);
-  });
-
-  it("ignores reply markers written by anyone else", async () => {
-    const forged = processed([comment(6, `x\n\n${replyMarker(900)}`)]);
-
-    assert.equal(await forged.wasProcessed(42, 900), false);
-  });
-
-  it("ignores a reply marker planted by editing AIR's reply", async () => {
-    const planted = processed([
+  it("reports every marker for the command with author and edit flag", async () => {
+    const replies = processed([
+      comment(5, `Applied\n\n${replyMarker(900)}\n`),
+      comment(6, `x\n\n${replyMarker(900)}`),
       { ...comment(5, `Applied\n\n${replyMarker(900)}`), edited: true },
+      comment(5, `Applied\n\n${replyMarker(901)}`),
     ]);
 
-    assert.equal(await planted.wasProcessed(42, 900), false);
+    assert.deepEqual(await replies.markers(42, 900), [
+      { authorId: 5, edited: false },
+      { authorId: 6, edited: false },
+      { authorId: 5, edited: true },
+    ]);
+  });
+
+  it("ignores a marker that is not at the end of the comment", async () => {
+    const replies = processed([comment(5, `${replyMarker(900)}\nmore`)]);
+
+    assert.deepEqual(await replies.markers(42, 900), []);
   });
 });

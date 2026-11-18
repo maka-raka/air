@@ -6,6 +6,10 @@ import {
 import type { DeploymentOutcome } from "../application/record-deployment.js";
 import { GitHubDeliveryRecordStore } from "../adapters/github/delivery-record-store.js";
 import { TrustedDeliveryRecords } from "../application/delivery-record.js";
+import {
+  HashChainedAuditLog,
+  StreamAuditLines,
+} from "../adapters/local/hash-chained-audit-log.js";
 import { GitHubDeploymentHttpAdapter } from "../adapters/github/deployment-http-adapter.js";
 import { GitHubRestClient } from "../adapters/github/github-rest-client.js";
 import type { HttpRequest } from "../adapters/github/github-rest-client.js";
@@ -106,6 +110,8 @@ export function readDeployConfig(env: Env): DeployConfig {
 export async function composeDeploy(
   config: DeployConfig,
   request?: HttpRequest,
+  /** Audit lines; the job log by default. */
+  write: (text: string) => void = (text) => process.stdout.write(text),
 ): Promise<RecordDeployment> {
   const client = new GitHubRestClient({
     owner: config.owner,
@@ -128,6 +134,8 @@ export async function composeDeploy(
     client,
     config.environmentNames,
   );
+  // CI has no durable disk: audit lines go to the job log (ADR-0010 step 6).
+  const audit = new HashChainedAuditLog(new StreamAuditLines(write));
   const trust = trustPolicy(identity.id, accounts, {
     stateAnchors: config.stateAnchors,
   });
@@ -151,13 +159,14 @@ export async function composeDeploy(
     signer,
   );
   return new RecordDeployment(
-    trustedExecutor(client, anchors, trust),
+    trustedExecutor(client, anchors, trust, audit),
     new TrustedDeliveryRecords(
       new GitHubDeliveryRecordStore(comments, {
         repositoryId: identity.id,
         verifier,
       }),
       trust,
+      audit,
     ),
     deployments,
     deployments,

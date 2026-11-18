@@ -280,6 +280,22 @@ for (const [name, access] of [
     `demotes an approver's text to data after ${name}`,
   );
 
+// reply markers
+check(
+  policy.reply({ authorId: OPERATOR, edited: false }).trusted,
+  "trusts an unedited reply marker from the operator",
+);
+check(
+  denial(policy.reply({ authorId: AGENT, edited: false })) ===
+    TrustDenial.ReplyNotByOperator,
+  "denies a reply marker from anyone else",
+);
+check(
+  denial(policy.reply({ authorId: OPERATOR, edited: true })) ===
+    TrustDenial.ReplyEdited,
+  "denies an edited reply marker",
+);
+
 // roster
 for (const [name, change] of [
   ["shared service accounts", { agentId: OPERATOR }],

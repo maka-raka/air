@@ -15,6 +15,10 @@ import type {
   StateAnchorPort,
   StateProvenancePort,
 } from "../../application/execute-delivery-command.js";
+import type { AuditPort } from "../../application/audit.js";
+
+/** Audit is covered by its own tests. */
+const noAudit: AuditPort = { record: async () => undefined };
 
 /** Every test state counts as written by the operator account. */
 const trust = new TrustPolicy({
@@ -361,6 +365,7 @@ describe("GitHubIssueHttpAdapter", () => {
         trustedWriter,
         noAnchors,
         trust,
+        noAudit,
       );
 
       // Act

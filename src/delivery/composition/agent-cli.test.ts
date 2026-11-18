@@ -1,9 +1,13 @@
 import { StateAnchorMode } from "../domain/trust-policy.js";
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { after, describe, it } from "node:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   AgentCliCommand,
   composeAgent,
+  auditVerify,
   keygen,
   keyRole,
   parseAgentArgs,
@@ -20,6 +24,8 @@ import {
 } from "../adapters/github/record-signature.js";
 
 const KEYS = generateRecordKeys();
+const AUDIT_DIR = await mkdtemp(join(tmpdir(), "air-agent-"));
+after(() => rm(AUDIT_DIR, { recursive: true, force: true }));
 const OPERATOR_KEYS = generateRecordKeys();
 const DEPLOY_KEYS = generateRecordKeys();
 
@@ -122,6 +128,7 @@ const config: AgentConfig = {
   allowOperatorApprover: false,
   operatorPublicKey: OPERATOR_KEYS.publicKey,
   stateAnchors: StateAnchorMode.Bootstrap,
+  auditLog: join(AUDIT_DIR, "audit-agent.jsonl"),
 };
 
 describe("agent CLI composition", () => {
@@ -412,6 +419,28 @@ describe("parseAgentArgs", () => {
   }
 });
 
+describe("air audit verify", () => {
+  const entry = (seq: number, prev: string) =>
+    JSON.stringify({ seq, at: "x", prev, event: {} });
+
+  it("reports an intact chain and a broken one", async () => {
+    const good = await auditVerify(["verify", "log"], async () =>
+      entry(1, "0".repeat(64)),
+    );
+    const broken = await auditVerify(["verify", "log"], async () =>
+      entry(1, "f".repeat(64)),
+    );
+
+    assert.deepEqual(good, { ok: true, text: "ok: 1 entries" });
+    assert.equal(broken.ok, false);
+    assert.match(broken.text, /broken at line 1/);
+  });
+
+  it("requires a file", async () => {
+    await assert.rejects(auditVerify(["verify"]), /air audit verify <file>/);
+  });
+});
+
 describe("keygen", () => {
   it("prints which key goes where", () => {
     const text = keygen({ privateKey: "PRIV", publicKey: "PUB" });
@@ -478,6 +507,7 @@ describe("readAgentConfig", () => {
       allowOperatorApprover: false,
       operatorPublicKey: "b3A=",
       stateAnchors: StateAnchorMode.Require,
+      auditLog: join(".air", "audit-agent.jsonl"),
     });
     assert.throws(
       () => readAgentConfig({ ...full, AIR_OPERATOR_PUBLIC_KEY: "" }),

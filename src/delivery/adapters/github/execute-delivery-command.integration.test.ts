@@ -13,6 +13,10 @@ import type {
   StateAnchorPort,
   StateProvenancePort,
 } from "../../application/execute-delivery-command.js";
+import type { AuditPort } from "../../application/audit.js";
+
+/** Audit is covered by its own tests. */
+const noAudit: AuditPort = { record: async () => undefined };
 
 /** Every test state counts as written by the operator account. */
 const trust = new TrustPolicy({
@@ -96,6 +100,7 @@ async function main(): Promise<void> {
     trustedWriter,
     noAnchors,
     trust,
+    noAudit,
   );
   const result = await useCase.execute({ issue: 42, request });
   assert(result.ok, "Expected successful delivery transition");
@@ -131,6 +136,7 @@ async function main(): Promise<void> {
     trustedWriter,
     noAnchors,
     trust,
+    noAudit,
   );
   const rejected = await unauthorizedUseCase.execute({
     issue: 42,
@@ -150,6 +156,7 @@ async function main(): Promise<void> {
     trustedWriter,
     noAnchors,
     trust,
+    noAudit,
   ).execute({ issue: 42, request });
   assert(
     !conflictResult.ok && conflictResult.reason === "state-conflict",
@@ -164,6 +171,7 @@ async function main(): Promise<void> {
     trustedWriter,
     noAnchors,
     trust,
+    noAudit,
   ).execute({ issue: 42, request });
   assert(
     !ambiguousResult.ok && ambiguousResult.reason === "uncertain-write",
@@ -177,6 +185,7 @@ async function main(): Promise<void> {
     trustedWriter,
     noAnchors,
     trust,
+    noAudit,
   ).execute({
     issue: 42,
     request: {

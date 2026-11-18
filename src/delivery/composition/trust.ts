@@ -9,6 +9,11 @@ import type {
 import { ExecuteDeliveryCommand } from "../application/execute-delivery-command.js";
 import type { DeliveryStatePort } from "../application/execute-delivery-command.js";
 import { StateAnchorMode, TrustPolicy } from "../domain/trust-policy.js";
+import type { AuditPort } from "../application/audit.js";
+import {
+  FileAuditLines,
+  HashChainedAuditLog,
+} from "../adapters/local/hash-chained-audit-log.js";
 import { GitHubStateAnchorStore } from "../adapters/github/state-anchor-store.js";
 import type { StateAnchorPort } from "../application/execute-delivery-command.js";
 import type {
@@ -254,11 +259,18 @@ export function trustedExecutor(
   client: GitHubRestClient,
   anchors: StateAnchorPort,
   trust: TrustPolicy,
+  audit: AuditPort,
 ): ExecuteDeliveryCommand {
   return new ExecuteDeliveryCommand(
     labelStateStore(client),
     new GitHubLabelProvenance(new GitHubIssueHttpAdapter(client)),
     anchors,
     trust,
+    audit,
   );
+}
+
+/** The process's hash-chained audit log file (ADR-0010 step 6). */
+export function fileAuditLog(path: string): AuditPort {
+  return new HashChainedAuditLog(new FileAuditLines(path));
 }

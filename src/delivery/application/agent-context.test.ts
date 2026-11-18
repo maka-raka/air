@@ -12,6 +12,10 @@ import {
   TrustPolicy,
 } from "../domain/trust-policy.js";
 import type { AuthorAccess } from "../domain/trust-policy.js";
+import type { AuditPort } from "./audit.js";
+
+/** Audit is covered by its own tests. */
+const noAudit: AuditPort = { record: async () => undefined };
 
 const ALICE = { id: 7, login: "alice" };
 const BOB = { id: 8, login: "bob" };
@@ -55,7 +59,7 @@ class FakeAccess implements AuthorAccessPort {
 
 const texts: IssueTextPort = { read: async () => text };
 const read = (access: AuthorAccessPort) =>
-  new ReadAgentContext(texts, access, trust, source).read(42);
+  new ReadAgentContext(texts, access, trust, source, noAudit).read(42);
 
 describe("ReadAgentContext", () => {
   it("marks approver comments as instructions and the rest as data", async () => {
