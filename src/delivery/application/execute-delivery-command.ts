@@ -3,6 +3,7 @@ import {
   DeliveryTransitionPolicy,
 } from "../domain/state-machine.js";
 import type { Position, Request } from "../domain/state-machine.js";
+import type { StateProvenance, TrustPolicy } from "../domain/trust-policy.js";
 
 /** Application-facing result; adapters implement this contract structurally. */
 export const DeliveryFailure = {
@@ -59,6 +60,12 @@ export interface DeliveryStatePort {
   ): Promise<DeliveryResult>;
 }
 
+/** Reads who wrote an issue's current state (a policy information point). */
+export interface StateProvenancePort {
+  /** Never throws for a missing or unreadable history: report it unknown. */
+  provenance(issue: number, position: Position): Promise<StateProvenance>;
+}
+
 export type DeliveryCommand = Readonly<{
   issue: number;
   request: Request;
@@ -71,13 +78,17 @@ const fail = (reason: DeliveryFailure, detail?: string): DeliveryResult => ({
 });
 
 /**
- * Executes a trusted delivery command: load, decide, save.
+ * Executes a trusted delivery command: load, verify, decide, save.
  * The caller must authenticate the actor and acquire evidence before invoking.
+ * Zero trust (ADR-0010): an active state is acted on only after the trust
+ * policy accepts who wrote it, checked freshly on every command.
  * No retry: state stores may not write atomically or exactly-once.
  */
 export class ExecuteDeliveryCommand {
   constructor(
     private readonly state: DeliveryStatePort,
+    private readonly provenance: StateProvenancePort,
+    private readonly trust: TrustPolicy,
     private readonly policy: DeliveryTransitionPolicy = new DeliveryTransitionPolicy(),
   ) {}
 
@@ -89,6 +100,8 @@ export class ExecuteDeliveryCommand {
     if (!loaded.ok) return loaded;
 
     const before = loaded.snapshot;
+    const untrusted = await this.untrusted(command.issue, before.position);
+    if (untrusted) return untrusted;
     if (before.closed)
       return fail(DeliveryFailure.InvalidTransition, "Issue is closed");
     if (this.requiresInitialization(before, command.request))
@@ -98,6 +111,19 @@ export class ExecuteDeliveryCommand {
     if (!decision.allowed) return fail(decision.reason);
 
     return this.state.save(command.issue, before, decision.next);
+  }
+
+  private async untrusted(
+    issue: number,
+    position: Position | null,
+  ): Promise<DeliveryResult | null> {
+    if (!position) return null;
+    const decision = this.trust.state(
+      await this.provenance.provenance(issue, position),
+    );
+    return decision.trusted
+      ? null
+      : fail(DeliveryFailure.UntrustedState, decision.detail);
   }
 
   private requiresInitialization(

@@ -3,9 +3,8 @@ import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { isEntryPoint, loadEnvFile, repository, required } from "./config.js";
 import { CommentCommandHandler } from "../application/comment-command-handler.js";
-import { ExecuteDeliveryCommand } from "../application/execute-delivery-command.js";
 import { IngestHumanCommand } from "../application/ingest-human-command.js";
-import { GitHubCollaboratorAuthorization } from "../adapters/github/collaborator-authorization.js";
+import { GitHubCollaboratorAccess } from "../adapters/github/collaborator-authorization.js";
 import {
   GitHubCommandReplyAdapter,
   GitHubProcessedCommands,
@@ -29,7 +28,8 @@ import {
   readServiceLogins,
   recordVerifier,
   resolveServiceAccounts,
-  verifiedStateStore,
+  trustPolicy,
+  trustedExecutor,
 } from "./trust.js";
 import type { ServiceLogins } from "./trust.js";
 
@@ -115,11 +115,12 @@ export async function composeLocal(
   const approvers = await Promise.all(
     config.approverLogins.map((login) => users.byLogin(login)),
   );
-  const approverIds = approvers.map(({ id }) => id);
-  if (approverIds.includes(operator.id) && !config.allowOperatorApprover)
-    throw new Error(
-      "The operator account is also an approver. Use a dedicated operator account, or set AIR_ALLOW_OPERATOR_APPROVER=true to accept the risk.",
-    );
+  const trust = trustPolicy(
+    identity.id,
+    accounts,
+    approvers.map(({ id }) => id),
+    config.allowOperatorApprover,
+  );
   const comments = new GitHubIssueCommentHttpAdapter(client);
   const handler = new CommentCommandHandler(
     new RecordedDeliveryEvidence(
@@ -132,20 +133,15 @@ export async function composeLocal(
       () => new Date(),
       config.runTtlMs,
     ),
-    new ExecuteDeliveryCommand(verifiedStateStore(client, accounts)),
+    trustedExecutor(client, trust),
     new GitHubCommandReplyAdapter(comments),
     // Replies are posted with this token, so only its markers are trusted.
     new GitHubProcessedCommands(comments, operator.id),
   );
   const ingestion = new IngestHumanCommand(
     new InMemoryDeliveryClaims(config.leaseMs),
-    new GitHubCollaboratorAuthorization(repository, identity.id, {
-      approverIds,
-      excludedUserIds: [
-        accounts.agent.id,
-        ...(accounts.deployer ? [accounts.deployer.id] : []),
-      ],
-    }),
+    new GitHubCollaboratorAccess(repository),
+    trust,
     handler,
   );
   return new GitHubCommentPoller(

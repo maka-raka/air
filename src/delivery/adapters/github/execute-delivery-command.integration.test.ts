@@ -8,6 +8,25 @@ import {
   DeliveryStatus,
 } from "../../domain/state-machine.js";
 import type { Request } from "../../domain/state-machine.js";
+import { TrustPolicy } from "../../domain/trust-policy.js";
+import type { StateProvenancePort } from "../../application/execute-delivery-command.js";
+
+/** Every test state counts as written by the operator account. */
+const trust = new TrustPolicy({
+  sourceId: 1,
+  approverIds: [],
+  operatorId: 1,
+  agentId: 2,
+  deployerId: null,
+  operatorMayApprove: false,
+});
+const trustedWriter: StateProvenancePort = {
+  provenance: async () => ({
+    known: true,
+    writerId: 1,
+    writerLogin: "air-bot",
+  }),
+};
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -65,6 +84,8 @@ async function main(): Promise<void> {
   ]);
   const useCase = new ExecuteDeliveryCommand(
     new GitHubDeliveryStateStore(issue),
+    trustedWriter,
+    trust,
   );
   const result = await useCase.execute({ issue: 42, request });
   assert(result.ok, "Expected successful delivery transition");
@@ -97,6 +118,8 @@ async function main(): Promise<void> {
   const unauthorized = new FakeGitHubIssue(["air:requirements:ready"]);
   const unauthorizedUseCase = new ExecuteDeliveryCommand(
     new GitHubDeliveryStateStore(unauthorized),
+    trustedWriter,
+    trust,
   );
   const rejected = await unauthorizedUseCase.execute({
     issue: 42,
@@ -113,6 +136,8 @@ async function main(): Promise<void> {
     conflicting.setLabels(["air:requirements:blocked"]);
   const conflictResult = await new ExecuteDeliveryCommand(
     new GitHubDeliveryStateStore(conflicting),
+    trustedWriter,
+    trust,
   ).execute({ issue: 42, request });
   assert(
     !conflictResult.ok && conflictResult.reason === "state-conflict",
@@ -124,6 +149,8 @@ async function main(): Promise<void> {
   ambiguous.writeFailure = true;
   const ambiguousResult = await new ExecuteDeliveryCommand(
     new GitHubDeliveryStateStore(ambiguous),
+    trustedWriter,
+    trust,
   ).execute({ issue: 42, request });
   assert(
     !ambiguousResult.ok && ambiguousResult.reason === "uncertain-write",
@@ -134,6 +161,8 @@ async function main(): Promise<void> {
   const initialization = new FakeGitHubIssue(["priority:high"]);
   const initialized = await new ExecuteDeliveryCommand(
     new GitHubDeliveryStateStore(initialization),
+    trustedWriter,
+    trust,
   ).execute({
     issue: 42,
     request: {

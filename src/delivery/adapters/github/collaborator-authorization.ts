@@ -1,8 +1,9 @@
 import type {
+  AuthorAccessPort,
   CommandAuthor,
-  CommandAuthorizationPort,
   CommandSource,
 } from "../../application/ingest-human-command.js";
+import type { AuthorAccess } from "../../domain/trust-policy.js";
 import { RepositoryPermission } from "./repository-http-adapter.js";
 import type { RepositoryPermissionReader } from "./repository-http-adapter.js";
 
@@ -11,46 +12,22 @@ const writers: readonly string[] = [
   RepositoryPermission.Write,
 ];
 
-export type ApproverPolicy = Readonly<{
-  /** The only accounts whose `/air` commands act as Human approvals. */
-  approverIds: readonly number[];
-  /** Service accounts (agent, deployer) that must never act as Human. */
-  excludedUserIds: readonly number[];
-}>;
-
 /**
- * Admits a sender only when all of these hold:
- * - the command was posted in the configured repository;
- * - the sender is not a service account;
- * - the sender is on the explicit approver list (by immutable user ID);
- * - the sender still has write or admin access, and the login still
- *   resolves to the same ID.
- * Write access alone is never enough. Fails closed on any mismatch.
+ * Reads a command author's current repository access from GitHub: the ID the
+ * login resolves to now, and whether it has write or admin access. Read on
+ * every command; the trust policy decides what the facts mean.
  */
-export class GitHubCollaboratorAuthorization implements CommandAuthorizationPort {
-  constructor(
-    private readonly permissions: RepositoryPermissionReader,
-    private readonly repositoryId: number,
-    private readonly policy: ApproverPolicy,
-  ) {
-    if (policy.approverIds.length === 0)
-      throw new Error("At least one approver is required");
-    const overlap = policy.approverIds.filter((id) =>
-      policy.excludedUserIds.includes(id),
-    );
-    if (overlap.length > 0)
-      throw new Error("A service account cannot be an approver");
-  }
+export class GitHubCollaboratorAccess implements AuthorAccessPort {
+  constructor(private readonly permissions: RepositoryPermissionReader) {}
 
-  async canCommand(
-    source: CommandSource,
+  async access(
+    _source: CommandSource,
     author: CommandAuthor,
-  ): Promise<boolean> {
-    if (source.id !== this.repositoryId) return false;
-    if (this.policy.excludedUserIds.includes(author.id)) return false;
-    if (!this.policy.approverIds.includes(author.id)) return false;
+  ): Promise<AuthorAccess> {
     const access = await this.permissions.permission(author.login);
-    if (access.userId !== author.id) return false;
-    return writers.includes(access.permission);
+    return {
+      currentId: access.userId,
+      canWrite: writers.includes(access.permission),
+    };
   }
 }

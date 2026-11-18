@@ -15,7 +15,7 @@ Agent transitions (T01 start, T03 block) need a trusted actor and facts the agen
 - The agent CLI uses a **dedicated GitHub account** (`AIR_AGENT_TOKEN`, `AIR_AGENT_LOGIN`). On start it resolves the token owner with `GET /user` and refuses to run for any other account.
 - `preflightPassed` for T01 is a fresh `GET /user` check that the token still belongs to the agent. It is never hard-coded.
 - The actor is always `Agent`. The CLI has no option to choose it.
-- The reverse also holds: `/air` comments from the agent account are refused as Human commands (`excludedUserIds` in `GitHubCollaboratorAuthorization`).
+- The reverse also holds: `/air` comments from the agent account are refused as Human commands (`TrustPolicy.commandAuthor`, [ADR-0010](0010-zero-trust.md)).
 
 ### Records
 

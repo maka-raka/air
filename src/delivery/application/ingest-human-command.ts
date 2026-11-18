@@ -1,4 +1,5 @@
 import { CommentCommandParser } from "./comment-command-parser.js";
+import type { AuthorAccess, TrustPolicy } from "../domain/trust-policy.js";
 
 /** Platform account that wrote a command. `id` is immutable; `login` is not. */
 export type CommandAuthor = Readonly<{
@@ -68,12 +69,13 @@ export interface DeliveryClaimPort {
   release(lease: DeliveryLease): Promise<void>;
 }
 
-export interface CommandAuthorizationPort {
+/** Reads an author's current access (a policy information point). */
+export interface AuthorAccessPort {
   /**
-   * Resolve permissions from trusted platform identity, never message claims.
-   * Must require at least write access: an admitted author acts as Human.
+   * Resolve from trusted platform identity, never from message claims, and
+   * read it fresh: access can be revoked between two commands.
    */
-  canCommand(source: CommandSource, author: CommandAuthor): Promise<boolean>;
+  access(source: CommandSource, author: CommandAuthor): Promise<AuthorAccess>;
 }
 
 /** Downstream processing. May run more than once per message: be idempotent. */
@@ -83,15 +85,18 @@ export interface AdmittedCommandHandlerPort {
 
 /**
  * Admits a human `/air` command and owns its claim lifecycle.
- * Messages that are not `/air` commands are dropped before any port call, so
- * ordinary discussion costs no authorization lookup and consumes no claim.
+ * Zero trust (ADR-0010): every command is checked against the trust policy,
+ * first on its claimed author, then on access read fresh for this command.
+ * Messages that are not `/air` commands, or not from an approver, are dropped
+ * before any port call: no access lookup and no claim.
  * Guarantees: a message is completed only after its handler succeeds; a
  * failed handler releases the lease and rethrows. Delivery is at-least-once.
  */
 export class IngestHumanCommand {
   constructor(
     private readonly claims: DeliveryClaimPort,
-    private readonly authorization: CommandAuthorizationPort,
+    private readonly access: AuthorAccessPort,
+    private readonly trust: TrustPolicy,
     private readonly handler: AdmittedCommandHandlerPort,
     private readonly parser: CommentCommandParser = new CommentCommandParser(),
   ) {}
@@ -100,11 +105,7 @@ export class IngestHumanCommand {
     if (!this.parser.recognizes(message.comment.body))
       return IngestionDecision.Unsupported;
 
-    const authorized = await this.authorization.canCommand(
-      message.source,
-      message.author,
-    );
-    if (!authorized) return IngestionDecision.Unauthorized;
+    if (!(await this.admitted(message))) return IngestionDecision.Unauthorized;
 
     const claim = await this.claims.acquire(message.messageId);
     if (claim.outcome === ClaimOutcome.Completed)
@@ -114,6 +115,13 @@ export class IngestHumanCommand {
 
     await this.process(message, claim.lease);
     return IngestionDecision.Accepted;
+  }
+
+  private async admitted(message: HumanCommandMessage): Promise<boolean> {
+    const { source, author } = message;
+    if (!this.trust.commandAuthor(source.id, author.id).trusted) return false;
+    const access = await this.access.access(source, author);
+    return this.trust.commandAccess(author.id, access).trusted;
   }
 
   private async process(
