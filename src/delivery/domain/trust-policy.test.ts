@@ -1,7 +1,22 @@
-import assert from "node:assert/strict";
-import { describe, it } from "node:test";
 import { TrustDenial, TrustPolicy } from "./trust-policy.js";
 import type { TrustDecision, TrustRoster } from "./trust-policy.js";
+
+// Domain tests import nothing from node: (dependency-cruiser keeps the
+// domain pure), so they assert by hand and fail by throwing.
+let assertions = 0;
+function check(condition: boolean, message: string): void {
+  assertions++;
+  if (!condition) throw new Error(`TrustPolicy: ${message}`);
+}
+function throws(build: () => unknown, message: string): void {
+  let thrown = false;
+  try {
+    build();
+  } catch {
+    thrown = true;
+  }
+  check(thrown, message);
+}
 
 const PROJECT = 123;
 const APPROVER = 7;
@@ -19,146 +34,117 @@ const roster: TrustRoster = {
 const policy = new TrustPolicy(roster);
 const denial = (decision: TrustDecision) =>
   decision.trusted ? null : decision.denial;
+const detail = (decision: TrustDecision) =>
+  decision.trusted ? "" : decision.detail;
 
-describe("TrustPolicy.commandAuthor", () => {
-  it("trusts an approver in the configured project", () => {
-    assert.equal(policy.commandAuthor(PROJECT, APPROVER).trusted, true);
-  });
-
-  for (const [name, source, author, expected] of [
-    ["another project", 999, APPROVER, TrustDenial.ForeignSource],
-    ["the agent", PROJECT, AGENT, TrustDenial.ServiceAccount],
-    ["the deployer", PROJECT, DEPLOYER, TrustDenial.ServiceAccount],
-    ["a writer not on the list", PROJECT, 8, TrustDenial.NotApprover],
-    [
-      "the operator when it is not an approver",
+// commandAuthor
+check(
+  policy.commandAuthor(PROJECT, APPROVER).trusted,
+  "trusts an approver in the configured project",
+);
+for (const [name, source, author, expected] of [
+  ["another project", 999, APPROVER, TrustDenial.ForeignSource],
+  ["the agent", PROJECT, AGENT, TrustDenial.ServiceAccount],
+  ["the deployer", PROJECT, DEPLOYER, TrustDenial.ServiceAccount],
+  ["a writer not on the list", PROJECT, 8, TrustDenial.NotApprover],
+  ["a non-approver operator", PROJECT, OPERATOR, TrustDenial.NotApprover],
+] as const)
+  check(
+    denial(policy.commandAuthor(source, author)) === expected,
+    `denies ${name}`,
+  );
+check(
+  denial(
+    new TrustPolicy({ ...roster, approverIds: [] }).commandAuthor(
       PROJECT,
-      OPERATOR,
-      TrustDenial.NotApprover,
-    ],
-  ] as const)
-    it(`denies ${name}`, () => {
-      assert.equal(denial(policy.commandAuthor(source, author)), expected);
-    });
+      APPROVER,
+    ),
+  ) === TrustDenial.NotApprover,
+  "denies every command when there are no approvers",
+);
+check(
+  new TrustPolicy({
+    ...roster,
+    approverIds: [OPERATOR],
+    operatorMayApprove: true,
+  }).commandAuthor(PROJECT, OPERATOR).trusted,
+  "trusts the operator only when explicitly allowed to approve",
+);
 
-  it("denies every command when there are no approvers", () => {
-    const cli = new TrustPolicy({ ...roster, approverIds: [] });
+// commandAccess
+check(
+  policy.commandAccess(APPROVER, { currentId: APPROVER, canWrite: true })
+    .trusted,
+  "trusts current write access under the same identity",
+);
+for (const [name, access, expected] of [
+  [
+    "a login of another account",
+    { currentId: 99, canWrite: true },
+    TrustDenial.IdentityChanged,
+  ],
+  [
+    "a login that no longer resolves",
+    { currentId: null, canWrite: false },
+    TrustDenial.IdentityChanged,
+  ],
+  [
+    "an approver without write access",
+    { currentId: APPROVER, canWrite: false },
+    TrustDenial.NoWriteAccess,
+  ],
+] as const)
+  check(
+    denial(policy.commandAccess(APPROVER, access)) === expected,
+    `denies ${name}`,
+  );
 
-    assert.equal(
-      denial(cli.commandAuthor(PROJECT, APPROVER)),
-      TrustDenial.NotApprover,
-    );
-  });
-
-  it("trusts the operator only when explicitly allowed to approve", () => {
-    const allowed = new TrustPolicy({
-      ...roster,
-      approverIds: [OPERATOR],
-      operatorMayApprove: true,
-    });
-
-    assert.equal(allowed.commandAuthor(PROJECT, OPERATOR).trusted, true);
-  });
+// state
+for (const writerId of [OPERATOR, AGENT, DEPLOYER])
+  check(
+    policy.state({ known: true, writerId, writerLogin: "air" }).trusted,
+    `trusts state written by service account ${writerId}`,
+  );
+const byPerson = policy.state({
+  known: true,
+  writerId: APPROVER,
+  writerLogin: "octocat",
 });
-
-describe("TrustPolicy.commandAccess", () => {
-  it("trusts current write access under the same identity", () => {
-    const decision = policy.commandAccess(APPROVER, {
-      currentId: APPROVER,
-      canWrite: true,
-    });
-
-    assert.equal(decision.trusted, true);
-  });
-
-  for (const [name, access, expected] of [
-    [
-      "a login that now belongs to another account",
-      { currentId: 99, canWrite: true },
-      TrustDenial.IdentityChanged,
-    ],
-    [
-      "a login that no longer resolves",
-      { currentId: null, canWrite: false },
-      TrustDenial.IdentityChanged,
-    ],
-    [
-      "an approver who lost write access",
-      { currentId: APPROVER, canWrite: false },
-      TrustDenial.NoWriteAccess,
-    ],
-  ] as const)
-    it(`denies ${name}`, () => {
-      assert.equal(denial(policy.commandAccess(APPROVER, access)), expected);
-    });
-});
-
-describe("TrustPolicy.state", () => {
-  for (const writerId of [OPERATOR, AGENT, DEPLOYER])
-    it(`trusts state written by service account ${writerId}`, () => {
-      const decision = policy.state({
-        known: true,
-        writerId,
-        writerLogin: "air",
-      });
-
-      assert.equal(decision.trusted, true);
-    });
-
-  it("denies state written by a person, naming them", () => {
-    const decision = policy.state({
+check(
+  denial(byPerson) === TrustDenial.UntrustedStateWriter,
+  "denies state written by a person",
+);
+check(detail(byPerson).includes("octocat"), "names the person");
+check(
+  detail(policy.state({ known: true, writerId: 0, writerLogin: "" })).includes(
+    "deleted account",
+  ),
+  "names a deleted writer account",
+);
+const unknown = policy.state({ known: false, reason: "History cut" });
+check(
+  denial(unknown) === TrustDenial.UnknownStateWriter,
+  "denies an unknown writer",
+);
+check(detail(unknown) === "History cut", "keeps the reason");
+check(
+  denial(
+    new TrustPolicy({ ...roster, deployerId: null }).state({
       known: true,
-      writerId: APPROVER,
-      writerLogin: "octocat",
-    });
+      writerId: DEPLOYER,
+      writerLogin: "x",
+    }),
+  ) === TrustDenial.UntrustedStateWriter,
+  "does not trust a deployer that is not configured",
+);
 
-    assert.equal(denial(decision), TrustDenial.UntrustedStateWriter);
-    assert.match((!decision.trusted && decision.detail) || "", /octocat/);
-  });
+// roster
+for (const [name, change] of [
+  ["shared service accounts", { agentId: OPERATOR }],
+  ["a service approver", { approverIds: [AGENT] }],
+  ["the deployer as approver", { approverIds: [DEPLOYER] }],
+  ["an operator approver without opt-in", { approverIds: [OPERATOR] }],
+] as const)
+  throws(() => new TrustPolicy({ ...roster, ...change }), `refuses ${name}`);
 
-  it("names a deleted writer account", () => {
-    const decision = policy.state({
-      known: true,
-      writerId: 0,
-      writerLogin: "",
-    });
-
-    assert.match(
-      (!decision.trusted && decision.detail) || "",
-      /deleted account/,
-    );
-  });
-
-  it("denies state whose writer is unknown, with the reason", () => {
-    const decision = policy.state({ known: false, reason: "History cut" });
-
-    assert.deepEqual(decision, {
-      trusted: false,
-      denial: TrustDenial.UnknownStateWriter,
-      detail: "History cut",
-    });
-  });
-
-  it("does not trust the deployer when there is none", () => {
-    const noDeployer = new TrustPolicy({ ...roster, deployerId: null });
-
-    assert.equal(
-      denial(
-        noDeployer.state({ known: true, writerId: DEPLOYER, writerLogin: "x" }),
-      ),
-      TrustDenial.UntrustedStateWriter,
-    );
-  });
-});
-
-describe("TrustPolicy roster", () => {
-  for (const [name, change] of [
-    ["shared service accounts", { agentId: OPERATOR }],
-    ["a service approver", { approverIds: [AGENT] }],
-    ["the deployer as approver", { approverIds: [DEPLOYER] }],
-    ["an operator approver without opt-in", { approverIds: [OPERATOR] }],
-  ] as const)
-    it(`refuses ${name}`, () => {
-      assert.throws(() => new TrustPolicy({ ...roster, ...change }));
-    });
-});
+console.log("TrustPolicy passed: " + assertions + " assertions");
