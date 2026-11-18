@@ -5,7 +5,7 @@ This guide connects a repository to AIR with the local poller. Read [Repository 
 ## 1. Install a pinned release
 
 ```bash
-VERSION=v0.1.0
+VERSION=v0.2.0
 FILE=air-delivery-core-${VERSION#v}.tgz
 gh release download "$VERSION" --repo maka-raka/air --pattern "$FILE"
 gh attestation verify "$FILE" --repo maka-raka/air   # built by AIR's release workflow
