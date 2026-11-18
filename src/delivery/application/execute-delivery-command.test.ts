@@ -16,6 +16,25 @@ import {
   DeliveryStatus,
 } from "../domain/state-machine.js";
 import type { Position, Request } from "../domain/state-machine.js";
+import { TrustPolicy } from "../domain/trust-policy.js";
+import type { StateProvenancePort } from "./execute-delivery-command.js";
+
+/** Every test state counts as written by the operator account. */
+const trust = new TrustPolicy({
+  sourceId: 1,
+  approverIds: [],
+  operatorId: 1,
+  agentId: 2,
+  deployerId: null,
+  operatorMayApprove: false,
+});
+const trustedWriter: StateProvenancePort = {
+  provenance: async () => ({
+    known: true,
+    writerId: 1,
+    writerLogin: "air-bot",
+  }),
+};
 
 type SaveCall = Readonly<{
   issue: number;
@@ -67,10 +86,78 @@ const loaded = (snapshot: DeliverySnapshot): DeliveryResult => ({
   snapshot,
 });
 
+describe("ExecuteDeliveryCommand trust (ADR-0010)", () => {
+  const writtenBy = (
+    provenance: Awaited<ReturnType<StateProvenancePort["provenance"]>>,
+  ) => {
+    const reads: number[] = [];
+    const port: StateProvenancePort = {
+      provenance: async (issue) => {
+        reads.push(issue);
+        return provenance;
+      },
+    };
+    return { port, reads };
+  };
+
+  for (const [name, provenance] of [
+    ["a person", { known: true, writerId: 66, writerLogin: "octocat" }],
+    ["an unknown writer", { known: false, reason: "History cut" }],
+  ] as const)
+    it(`refuses state written by ${name} without saving`, async () => {
+      const state = new FakeState(loaded(ready));
+      const { port } = writtenBy(provenance);
+
+      const result = await new ExecuteDeliveryCommand(
+        state,
+        port,
+        trust,
+      ).execute({ issue: 42, request: start });
+
+      assert.equal(!result.ok && result.reason, DeliveryFailure.UntrustedState);
+      assert.deepEqual(state.saves, []);
+    });
+
+  it("checks provenance freshly on every command", async () => {
+    const state = new FakeState(loaded(ready));
+    const { port, reads } = writtenBy({
+      known: true,
+      writerId: 2,
+      writerLogin: "air-agent",
+    });
+    const useCase = new ExecuteDeliveryCommand(state, port, trust);
+
+    await useCase.execute({ issue: 42, request: start });
+    await useCase.execute({ issue: 42, request: start });
+
+    assert.deepEqual(reads, [42, 42]);
+  });
+
+  it("reads no provenance when there is no active state", async () => {
+    const state = new FakeState(
+      loaded({ position: null, closed: false, revision: "r1" }),
+    );
+    const { port, reads } = writtenBy({ known: false, reason: "unused" });
+
+    const result = await new ExecuteDeliveryCommand(state, port, trust).execute(
+      {
+        issue: 42,
+        request: {
+          action: DeliveryAction.Initialize,
+          actor: DeliveryActor.Human,
+        },
+      },
+    );
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(reads, []);
+  });
+});
+
 describe("ExecuteDeliveryCommand", () => {
   it("saves the policy decision against the loaded snapshot", async () => {
     const state = new FakeState(loaded(ready));
-    const useCase = new ExecuteDeliveryCommand(state);
+    const useCase = new ExecuteDeliveryCommand(state, trustedWriter, trust);
 
     const result = await useCase.execute({ issue: 42, request: start });
 
@@ -93,7 +180,7 @@ describe("ExecuteDeliveryCommand", () => {
       reason: DeliveryFailure.StateConflict,
     };
     const state = new FakeState(loaded(ready), conflict);
-    const useCase = new ExecuteDeliveryCommand(state);
+    const useCase = new ExecuteDeliveryCommand(state, trustedWriter, trust);
 
     const result = await useCase.execute({ issue: 42, request: start });
 
@@ -102,7 +189,7 @@ describe("ExecuteDeliveryCommand", () => {
 
   it("rejects an invalid issue number without touching state", async () => {
     const state = new FakeState(loaded(ready));
-    const useCase = new ExecuteDeliveryCommand(state);
+    const useCase = new ExecuteDeliveryCommand(state, trustedWriter, trust);
 
     const result = await useCase.execute({ issue: 0, request: start });
 
@@ -117,7 +204,7 @@ describe("ExecuteDeliveryCommand", () => {
       detail: "Malformed stored state",
     };
     const state = new FakeState(failure);
-    const useCase = new ExecuteDeliveryCommand(state);
+    const useCase = new ExecuteDeliveryCommand(state, trustedWriter, trust);
 
     const result = await useCase.execute({ issue: 42, request: start });
 
@@ -129,7 +216,7 @@ describe("ExecuteDeliveryCommand", () => {
     const state = new FakeState(
       loaded({ position: null, closed: true, revision: "r1" }),
     );
-    const useCase = new ExecuteDeliveryCommand(state);
+    const useCase = new ExecuteDeliveryCommand(state, trustedWriter, trust);
 
     const result = await useCase.execute({ issue: 42, request: start });
 
@@ -144,7 +231,7 @@ describe("ExecuteDeliveryCommand", () => {
     const state = new FakeState(
       loaded({ position: null, closed: false, revision: "r1" }),
     );
-    const useCase = new ExecuteDeliveryCommand(state);
+    const useCase = new ExecuteDeliveryCommand(state, trustedWriter, trust);
 
     const result = await useCase.execute({ issue: 42, request: start });
 
@@ -159,7 +246,7 @@ describe("ExecuteDeliveryCommand", () => {
       revision: "r1",
     };
     const state = new FakeState(loaded(empty));
-    const useCase = new ExecuteDeliveryCommand(state);
+    const useCase = new ExecuteDeliveryCommand(state, trustedWriter, trust);
 
     await useCase.execute({
       issue: 42,
@@ -177,7 +264,7 @@ describe("ExecuteDeliveryCommand", () => {
 
   it("returns the policy rejection without saving", async () => {
     const state = new FakeState(loaded(ready));
-    const useCase = new ExecuteDeliveryCommand(state);
+    const useCase = new ExecuteDeliveryCommand(state, trustedWriter, trust);
 
     const result = await useCase.execute({
       issue: 42,

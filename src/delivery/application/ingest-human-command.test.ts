@@ -8,13 +8,24 @@ import {
 import type {
   AdmittedCommandHandlerPort,
   ClaimResult,
+  AuthorAccessPort,
   CommandAuthor,
-  CommandAuthorizationPort,
   CommandSource,
   DeliveryClaimPort,
   DeliveryLease,
   HumanCommandMessage,
 } from "./ingest-human-command.js";
+import { TrustPolicy } from "../domain/trust-policy.js";
+import type { AuthorAccess } from "../domain/trust-policy.js";
+
+const trust = new TrustPolicy({
+  sourceId: 123,
+  approverIds: [7],
+  operatorId: 9,
+  agentId: 77,
+  deployerId: null,
+  operatorMayApprove: false,
+});
 
 type ClaimCall = Readonly<{ operation: string; deliveryId: string }>;
 
@@ -52,20 +63,22 @@ class FakeClaims implements DeliveryClaimPort {
   }
 }
 
-type AuthorizationRequest = Readonly<{
+type AccessRequest = Readonly<{
   source: CommandSource;
   author: CommandAuthor;
 }>;
 
-class FakeAuthorization implements CommandAuthorizationPort {
-  readonly requests: AuthorizationRequest[] = [];
-  constructor(private readonly allowed = true) {}
-  async canCommand(
+class FakeAccess implements AuthorAccessPort {
+  readonly requests: AccessRequest[] = [];
+  constructor(
+    private readonly result: AuthorAccess = { currentId: 7, canWrite: true },
+  ) {}
+  async access(
     source: CommandSource,
     author: CommandAuthor,
-  ): Promise<boolean> {
+  ): Promise<AuthorAccess> {
     this.requests.push({ source, author });
-    return this.allowed;
+    return this.result;
   }
 }
 
@@ -81,9 +94,9 @@ class FakeHandler implements AdmittedCommandHandlerPort {
 
 function fixture(
   options: Readonly<{
-    allowed?: boolean;
+    access?: AuthorAccess;
     claims?: DeliveryClaimPort;
-    authorization?: CommandAuthorizationPort;
+    authorization?: AuthorAccessPort;
     handler?: FakeHandler;
   }> = {},
 ) {
@@ -95,7 +108,7 @@ function fixture(
     comment: { id: 900, body: "/air rework\nPlease cover edge cases." },
   };
   const claims = new FakeClaims();
-  const authorization = new FakeAuthorization(options.allowed ?? true);
+  const authorization = new FakeAccess(options.access);
   const handler = options.handler ?? new FakeHandler();
   return {
     message,
@@ -105,6 +118,7 @@ function fixture(
     useCase: new IngestHumanCommand(
       options.claims ?? claims,
       options.authorization ?? authorization,
+      trust,
       handler,
     ),
   };
@@ -222,8 +236,10 @@ describe("IngestHumanCommand", () => {
     assert.deepEqual(operations(inner), ["acquire"]);
   });
 
-  it("does not claim or handle a delivery from an unauthorized sender", async () => {
-    const { message, claims, handler, useCase } = fixture({ allowed: false });
+  it("does not claim or handle a command from an author without write access", async () => {
+    const { message, claims, handler, useCase } = fixture({
+      access: { currentId: 7, canWrite: false },
+    });
 
     const decision = await useCase.execute(message);
 
@@ -231,6 +247,33 @@ describe("IngestHumanCommand", () => {
     assert.deepEqual(claims.calls, []);
     assert.deepEqual(handler.handled, []);
   });
+
+  it("does not claim a command whose login now belongs to someone else", async () => {
+    const { message, claims, useCase } = fixture({
+      access: { currentId: 99, canWrite: true },
+    });
+
+    assert.equal(
+      await useCase.execute(message),
+      IngestionDecision.Unauthorized,
+    );
+    assert.deepEqual(claims.calls, []);
+  });
+
+  for (const [name, change] of [
+    ["a non-approver", { author: { id: 8, login: "mallory" } }],
+    ["another project", { source: { id: 999, name: "other/repo" } }],
+    ["a service account", { author: { id: 77, login: "air-agent" } }],
+  ] as const)
+    it(`denies ${name} before any access lookup`, async () => {
+      const { message, claims, authorization, useCase } = fixture();
+
+      const decision = await useCase.execute({ ...message, ...change });
+
+      assert.equal(decision, IngestionDecision.Unauthorized);
+      assert.deepEqual(authorization.requests, []);
+      assert.deepEqual(claims.calls, []);
+    });
 
   it("drops a message that is not an /air command before calling ports", async () => {
     const { message, claims, authorization, handler, useCase } = fixture();
@@ -248,8 +291,8 @@ describe("IngestHumanCommand", () => {
 
   it("propagates authorization failure without claiming a delivery", async () => {
     const failure = new Error("Authorization unavailable");
-    const authorization: CommandAuthorizationPort = {
-      async canCommand() {
+    const authorization: AuthorAccessPort = {
+      async access() {
         throw failure;
       },
     };

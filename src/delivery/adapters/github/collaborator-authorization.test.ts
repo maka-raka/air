@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { GitHubCollaboratorAuthorization } from "./collaborator-authorization.js";
+import { GitHubCollaboratorAccess } from "./collaborator-authorization.js";
 import {
   GitHubRepositoryHttpAdapter,
   RepositoryPermission,
@@ -24,111 +24,46 @@ class FakePermissions implements RepositoryPermissionReader {
 const source = { id: 123, name: "owner/repo" };
 const author = { id: 7, login: "octocat" };
 
-function authorization(access: CollaboratorPermission) {
-  const permissions = new FakePermissions(access);
+const access = (permission: CollaboratorPermission) => {
+  const permissions = new FakePermissions(permission);
   return {
     permissions,
-    authorization: new GitHubCollaboratorAuthorization(permissions, 123, {
-      approverIds: [7],
-      excludedUserIds: [77],
-    }),
+    read: () =>
+      new GitHubCollaboratorAccess(permissions).access(source, author),
   };
-}
+};
 
-describe("GitHubCollaboratorAuthorization", () => {
-  for (const [permission, expected] of [
+describe("GitHubCollaboratorAccess", () => {
+  for (const [permission, canWrite] of [
     [RepositoryPermission.Admin, true],
     [RepositoryPermission.Write, true],
     [RepositoryPermission.Read, false],
     [RepositoryPermission.None, false],
   ] as const) {
-    it(`${expected ? "admits" : "rejects"} ${permission} access`, async () => {
-      const { authorization: auth } = authorization({ userId: 7, permission });
+    it(`reports ${permission} access as canWrite=${canWrite}`, async () => {
+      const { permissions, read } = access({ userId: 7, permission });
 
-      const allowed = await auth.canCommand(source, author);
-
-      assert.equal(allowed, expected);
+      assert.deepEqual(await read(), { currentId: 7, canWrite });
+      assert.deepEqual(permissions.logins, ["octocat"]);
     });
   }
 
-  it("rejects a login that now belongs to another account", async () => {
-    const { authorization: auth } = authorization({
+  it("reports the account the login resolves to now", async () => {
+    const { read } = access({
       userId: 99,
       permission: RepositoryPermission.Admin,
     });
 
-    const allowed = await auth.canCommand(source, author);
-
-    assert.equal(allowed, false);
+    assert.deepEqual(await read(), { currentId: 99, canWrite: true });
   });
 
-  it("refuses a service account even with admin access", async () => {
-    const permissions = new FakePermissions({
-      userId: 77,
-      permission: RepositoryPermission.Admin,
-    });
-    const auth = new GitHubCollaboratorAuthorization(permissions, 123, {
-      approverIds: [7],
-      excludedUserIds: [77, 88],
+  it("reports a login that no longer resolves", async () => {
+    const { read } = access({
+      userId: null,
+      permission: RepositoryPermission.None,
     });
 
-    const allowed = await auth.canCommand(source, { ...author, id: 77 });
-
-    assert.equal(allowed, false);
-    assert.deepEqual(permissions.logins, []);
-  });
-
-  it("refuses a writer who is not on the approver list", async () => {
-    const permissions = new FakePermissions({
-      userId: 8,
-      permission: RepositoryPermission.Admin,
-    });
-    const auth = new GitHubCollaboratorAuthorization(permissions, 123, {
-      approverIds: [7],
-      excludedUserIds: [],
-    });
-
-    const allowed = await auth.canCommand(source, { ...author, id: 8 });
-
-    assert.equal(allowed, false);
-    assert.deepEqual(permissions.logins, []);
-  });
-
-  it("refuses an approver who lost write access", async () => {
-    const { authorization: auth } = authorization({
-      userId: 7,
-      permission: RepositoryPermission.Read,
-    });
-
-    assert.equal(await auth.canCommand(source, author), false);
-  });
-
-  for (const [name, policy] of [
-    ["no approvers", { approverIds: [], excludedUserIds: [] }],
-    ["a service approver", { approverIds: [7], excludedUserIds: [7] }],
-  ] as const) {
-    it(`refuses to start with ${name}`, () => {
-      const permissions = new FakePermissions({
-        userId: 7,
-        permission: RepositoryPermission.Admin,
-      });
-
-      assert.throws(
-        () => new GitHubCollaboratorAuthorization(permissions, 123, policy),
-      );
-    });
-  }
-
-  it("rejects another repository without a permission lookup", async () => {
-    const { permissions, authorization: auth } = authorization({
-      userId: 7,
-      permission: RepositoryPermission.Admin,
-    });
-
-    const allowed = await auth.canCommand({ ...source, id: 999 }, author);
-
-    assert.equal(allowed, false);
-    assert.deepEqual(permissions.logins, []);
+    assert.deepEqual(await read(), { currentId: null, canWrite: false });
   });
 });
 

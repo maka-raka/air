@@ -37,6 +37,7 @@ The exact order of posting comment and updating labels must be chosen for crash 
 | Port (proposed) | Required behavior | Initial adapter |
 | --- | --- | --- |
 | `DeliveryStatePort` | `load` a snapshot (position, closed, opaque `revision`); `save` the next position only if the stored revision still equals the loaded one, then verify. Never decides transitions. The application never sees the storage format | GitHub Issues labels (`GitHubDeliveryStateStore`: revision covers all labels and open/closed) |
+| `StateProvenancePort` | Who wrote the current state, or why that is unknown. `ExecuteDeliveryCommand` asks `TrustPolicy.state` on every command and fails with `untrusted-state` otherwise ([ADR-0010](adr/0010-zero-trust.md)) | GitHub label events (`GitHubLabelProvenance`) |
 | `PhaseOutputStore` | Read/write append-only phase reports; retrieve latest applicable report | GitHub issue comments |
 | `CodeChangeReader` | PR metadata, head SHA, checks, review findings and overlap | GitHub API / local git |
 | `GateEvidenceProvider` | Collect authoritative, revision-linked evidence and report unavailable sources | Shell checks, CI checks, deployment/log readers |
@@ -53,7 +54,7 @@ Human commands are `/air` messages ([ADR-0003](adr/0003-github-comment-commands.
 
 `IngestHumanCommand` admits a message and owns its message-ID claim lifecycle.
 
-Order: `/air` command → trusted author authorization → `DeliveryClaimPort.acquire` → `AdmittedCommandHandlerPort.handle` → `complete`.
+Order: `/air` command → `TrustPolicy.commandAuthor` → `AuthorAccessPort` → `TrustPolicy.commandAccess` → `DeliveryClaimPort.acquire` → `AdmittedCommandHandlerPort.handle` → `complete`.
 
 Platform rules live in the inbound adapter. On GitHub, `GitHubCommentIngress` (`adapters/github/github-webhook.ts`) accepts only `issue_comment.created` on an issue (not a pull request) from a non-bot, and maps it to a `HumanCommandMessage`. The HMAC webhook verifier and the local comment poller both feed it. Another tracker adds its own ingress; the use case and ports stay unchanged.
 
@@ -62,7 +63,7 @@ Platform rules live in the inbound adapter. On GitHub, `GitHubCommentIngress` (`
 | Port | Required behavior |
 | --- | --- |
 | `DeliveryClaimPort` | Durable and atomic across workers. `acquire` returns `acquired` (with a fenced lease), `in-progress` (live lease held elsewhere) or `completed`. Unsettled leases expire. Operations carrying a superseded token are ignored. |
-| `CommandAuthorizationPort` | Resolves permissions from trusted platform identity, never from message claims. Requires at least write access. |
+| `AuthorAccessPort` | Reads the author's current access from trusted platform identity, never from message claims, for every command. `TrustPolicy` decides ([ADR-0010](adr/0010-zero-trust.md)): approver in this project, same identity, write access. |
 | `AdmittedCommandHandlerPort` | Downstream processing; must be idempotent. |
 | `DeliveryEvidencePort` | Trusted facts for a command (task size, design approval, PR and checks, active run, observe verdict). Never derived from comment text. |
 | `CommandReplyPort` | Reports `applied`, `rejected` or `invalid-command` for the source comment. |

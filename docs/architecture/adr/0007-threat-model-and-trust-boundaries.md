@@ -19,6 +19,8 @@ AIR keeps delivery state in GitHub labels and evidence in issue comments. Before
 
 ## Decision
 
+Since [ADR-0010](0010-zero-trust.md), checks 1, 4 and 5 below are decided by the domain `TrustPolicy`; adapters only supply the facts.
+
 ### Actors
 
 | Account | Configured as | Trusted for | Never trusted for |
@@ -33,7 +35,7 @@ All accounts are resolved to **immutable user IDs** at startup. Every process ch
 
 ### Checks
 
-1. **Label provenance.** Before any transition, `ProvenanceVerifiedStateStore` reads the issue's label events and finds the latest `labeled` event for the current `air:<phase>:<status>` label. Its actor must be the operator, the agent or the deployer. Otherwise the command fails with **`untrusted-state`**, and nothing changes until an administrator restores the labels. A history longer than the adapter reads (1,000 events) also fails closed.
+1. **Label provenance.** Before any transition, `GitHubLabelProvenance` reads the issue's label events and finds the latest `labeled` event for the current `air:<phase>:<status>` label; `TrustPolicy` ([ADR-0010](0010-zero-trust.md)) requires its actor to be the operator, the agent or the deployer. Otherwise the command fails with **`untrusted-state`**, and nothing changes until an administrator restores the labels. A history longer than the adapter reads (1,000 events) also fails closed.
 2. **Unedited evidence.** A comment counts as a record, a processed-command reply or a command only if it was never edited (`updated_at` equals `created_at`).
 3. **Signed records.** Agent records carry an Ed25519 signature over the repository ID, the issue number and the record JSON. Only the agent process holds the private key; every other process verifies with the public key. Unsigned, re-signed or moved records are ignored, so even a repository admin cannot forge evidence.
 4. **Explicit approvers.** Commands count only from `AIR_APPROVER_LOGINS`, by user ID, and only while that person still has write access. Write access alone is not enough. Service accounts can never be approvers.

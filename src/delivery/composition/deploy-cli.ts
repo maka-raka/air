@@ -4,7 +4,6 @@ import {
   RecordDeployment,
 } from "../application/record-deployment.js";
 import type { DeploymentOutcome } from "../application/record-deployment.js";
-import { ExecuteDeliveryCommand } from "../application/execute-delivery-command.js";
 import { GitHubDeliveryRecordStore } from "../adapters/github/delivery-record-store.js";
 import { GitHubDeploymentHttpAdapter } from "../adapters/github/deployment-http-adapter.js";
 import { GitHubRestClient } from "../adapters/github/github-rest-client.js";
@@ -26,7 +25,8 @@ import {
   readServiceLogins,
   recordVerifier,
   resolveServiceAccounts,
-  verifiedStateStore,
+  trustPolicy,
+  trustedExecutor,
 } from "./trust.js";
 import { GitHubRepositoryHttpAdapter } from "../adapters/github/repository-http-adapter.js";
 import type { ServiceLogins } from "./trust.js";
@@ -111,7 +111,7 @@ export async function composeDeploy(
     config.environmentNames,
   );
   return new RecordDeployment(
-    new ExecuteDeliveryCommand(verifiedStateStore(client, accounts)),
+    trustedExecutor(client, trustPolicy(identity.id, accounts)),
     new GitHubDeliveryRecordStore(comments, {
       agentUserId: agent.id,
       repositoryId: identity.id,

@@ -6,7 +6,6 @@ import { EvaluatePhaseGate } from "../application/phase-gate.js";
 import { GitHubPullRequestHttpAdapter } from "../adapters/github/pull-request-http-adapter.js";
 import type { RecordResult } from "../application/agent-commands.js";
 import type { ReportFacts } from "../application/delivery-record.js";
-import { ExecuteDeliveryCommand } from "../application/execute-delivery-command.js";
 import type { DeliveryResult } from "../application/execute-delivery-command.js";
 import { DeliveryPhase } from "../domain/state-machine.js";
 import { isEntryPoint, loadEnvFile, repository } from "./config.js";
@@ -31,7 +30,9 @@ import {
   readServiceLogins,
   recordSigner,
   resolveServiceAccounts,
-  verifiedStateStore,
+  labelStateStore,
+  trustPolicy,
+  trustedExecutor,
 } from "./trust.js";
 import { GitHubRepositoryHttpAdapter } from "../adapters/github/repository-http-adapter.js";
 import type { ServiceLogins } from "./trust.js";
@@ -229,8 +230,8 @@ export async function composeAgent(
     "AIR_AGENT_TOKEN",
   );
   const identity = await new GitHubRepositoryHttpAdapter(client).identity();
-  const state = verifiedStateStore(client, accounts);
-  const executor = new ExecuteDeliveryCommand(state);
+  const state = labelStateStore(client);
+  const executor = trustedExecutor(client, trustPolicy(identity.id, accounts));
   const records = new GitHubDeliveryRecordStore(
     new GitHubIssueCommentHttpAdapter(client),
     {

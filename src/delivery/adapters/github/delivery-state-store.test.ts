@@ -6,6 +6,25 @@ import type { IssueLabelsPort, ReadIssue } from "./delivery-state-store.js";
 import type { Request } from "../../domain/state-machine.js";
 import { ExecuteDeliveryCommand } from "../../application/execute-delivery-command.js";
 import type { DeliveryFailure } from "../../application/execute-delivery-command.js";
+import { TrustPolicy } from "../../domain/trust-policy.js";
+import type { StateProvenancePort } from "../../application/execute-delivery-command.js";
+
+/** Every test state counts as written by the operator account. */
+const trust = new TrustPolicy({
+  sourceId: 1,
+  approverIds: [],
+  operatorId: 1,
+  agentId: 2,
+  deployerId: null,
+  operatorMayApprove: false,
+});
+const trustedWriter: StateProvenancePort = {
+  provenance: async () => ({
+    known: true,
+    writerId: 1,
+    writerLogin: "air-bot",
+  }),
+};
 
 let checks = 0;
 function assert(condition: boolean, message: string) {
@@ -43,7 +62,11 @@ const start: Request = {
   facts: { preflightPassed: true, activeRun: false },
 };
 const execute = (fake: Fake, request: Request) =>
-  new ExecuteDeliveryCommand(new GitHubDeliveryStateStore(fake)).execute({
+  new ExecuteDeliveryCommand(
+    new GitHubDeliveryStateStore(fake),
+    trustedWriter,
+    trust,
+  ).execute({
     issue: 42,
     request,
   });

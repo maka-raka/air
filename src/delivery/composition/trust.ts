@@ -1,4 +1,4 @@
-import { ProvenanceVerifiedStateStore } from "../adapters/github/label-provenance.js";
+import { GitHubLabelProvenance } from "../adapters/github/label-provenance.js";
 import { GitHubDeliveryStateStore } from "../adapters/github/delivery-state-store.js";
 import type { GitHubRestClient } from "../adapters/github/github-rest-client.js";
 import { GitHubIssueHttpAdapter } from "../adapters/github/issue-http-adapter.js";
@@ -6,7 +6,9 @@ import type {
   GitHubUser,
   GitHubUserHttpAdapter,
 } from "../adapters/github/user-http-adapter.js";
+import { ExecuteDeliveryCommand } from "../application/execute-delivery-command.js";
 import type { DeliveryStatePort } from "../application/execute-delivery-command.js";
+import { TrustPolicy } from "../domain/trust-policy.js";
 import {
   Ed25519RecordSigner,
   Ed25519RecordVerifier,
@@ -141,15 +143,40 @@ export async function assertTokenOwner(
   return viewer;
 }
 
-/** Label state whose current label must have been set by a service account. */
-export function verifiedStateStore(
-  client: GitHubRestClient,
+/**
+ * The process's single trust policy (ADR-0010). Processes that never admit
+ * Human commands (agent CLI, deploy reporter) pass no approvers, so every
+ * command is denied there by construction.
+ */
+export function trustPolicy(
+  repositoryId: number,
   accounts: ServiceAccounts,
-): DeliveryStatePort {
-  const issues = new GitHubIssueHttpAdapter(client);
-  return new ProvenanceVerifiedStateStore(
-    new GitHubDeliveryStateStore(issues),
-    issues,
-    serviceIds(accounts),
+  approverIds: readonly number[] = [],
+  operatorMayApprove = false,
+): TrustPolicy {
+  return new TrustPolicy({
+    sourceId: repositoryId,
+    approverIds,
+    operatorId: accounts.operator.id,
+    agentId: accounts.agent.id,
+    deployerId: accounts.deployer?.id ?? null,
+    operatorMayApprove,
+  });
+}
+
+/** Delivery state stored as GitHub issue labels. */
+export function labelStateStore(client: GitHubRestClient): DeliveryStatePort {
+  return new GitHubDeliveryStateStore(new GitHubIssueHttpAdapter(client));
+}
+
+/** Executes commands only on state the trust policy accepts. */
+export function trustedExecutor(
+  client: GitHubRestClient,
+  trust: TrustPolicy,
+): ExecuteDeliveryCommand {
+  return new ExecuteDeliveryCommand(
+    labelStateStore(client),
+    new GitHubLabelProvenance(new GitHubIssueHttpAdapter(client)),
+    trust,
   );
 }

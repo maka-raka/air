@@ -10,6 +10,25 @@ import type {
   GitHubApiErrorCategory,
   HttpRequest,
 } from "./github-rest-client.js";
+import { TrustPolicy } from "../../domain/trust-policy.js";
+import type { StateProvenancePort } from "../../application/execute-delivery-command.js";
+
+/** Every test state counts as written by the operator account. */
+const trust = new TrustPolicy({
+  sourceId: 1,
+  approverIds: [],
+  operatorId: 1,
+  agentId: 2,
+  deployerId: null,
+  operatorMayApprove: false,
+});
+const trustedWriter: StateProvenancePort = {
+  provenance: async () => ({
+    known: true,
+    writerId: 1,
+    writerLogin: "air-bot",
+  }),
+};
 
 const ISSUE_NUMBER = 42;
 const ISSUE_URL = "https://api.github.com/repos/example/air/issues/42";
@@ -330,6 +349,8 @@ describe("GitHubIssueHttpAdapter", () => {
       const { client, issue, requests } = createIssueServer();
       const useCase = new ExecuteDeliveryCommand(
         new GitHubDeliveryStateStore(client),
+        trustedWriter,
+        trust,
       );
 
       // Act
