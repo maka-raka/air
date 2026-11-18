@@ -20,6 +20,7 @@ import { FilePollCursorStore } from "../adapters/local/file-poll-cursor-store.js
 import { InMemoryDeliveryClaims } from "../adapters/local/in-memory-delivery-claims.js";
 import { RecordedDeliveryEvidence } from "../application/recorded-delivery-evidence.js";
 import { GitHubDeliveryRecordStore } from "../adapters/github/delivery-record-store.js";
+import { TrustedDeliveryRecords } from "../application/delivery-record.js";
 import { GitHubPullRequestHttpAdapter } from "../adapters/github/pull-request-http-adapter.js";
 import { GitHubUserHttpAdapter } from "../adapters/github/user-http-adapter.js";
 import {
@@ -124,11 +125,13 @@ export async function composeLocal(
   const comments = new GitHubIssueCommentHttpAdapter(client);
   const handler = new CommentCommandHandler(
     new RecordedDeliveryEvidence(
-      new GitHubDeliveryRecordStore(comments, {
-        agentUserId: accounts.agent.id,
-        repositoryId: identity.id,
-        verifier: recordVerifier(config.recordPublicKey),
-      }),
+      new TrustedDeliveryRecords(
+        new GitHubDeliveryRecordStore(comments, {
+          repositoryId: identity.id,
+          verifier: recordVerifier(config.recordPublicKey),
+        }),
+        trust,
+      ),
       new GitHubPullRequestHttpAdapter(client),
       () => new Date(),
       config.runTtlMs,

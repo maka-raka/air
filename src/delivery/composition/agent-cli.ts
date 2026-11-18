@@ -18,6 +18,7 @@ import {
 } from "./doctor.js";
 import type { Phase } from "../domain/state-machine.js";
 import { GitHubDeliveryRecordStore } from "../adapters/github/delivery-record-store.js";
+import { TrustedDeliveryRecords } from "../application/delivery-record.js";
 import { GitHubRestClient } from "../adapters/github/github-rest-client.js";
 import type { HttpRequest } from "../adapters/github/github-rest-client.js";
 import { GitHubIssueCommentHttpAdapter } from "../adapters/github/issue-comment-http-adapter.js";
@@ -231,15 +232,15 @@ export async function composeAgent(
   );
   const identity = await new GitHubRepositoryHttpAdapter(client).identity();
   const state = labelStateStore(client);
-  const executor = trustedExecutor(client, trustPolicy(identity.id, accounts));
-  const records = new GitHubDeliveryRecordStore(
-    new GitHubIssueCommentHttpAdapter(client),
-    {
-      agentUserId: viewer.id,
+  const trust = trustPolicy(identity.id, accounts);
+  const executor = trustedExecutor(client, trust);
+  const records = new TrustedDeliveryRecords(
+    new GitHubDeliveryRecordStore(new GitHubIssueCommentHttpAdapter(client), {
       repositoryId: identity.id,
       verifier: signer.verifier,
       signer,
-    },
+    }),
+    trust,
   );
   const preflight = new AgentIdentityPreflight(users, viewer.id);
   const now = () => new Date();

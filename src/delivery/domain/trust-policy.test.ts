@@ -138,6 +138,36 @@ check(
   "does not trust a deployer that is not configured",
 );
 
+// record
+check(
+  policy.record({ authorId: AGENT, edited: false, signatureValid: true })
+    .trusted,
+  "trusts an unedited, validly signed agent record",
+);
+for (const [name, evidence, expected] of [
+  [
+    "a signed marker copied by someone else",
+    { authorId: APPROVER, edited: false, signatureValid: true },
+    TrustDenial.RecordNotByAgent,
+  ],
+  [
+    "a record from the operator",
+    { authorId: OPERATOR, edited: false, signatureValid: true },
+    TrustDenial.RecordNotByAgent,
+  ],
+  [
+    "an agent record edited later",
+    { authorId: AGENT, edited: true, signatureValid: true },
+    TrustDenial.RecordEdited,
+  ],
+  [
+    "an agent record with an invalid signature",
+    { authorId: AGENT, edited: false, signatureValid: false },
+    TrustDenial.RecordSignatureInvalid,
+  ],
+] as const)
+  check(denial(policy.record(evidence)) === expected, `denies ${name}`);
+
 // roster
 for (const [name, change] of [
   ["shared service accounts", { agentId: OPERATOR }],

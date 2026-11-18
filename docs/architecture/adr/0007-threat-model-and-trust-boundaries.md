@@ -19,7 +19,7 @@ AIR keeps delivery state in GitHub labels and evidence in issue comments. Before
 
 ## Decision
 
-Since [ADR-0010](0010-zero-trust.md), checks 1, 4 and 5 below are decided by the domain `TrustPolicy`; adapters only supply the facts.
+Since [ADR-0010](0010-zero-trust.md), checks 1 to 5 below are decided by the domain `TrustPolicy` (for replies, check 2 is still applied in `GitHubProcessedCommands`); adapters only supply the facts.
 
 ### Actors
 

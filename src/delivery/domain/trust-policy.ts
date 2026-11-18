@@ -18,6 +18,12 @@ export const TrustDenial = {
   UnknownStateWriter: "unknown-state-writer",
   /** The current state was written by an account that is not AIR's. */
   UntrustedStateWriter: "untrusted-state-writer",
+  /** A delivery record not written by the agent account. */
+  RecordNotByAgent: "record-not-by-agent",
+  /** A delivery record changed after it was written. */
+  RecordEdited: "record-edited",
+  /** A delivery record whose signature does not verify for this issue. */
+  RecordSignatureInvalid: "record-signature-invalid",
 } as const;
 export type TrustDenial = (typeof TrustDenial)[keyof typeof TrustDenial];
 
@@ -52,6 +58,15 @@ export type AuthorAccess = Readonly<{
 export type StateProvenance =
   | Readonly<{ known: true; writerId: number; writerLogin: string }>
   | Readonly<{ known: false; reason: string }>;
+
+/** Facts about one stored delivery record, read every time it is used. */
+export type RecordEvidence = Readonly<{
+  authorId: number;
+  /** Changed after posting: people with write access can edit any comment. */
+  edited: boolean;
+  /** Verified with the agent's public key, for this project and issue. */
+  signatureValid: boolean;
+}>;
 
 const TRUSTED: TrustDecision = { trusted: true };
 const deny = (denial: TrustDenial, detail: string): TrustDecision => ({
@@ -120,5 +135,20 @@ export class TrustPolicy {
       TrustDenial.UntrustedStateWriter,
       `The current state was set by ${who}, not by AIR.`,
     );
+  }
+
+  /**
+   * A record is evidence only if the agent wrote it, nobody edited it, and
+   * its signature verifies. Each alone is not enough: an admin can edit an
+   * agent comment, and anyone can copy a signed marker into their own.
+   */
+  record(evidence: RecordEvidence): TrustDecision {
+    if (evidence.authorId !== this.roster.agentId)
+      return deny(TrustDenial.RecordNotByAgent, `Account ${evidence.authorId}`);
+    if (evidence.edited)
+      return deny(TrustDenial.RecordEdited, "Edited after it was written");
+    if (!evidence.signatureValid)
+      return deny(TrustDenial.RecordSignatureInvalid, "Signature invalid");
+    return TRUSTED;
   }
 }

@@ -5,6 +5,7 @@ import {
 } from "../application/record-deployment.js";
 import type { DeploymentOutcome } from "../application/record-deployment.js";
 import { GitHubDeliveryRecordStore } from "../adapters/github/delivery-record-store.js";
+import { TrustedDeliveryRecords } from "../application/delivery-record.js";
 import { GitHubDeploymentHttpAdapter } from "../adapters/github/deployment-http-adapter.js";
 import { GitHubRestClient } from "../adapters/github/github-rest-client.js";
 import type { HttpRequest } from "../adapters/github/github-rest-client.js";
@@ -102,7 +103,6 @@ export async function composeDeploy(
     accounts.deployer,
     "AIR_DEPLOY_TOKEN",
   );
-  const agent = accounts.agent;
   const identity = await new GitHubRepositoryHttpAdapter(client).identity();
   const verifier = recordVerifier(config.recordPublicKey);
   const comments = new GitHubIssueCommentHttpAdapter(client);
@@ -110,13 +110,16 @@ export async function composeDeploy(
     client,
     config.environmentNames,
   );
+  const trust = trustPolicy(identity.id, accounts);
   return new RecordDeployment(
-    trustedExecutor(client, trustPolicy(identity.id, accounts)),
-    new GitHubDeliveryRecordStore(comments, {
-      agentUserId: agent.id,
-      repositoryId: identity.id,
-      verifier,
-    }),
+    trustedExecutor(client, trust),
+    new TrustedDeliveryRecords(
+      new GitHubDeliveryRecordStore(comments, {
+        repositoryId: identity.id,
+        verifier,
+      }),
+      trust,
+    ),
     deployments,
     deployments,
     comments,

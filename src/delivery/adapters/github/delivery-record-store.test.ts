@@ -6,14 +6,26 @@ import type {
   IssueCommentReader,
   IssueCommentWriter,
 } from "./issue-comment-http-adapter.js";
-import { DeliveryRecordKind } from "../../application/delivery-record.js";
+import {
+  DeliveryRecordKind,
+  TrustedDeliveryRecords,
+} from "../../application/delivery-record.js";
 import type { DeliveryRecord } from "../../application/delivery-record.js";
 import { DeliveryPhase } from "../../domain/state-machine.js";
+import { TrustPolicy } from "../../domain/trust-policy.js";
 import { Ed25519RecordSigner, generateRecordKeys } from "./record-signature.js";
 
 const AGENT = 77;
 const REPOSITORY = 123;
 const SIGNER = Ed25519RecordSigner.fromBase64(generateRecordKeys().privateKey);
+const TRUST = new TrustPolicy({
+  sourceId: REPOSITORY,
+  approverIds: [],
+  operatorId: 9,
+  agentId: AGENT,
+  deployerId: null,
+  operatorMayApprove: false,
+});
 
 /** A marker signed with the agent key, as the agent would write it. */
 function signed(json: string, issue = 42, signer = SIGNER): string {
@@ -48,24 +60,52 @@ const report: DeliveryRecord = {
   facts: { taskSize: "S", miniDesign: true, artifact: "https://x/a--b" },
 };
 
+/** The adapter behind the trust policy, as composition wires it. */
 function fixture() {
   const comments = new FakeComments();
-  const trust = {
-    agentUserId: AGENT,
-    repositoryId: REPOSITORY,
-    verifier: SIGNER.verifier,
-  };
+  const keys = { repositoryId: REPOSITORY, verifier: SIGNER.verifier };
+  const source = new GitHubDeliveryRecordStore(comments, {
+    ...keys,
+    signer: SIGNER,
+  });
   return {
     comments,
-    store: new GitHubDeliveryRecordStore(comments, {
-      ...trust,
-      signer: SIGNER,
-    }),
-    reader: new GitHubDeliveryRecordStore(comments, trust),
+    source,
+    store: new TrustedDeliveryRecords(source, TRUST),
+    reader: new TrustedDeliveryRecords(
+      new GitHubDeliveryRecordStore(comments, keys),
+      TRUST,
+    ),
   };
 }
 
-describe("GitHubDeliveryRecordStore", () => {
+describe("GitHubDeliveryRecordStore evidence", () => {
+  it("reports author, edit and signature facts for every marker", async () => {
+    const { comments, source } = fixture();
+    await source.append(42, report, "Done.");
+    await comments.post(42, signed(JSON.stringify(report)), 5);
+    comments.comments[1] = { ...comments.comments[1]!, edited: true };
+    await comments.post(42, signed(JSON.stringify(report), 43));
+
+    const evidence = (await source.candidates(42)).map((c) => c.evidence);
+
+    assert.deepEqual(evidence, [
+      { authorId: AGENT, edited: false, signatureValid: true },
+      { authorId: 5, edited: true, signatureValid: true },
+      { authorId: AGENT, edited: false, signatureValid: false },
+    ]);
+  });
+
+  it("returns no candidate for comments without a well-formed record", async () => {
+    const { comments, source } = fixture();
+    await comments.post(42, "Just a comment");
+    await comments.post(42, signed("{nope}"));
+
+    assert.deepEqual(await source.candidates(42), []);
+  });
+});
+
+describe("GitHubDeliveryRecordStore behind TrustPolicy", () => {
   it("round-trips records through readable comments with a hidden marker", async () => {
     const { comments, store } = fixture();
     const start: DeliveryRecord = {

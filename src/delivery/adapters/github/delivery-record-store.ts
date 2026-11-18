@@ -4,7 +4,8 @@ import {
 } from "../../application/delivery-record.js";
 import type {
   DeliveryRecord,
-  DeliveryRecordPort,
+  DeliveryRecordSource,
+  RecordCandidate,
   ReportFacts,
 } from "../../application/delivery-record.js";
 import {
@@ -22,12 +23,10 @@ import type {
   Ed25519RecordVerifier,
 } from "./record-signature.js";
 
-export type RecordTrust = Readonly<{
-  /** The agent account; only its comments are read. */
-  agentUserId: number;
+export type RecordKeys = Readonly<{
   /** Signatures are bound to this repository. */
   repositoryId: number;
-  /** Agent public key: every record must carry a valid signature. */
+  /** Agent public key: every record's signature is checked against it. */
   verifier: Ed25519RecordVerifier;
   /** Only the agent process can append records. */
   signer?: Ed25519RecordSigner;
@@ -102,22 +101,20 @@ function decode(value: unknown): DeliveryRecord | null {
 
 /**
  * Stores Delivery records as issue comments: readable text followed by a
- * hidden `<!-- air:record {...} sig=... -->` marker. A record counts only if
- * all of these hold:
- * - the comment is authored by the agent account and was never edited;
- * - its Ed25519 signature verifies with the agent's public key, for this
- *   repository and this issue.
- * The signature means even a repository admin, who can edit any comment
- * through the API, cannot forge or move a record without the agent's key.
+ * hidden `<!-- air:record {...} sig=... -->` marker. Reading reports every
+ * well-formed marker, from any author, with its evidence: the author, whether
+ * the comment was edited, and whether the Ed25519 signature verifies with the
+ * agent's public key for this repository and issue. `TrustPolicy.record`
+ * decides which count; this adapter decides nothing.
  */
-export class GitHubDeliveryRecordStore implements DeliveryRecordPort {
+export class GitHubDeliveryRecordStore implements DeliveryRecordSource {
   constructor(
     private readonly comments: IssueCommentReader & IssueCommentWriter,
-    private readonly trust: RecordTrust,
+    private readonly keys: RecordKeys,
   ) {}
 
   append(issue: number, record: DeliveryRecord, body: string): Promise<void> {
-    const signer = this.trust.signer;
+    const signer = this.keys.signer;
     if (!signer) throw new Error("Only the agent can append records");
     const encoded = encode(record);
     const signature = signer.sign(this.scope(issue), encoded);
@@ -127,31 +124,32 @@ export class GitHubDeliveryRecordStore implements DeliveryRecordPort {
     );
   }
 
-  async list(issue: number): Promise<readonly DeliveryRecord[]> {
+  async candidates(issue: number): Promise<readonly RecordCandidate[]> {
     const comments = await this.comments.list(issue);
-    return comments
-      .filter(
-        ({ authorId, edited }) =>
-          authorId === this.trust.agentUserId && !edited,
-      )
-      .flatMap(({ body }) => this.read(issue, body));
+    return comments.flatMap(({ body, authorId, edited }) => {
+      const marker = MARKER.exec(body);
+      if (!marker) return [];
+      const [, encoded, signature] = marker;
+      const record = this.decode(encoded!);
+      if (!record) return [];
+      const signatureValid = this.keys.verifier.verify(
+        this.scope(issue),
+        encoded!,
+        signature!,
+      );
+      return [{ record, evidence: { authorId, edited, signatureValid } }];
+    });
   }
 
-  private read(issue: number, body: string): DeliveryRecord[] {
-    const marker = MARKER.exec(body);
-    if (!marker) return [];
-    const [, encoded, signature] = marker;
-    const scope = this.scope(issue);
-    if (!this.trust.verifier.verify(scope, encoded!, signature!)) return [];
+  private decode(encoded: string): DeliveryRecord | null {
     try {
-      const record = decode(JSON.parse(encoded!));
-      return record ? [record] : [];
+      return decode(JSON.parse(encoded));
     } catch {
-      return [];
+      return null;
     }
   }
 
   private scope(issue: number) {
-    return { repositoryId: this.trust.repositoryId, issue };
+    return { repositoryId: this.keys.repositoryId, issue };
   }
 }
