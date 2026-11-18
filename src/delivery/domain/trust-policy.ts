@@ -4,6 +4,7 @@
  * I/O or remembers an earlier answer. Anything not explicitly trusted is
  * denied, including facts that could not be established.
  */
+import type { Position } from "./state-machine.js";
 
 export const TrustDenial = {
   /** The request belongs to another project than the configured one. */
@@ -18,6 +19,10 @@ export const TrustDenial = {
   UnknownStateWriter: "unknown-state-writer",
   /** The current state was written by an account that is not AIR's. */
   UntrustedStateWriter: "untrusted-state-writer",
+  /** No trusted signed anchor vouches for the current state. */
+  StateAnchorMissing: "state-anchor-missing",
+  /** The latest trusted anchor names another state or another writer. */
+  StateAnchorMismatch: "state-anchor-mismatch",
   /** A delivery record not written by the agent account. */
   RecordNotByAgent: "record-not-by-agent",
   /** A delivery record changed after it was written. */
@@ -30,6 +35,19 @@ export type TrustDenial = (typeof TrustDenial)[keyof typeof TrustDenial];
 export type TrustDecision =
   | Readonly<{ trusted: true }>
   | Readonly<{ trusted: false; denial: TrustDenial; detail: string }>;
+
+/** Whether a delivery state needs a signed anchor (ADR-0010 step 4). */
+export const StateAnchorMode = {
+  /** Every active state needs one. The default. */
+  Require: "require",
+  /**
+   * Upgrade only: an issue with no trusted anchor at all is judged by its
+   * write history alone; once it has one, anchors are required.
+   */
+  Bootstrap: "bootstrap",
+} as const;
+export type StateAnchorMode =
+  (typeof StateAnchorMode)[keyof typeof StateAnchorMode];
 
 /** Who AIR trusts for what, by immutable account ID. */
 export type TrustRoster = Readonly<{
@@ -45,6 +63,7 @@ export type TrustRoster = Readonly<{
    * and approve, so it is refused unless explicitly accepted.
    */
   operatorMayApprove: boolean;
+  stateAnchors: StateAnchorMode;
 }>;
 
 /** Fresh facts about a command author's access, read for every command. */
@@ -58,6 +77,16 @@ export type AuthorAccess = Readonly<{
 export type StateProvenance =
   | Readonly<{ known: true; writerId: number; writerLogin: string }>
   | Readonly<{ known: false; reason: string }>;
+
+/** Facts about one signed state anchor, oldest first when listed. */
+export type AnchorEvidence = Readonly<{
+  authorId: number;
+  edited: boolean;
+  /** Verified with the public key of the author's AIR account. */
+  signatureValid: boolean;
+  /** The state the anchor vouches for. */
+  position: Position;
+}>;
 
 /** Facts about one stored delivery record, read every time it is used. */
 export type RecordEvidence = Readonly<{
@@ -148,16 +177,67 @@ export class TrustPolicy {
     return TRUSTED;
   }
 
-  /** Current delivery state counts only if one of AIR's accounts wrote it. */
-  state(provenance: StateProvenance): TrustDecision {
+  /**
+   * Current delivery state counts only if both hold:
+   * - one of AIR's accounts wrote it (the store's write history);
+   * - the latest trusted signed anchor names the same state and writer.
+   * Anchors alone could be undone by deleting the newest; a platform's write
+   * history alone can be rewritten (on GitHub, by renaming labels).
+   * Together, either attack only denies.
+   */
+  state(
+    provenance: StateProvenance,
+    position: Position,
+    anchors: readonly AnchorEvidence[],
+  ): TrustDecision {
     if (!provenance.known)
       return deny(TrustDenial.UnknownStateWriter, provenance.reason);
-    if (this.serviceIds.includes(provenance.writerId)) return TRUSTED;
-    const who = provenance.writerLogin || "a deleted account";
-    return deny(
-      TrustDenial.UntrustedStateWriter,
-      `The current state was set by ${who}, not by AIR.`,
-    );
+    if (!this.serviceIds.includes(provenance.writerId)) {
+      const who = provenance.writerLogin || "a deleted account";
+      return deny(
+        TrustDenial.UntrustedStateWriter,
+        `The current state was set by ${who}, not by AIR.`,
+      );
+    }
+    return this.anchored(provenance.writerId, position, anchors);
+  }
+
+  private anchored(
+    writerId: number,
+    position: Position,
+    anchors: readonly AnchorEvidence[],
+  ): TrustDecision {
+    const latest = anchors
+      .filter((anchor) => this.trustedAnchor(anchor))
+      .at(-1);
+    if (!latest) {
+      if (this.roster.stateAnchors === StateAnchorMode.Bootstrap)
+        return TRUSTED;
+      return deny(
+        TrustDenial.StateAnchorMissing,
+        "No signed state anchor from AIR vouches for the current state.",
+      );
+    }
+    const named = `${latest.position.phase}:${latest.position.status}`;
+    const samePosition =
+      latest.position.phase === position.phase &&
+      latest.position.status === position.status;
+    if (!samePosition)
+      return deny(
+        TrustDenial.StateAnchorMismatch,
+        `The latest signed state anchor says ${named}.`,
+      );
+    if (latest.authorId !== writerId)
+      return deny(
+        TrustDenial.StateAnchorMismatch,
+        "The latest signed state anchor and the stored state have different writers.",
+      );
+    return TRUSTED;
+  }
+
+  private trustedAnchor(anchor: AnchorEvidence): boolean {
+    const byAir = this.serviceIds.includes(anchor.authorId);
+    return byAir && !anchor.edited && anchor.signatureValid;
   }
 
   /**

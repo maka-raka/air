@@ -8,8 +8,11 @@ import {
   DeliveryStatus,
 } from "../../domain/state-machine.js";
 import type { Request } from "../../domain/state-machine.js";
-import { TrustPolicy } from "../../domain/trust-policy.js";
-import type { StateProvenancePort } from "../../application/execute-delivery-command.js";
+import { StateAnchorMode, TrustPolicy } from "../../domain/trust-policy.js";
+import type {
+  StateAnchorPort,
+  StateProvenancePort,
+} from "../../application/execute-delivery-command.js";
 
 /** Every test state counts as written by the operator account. */
 const trust = new TrustPolicy({
@@ -19,6 +22,7 @@ const trust = new TrustPolicy({
   agentId: 2,
   deployerId: null,
   operatorMayApprove: false,
+  stateAnchors: StateAnchorMode.Bootstrap,
 });
 const trustedWriter: StateProvenancePort = {
   provenance: async () => ({
@@ -26,6 +30,11 @@ const trustedWriter: StateProvenancePort = {
     writerId: 1,
     writerLogin: "air-bot",
   }),
+};
+/** No anchors: rosters here use bootstrap mode (anchor tests opt in). */
+const noAnchors: StateAnchorPort = {
+  candidates: async () => [],
+  append: async () => undefined,
 };
 
 function assert(condition: boolean, message: string): void {
@@ -85,6 +94,7 @@ async function main(): Promise<void> {
   const useCase = new ExecuteDeliveryCommand(
     new GitHubDeliveryStateStore(issue),
     trustedWriter,
+    noAnchors,
     trust,
   );
   const result = await useCase.execute({ issue: 42, request });
@@ -119,6 +129,7 @@ async function main(): Promise<void> {
   const unauthorizedUseCase = new ExecuteDeliveryCommand(
     new GitHubDeliveryStateStore(unauthorized),
     trustedWriter,
+    noAnchors,
     trust,
   );
   const rejected = await unauthorizedUseCase.execute({
@@ -137,6 +148,7 @@ async function main(): Promise<void> {
   const conflictResult = await new ExecuteDeliveryCommand(
     new GitHubDeliveryStateStore(conflicting),
     trustedWriter,
+    noAnchors,
     trust,
   ).execute({ issue: 42, request });
   assert(
@@ -150,6 +162,7 @@ async function main(): Promise<void> {
   const ambiguousResult = await new ExecuteDeliveryCommand(
     new GitHubDeliveryStateStore(ambiguous),
     trustedWriter,
+    noAnchors,
     trust,
   ).execute({ issue: 42, request });
   assert(
@@ -162,6 +175,7 @@ async function main(): Promise<void> {
   const initialized = await new ExecuteDeliveryCommand(
     new GitHubDeliveryStateStore(initialization),
     trustedWriter,
+    noAnchors,
     trust,
   ).execute({
     issue: 42,

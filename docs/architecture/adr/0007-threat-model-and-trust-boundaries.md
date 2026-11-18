@@ -58,7 +58,7 @@ The checks above protect AIR's state. They cannot stop a writer from pushing cod
 | A repository admin can forge records | **closed** by signed records | — |
 | Anyone with write access can delete record comments (evidence disappears) | open; deletion can only remove evidence, so gates fail closed | audit log outside GitHub |
 | The agent's signing key leaks | open | keep it only in the agent environment; rotate by generating a new pair and updating `AIR_AGENT_PUBLIC_KEY` everywhere (old records then stop counting) |
-| Renaming a label in repository settings changes it on every issue; whether the event history then shows the old or the new name is unverified | open | verify on the live run; signed state anchors would close it either way |
+| Renaming a label in repository settings changes it on every issue; whether the event history then shows the old or the new name is unverified | **closed** by signed state anchors ([ADR-0010](0010-zero-trust.md) step 4): the label must also match the latest anchor | — |
 | Prompt injection: the agent reads text from any commenter and holds a write token | open | private repositories only; agent reads only approver-authored text; sandbox and Claude Code deny rules (P1) |
 | Agent token can push code and edit workflows | mitigated by repository settings | branch protection, CODEOWNERS for `.github/`, token without *Workflows* permission |
 | GitHub bumps `updated_at` for a non-content change, so a valid record is ignored | fails closed | if seen on the live run, drop the edit check for records: signatures already cover them |

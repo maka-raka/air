@@ -17,7 +17,7 @@ You act as the **agent account**. Humans approve every phase change. You never c
 2. **Never** push to the default branch, merge a PR, approve a PR, create a release or trigger a deployment. Humans do these.
 3. **Never** edit `.github/`, `CODEOWNERS`, AIR's configuration or any file holding secrets, unless the issue explicitly asks for it and an approver confirmed it.
 4. **Never** print, log, commit or paste tokens or `AIR_AGENT_SIGNING_KEY`.
-5. **Never** edit or delete AIR comments or labels by hand, and never edit your earlier comments: AIR ignores edited records.
+5. **Never** edit or delete AIR comments or labels by hand, and never edit your earlier comments: AIR ignores edited records, and a deleted `AIR state` comment makes the issue untrusted.
 6. In PR descriptions write `AIR-Issue: #<n>` on its own line. **Never** use `Closes`, `Fixes` or `Resolves`: GitHub would close the issue on merge and break the delivery.
 
 ## Workflow for one phase
@@ -52,4 +52,4 @@ Facts must be true. AIR verifies what it can (PR state, checks, deployments) and
 
 ## Configuration
 
-`npx air` reads `.env.air` in the project root (or `--env-file <path>`). It needs `AIR_REPOSITORY`, `AIR_OPERATOR_LOGIN`, `AIR_AGENT_LOGIN`, `AIR_APPROVER_LOGINS`, `AIR_AGENT_TOKEN` and `AIR_AGENT_SIGNING_KEY`. If a variable is missing, ask the person running this session. Never invent or copy values from elsewhere.
+`npx air` reads `.env.air` in the project root (or `--env-file <path>`). It needs `AIR_REPOSITORY`, `AIR_OPERATOR_LOGIN`, `AIR_AGENT_LOGIN`, `AIR_APPROVER_LOGINS`, `AIR_OPERATOR_PUBLIC_KEY`, `AIR_AGENT_TOKEN` and `AIR_AGENT_SIGNING_KEY` (and `AIR_DEPLOY_PUBLIC_KEY` when deployments are reported). If a variable is missing, ask the person running this session. Never invent or copy values from elsewhere.

@@ -10,7 +10,17 @@ import type { KeyObject } from "node:crypto";
 /** What a record signature is bound to: one issue of one repository. */
 export type RecordScope = Readonly<{ repositoryId: number; issue: number }>;
 
-const DOMAIN = "air-record:v1";
+/**
+ * What a signature is for. Part of the signed bytes, so a signature made for
+ * one purpose (an agent record) never verifies for another (a state anchor),
+ * even under the same key.
+ */
+export const SignatureDomain = {
+  Record: "air-record:v1",
+  StateAnchor: "air-state:v1",
+} as const;
+export type SignatureDomain =
+  (typeof SignatureDomain)[keyof typeof SignatureDomain];
 const ED25519 = "ed25519";
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
 
@@ -18,9 +28,13 @@ const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
  * Bytes covered by a signature. The repository and issue are included, so a
  * signed record copied to another issue or repository does not verify.
  */
-function signedBytes(scope: RecordScope, encoded: string): Buffer {
+function signedBytes(
+  domain: SignatureDomain,
+  scope: RecordScope,
+  encoded: string,
+): Buffer {
   return Buffer.from(
-    `${DOMAIN}\n${scope.repositoryId}\n${scope.issue}\n${encoded}`,
+    `${domain}\n${scope.repositoryId}\n${scope.issue}\n${encoded}`,
     "utf8",
   );
 }
@@ -37,10 +51,18 @@ function der(value: string, name: string): Buffer {
   return Buffer.from(compact, "base64");
 }
 
-/** Checks agent record signatures; holds only the public key. */
+/** Checks signatures for one domain; holds only the public key. */
 export class Ed25519RecordVerifier {
-  constructor(private readonly publicKey: KeyObject) {
+  constructor(
+    private readonly publicKey: KeyObject,
+    private readonly domain: SignatureDomain = SignatureDomain.Record,
+  ) {
     ed25519(publicKey, "Record public key");
+  }
+
+  /** The same key, checking signatures of another domain. */
+  forDomain(domain: SignatureDomain): Ed25519RecordVerifier {
+    return new Ed25519RecordVerifier(this.publicKey, domain);
   }
 
   /** `value`: base64 DER (SPKI), as printed by `air keygen`. */
@@ -57,7 +79,7 @@ export class Ed25519RecordVerifier {
     if (!BASE64.test(signature)) return false;
     return verify(
       null,
-      signedBytes(scope, encoded),
+      signedBytes(this.domain, scope, encoded),
       this.publicKey,
       Buffer.from(signature, "base64"),
     );
@@ -71,13 +93,24 @@ export class Ed25519RecordVerifier {
   }
 }
 
-/** Signs agent records; only the agent process holds this key. */
+/** Signs for one domain; only the owning process holds this key. */
 export class Ed25519RecordSigner {
   readonly verifier: Ed25519RecordVerifier;
 
-  constructor(private readonly privateKey: KeyObject) {
+  constructor(
+    private readonly privateKey: KeyObject,
+    private readonly domain: SignatureDomain = SignatureDomain.Record,
+  ) {
     ed25519(privateKey, "Record signing key");
-    this.verifier = new Ed25519RecordVerifier(createPublicKey(privateKey));
+    this.verifier = new Ed25519RecordVerifier(
+      createPublicKey(privateKey),
+      domain,
+    );
+  }
+
+  /** The same key, signing for another domain. */
+  forDomain(domain: SignatureDomain): Ed25519RecordSigner {
+    return new Ed25519RecordSigner(this.privateKey, domain);
   }
 
   /** `value`: base64 DER (PKCS#8), as printed by `air keygen`. */
@@ -91,9 +124,11 @@ export class Ed25519RecordSigner {
   }
 
   sign(scope: RecordScope, encoded: string): string {
-    return sign(null, signedBytes(scope, encoded), this.privateKey).toString(
-      "base64",
-    );
+    return sign(
+      null,
+      signedBytes(this.domain, scope, encoded),
+      this.privateKey,
+    ).toString("base64");
   }
 }
 

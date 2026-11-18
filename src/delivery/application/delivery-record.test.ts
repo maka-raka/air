@@ -9,7 +9,7 @@ import type {
   DeliveryRecordSource,
   RecordCandidate,
 } from "./delivery-record.js";
-import { TrustPolicy } from "../domain/trust-policy.js";
+import { StateAnchorMode, TrustPolicy } from "../domain/trust-policy.js";
 import type { RecordEvidence } from "../domain/trust-policy.js";
 
 const AGENT = 77;
@@ -20,6 +20,7 @@ const trust = new TrustPolicy({
   agentId: AGENT,
   deployerId: null,
   operatorMayApprove: false,
+  stateAnchors: StateAnchorMode.Bootstrap,
 });
 const block = (at: string): DeliveryRecord => ({
   kind: DeliveryRecordKind.Block,
