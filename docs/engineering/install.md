@@ -26,11 +26,11 @@ This adds the agent skill, the deploy workflow and `.env.air.example`, and ignor
 ## 3. Accounts, keys and settings
 
 1. Create the operator, agent and deployer accounts and their tokens ([Repository Hardening §1–2](security-hardening.md#1-accounts)).
-2. `npx --no air keygen`. The signing key goes **only** to where the agent runs.
+2. `npx --no air keygen agent`, `… operator` and, if you report deployments, `… deployer`. Each private key goes **only** to the process that signs with it ([Repository Hardening §5](security-hardening.md#5-signing-keys)).
 3. Apply branch, workflow and environment protection ([Repository Hardening §3](security-hardening.md#3-branch-and-workflow-protection)).
 4. In *Settings → Secrets and variables → Actions*:
-   - **variables:** `AIR_OPERATOR_LOGIN`, `AIR_AGENT_LOGIN`, `AIR_DEPLOY_LOGIN`, `AIR_AGENT_PUBLIC_KEY`, and optionally `AIR_ENVIRONMENT_STAGE` / `AIR_ENVIRONMENT_PROD`;
-   - **environment secret** in each deploy environment: `AIR_DEPLOY_TOKEN`.
+   - **variables:** `AIR_OPERATOR_LOGIN`, `AIR_AGENT_LOGIN`, `AIR_DEPLOY_LOGIN`, `AIR_AGENT_PUBLIC_KEY`, `AIR_OPERATOR_PUBLIC_KEY`, `AIR_DEPLOY_PUBLIC_KEY`, and optionally `AIR_ENVIRONMENT_STAGE` / `AIR_ENVIRONMENT_PROD` / `AIR_STATE_ANCHORS`;
+   - **environment secrets** in each deploy environment: `AIR_DEPLOY_TOKEN` and `AIR_DEPLOY_SIGNING_KEY`.
 
 5. Verify with `AIR_DOCTOR_TOKEN=$(gh auth token) npx --no air doctor --strict` after step 4. Fix every `FAIL` and `??` before running AIR.
 
@@ -41,7 +41,7 @@ cp .env.air.example .env.air
 chmod 600 .env.air        # AIR refuses a file other users can read
 ```
 
-Fill in the repository, accounts, approvers, the public key, the operator token and, for the agent, `AIR_AGENT_TOKEN` and `AIR_AGENT_SIGNING_KEY`.
+Fill in the repository, accounts, approvers, the public keys, the operator token and signing key and, for the agent, `AIR_AGENT_TOKEN` and `AIR_AGENT_SIGNING_KEY`.
 
 ## 5. Run
 

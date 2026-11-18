@@ -15,7 +15,8 @@ import type {
   DeliveryLease,
   HumanCommandMessage,
 } from "./ingest-human-command.js";
-import { TrustPolicy } from "../domain/trust-policy.js";
+import { StateAnchorMode, TrustPolicy } from "../domain/trust-policy.js";
+import type { AuditEvent, AuditPort } from "./audit.js";
 import type { AuthorAccess } from "../domain/trust-policy.js";
 
 const trust = new TrustPolicy({
@@ -25,7 +26,15 @@ const trust = new TrustPolicy({
   agentId: 77,
   deployerId: null,
   operatorMayApprove: false,
+  stateAnchors: StateAnchorMode.Bootstrap,
 });
+
+class MemoryAudit implements AuditPort {
+  readonly events: AuditEvent[] = [];
+  async record(event: AuditEvent): Promise<void> {
+    this.events.push(event);
+  }
+}
 
 type ClaimCall = Readonly<{ operation: string; deliveryId: string }>;
 
@@ -110,16 +119,19 @@ function fixture(
   const claims = new FakeClaims();
   const authorization = new FakeAccess(options.access);
   const handler = options.handler ?? new FakeHandler();
+  const audit = new MemoryAudit();
   return {
     message,
     claims,
     authorization,
     handler,
+    audit,
     useCase: new IngestHumanCommand(
       options.claims ?? claims,
       options.authorization ?? authorization,
       trust,
       handler,
+      audit,
     ),
   };
 }
@@ -319,6 +331,69 @@ describe("IngestHumanCommand", () => {
     const result = useCase.execute(message);
 
     await assert.rejects(result, (error) => error === failure);
+    assert.deepEqual(handler.handled, []);
+  });
+
+  it("audits an admitted command with the author and comment", async () => {
+    const { message, audit, useCase } = fixture();
+
+    await useCase.execute(message);
+
+    assert.deepEqual(audit.events, [
+      {
+        kind: "command",
+        issue: 42,
+        allowed: true,
+        reason: "admitted",
+        actorId: 7,
+        details: {
+          login: "octocat",
+          source: 123,
+          comment: 900,
+          message: "12345678-1234-1234-1234-123456789abc",
+        },
+      },
+    ]);
+  });
+
+  it("audits a refused command with the denial", async () => {
+    const { message, audit, useCase } = fixture();
+
+    await useCase.execute({ ...message, author: { id: 8, login: "mallory" } });
+
+    assert.equal(audit.events.length, 1);
+    assert.equal(audit.events[0]!.allowed, false);
+    assert.equal(audit.events[0]!.reason, "not-approver");
+  });
+
+  it("audits nothing for ordinary discussion", async () => {
+    const { message, audit, useCase } = fixture();
+
+    await useCase.execute({ ...message, comment: { id: 1, body: "LGTM" } });
+
+    assert.deepEqual(audit.events, []);
+  });
+
+  it("fails closed when the audit cannot be written", async () => {
+    const failure = new Error("disk full");
+    const { message, claims, handler } = fixture();
+    const useCase = new IngestHumanCommand(
+      claims,
+      new FakeAccess(),
+      trust,
+      handler,
+      {
+        record: async () => {
+          throw failure;
+        },
+      },
+    );
+
+    await assert.rejects(
+      useCase.execute(message),
+      (error) => error === failure,
+    );
+    assert.deepEqual(claims.calls, []);
     assert.deepEqual(handler.handled, []);
   });
 });

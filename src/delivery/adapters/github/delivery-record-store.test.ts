@@ -12,8 +12,12 @@ import {
 } from "../../application/delivery-record.js";
 import type { DeliveryRecord } from "../../application/delivery-record.js";
 import { DeliveryPhase } from "../../domain/state-machine.js";
-import { TrustPolicy } from "../../domain/trust-policy.js";
+import { StateAnchorMode, TrustPolicy } from "../../domain/trust-policy.js";
 import { Ed25519RecordSigner, generateRecordKeys } from "./record-signature.js";
+import type { AuditPort } from "../../application/audit.js";
+
+/** Audit is covered by its own tests. */
+const noAudit: AuditPort = { record: async () => undefined };
 
 const AGENT = 77;
 const REPOSITORY = 123;
@@ -25,6 +29,7 @@ const TRUST = new TrustPolicy({
   agentId: AGENT,
   deployerId: null,
   operatorMayApprove: false,
+  stateAnchors: StateAnchorMode.Bootstrap,
 });
 
 /** A marker signed with the agent key, as the agent would write it. */
@@ -71,10 +76,11 @@ function fixture() {
   return {
     comments,
     source,
-    store: new TrustedDeliveryRecords(source, TRUST),
+    store: new TrustedDeliveryRecords(source, TRUST, noAudit),
     reader: new TrustedDeliveryRecords(
       new GitHubDeliveryRecordStore(comments, keys),
       TRUST,
+      noAudit,
     ),
   };
 }

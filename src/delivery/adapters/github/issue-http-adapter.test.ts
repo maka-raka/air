@@ -10,8 +10,15 @@ import type {
   GitHubApiErrorCategory,
   HttpRequest,
 } from "./github-rest-client.js";
-import { TrustPolicy } from "../../domain/trust-policy.js";
-import type { StateProvenancePort } from "../../application/execute-delivery-command.js";
+import { StateAnchorMode, TrustPolicy } from "../../domain/trust-policy.js";
+import type {
+  StateAnchorPort,
+  StateProvenancePort,
+} from "../../application/execute-delivery-command.js";
+import type { AuditPort } from "../../application/audit.js";
+
+/** Audit is covered by its own tests. */
+const noAudit: AuditPort = { record: async () => undefined };
 
 /** Every test state counts as written by the operator account. */
 const trust = new TrustPolicy({
@@ -21,6 +28,7 @@ const trust = new TrustPolicy({
   agentId: 2,
   deployerId: null,
   operatorMayApprove: false,
+  stateAnchors: StateAnchorMode.Bootstrap,
 });
 const trustedWriter: StateProvenancePort = {
   provenance: async () => ({
@@ -28,6 +36,11 @@ const trustedWriter: StateProvenancePort = {
     writerId: 1,
     writerLogin: "air-bot",
   }),
+};
+/** No anchors: rosters here use bootstrap mode (anchor tests opt in). */
+const noAnchors: StateAnchorPort = {
+  candidates: async () => [],
+  append: async () => undefined,
 };
 
 const ISSUE_NUMBER = 42;
@@ -350,7 +363,9 @@ describe("GitHubIssueHttpAdapter", () => {
       const useCase = new ExecuteDeliveryCommand(
         new GitHubDeliveryStateStore(client),
         trustedWriter,
+        noAnchors,
         trust,
+        noAudit,
       );
 
       // Act

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { isEntryPoint, loadEnvFile, repository, required } from "./config.js";
 import { CommentCommandHandler } from "../application/comment-command-handler.js";
@@ -29,10 +29,16 @@ import {
   readServiceLogins,
   recordVerifier,
   resolveServiceAccounts,
+  KeyRole,
+  readAnchorMode,
+  recordSigner,
+  fileAuditLog,
+  stateAnchorStore,
   trustPolicy,
   trustedExecutor,
 } from "./trust.js";
 import type { ServiceLogins } from "./trust.js";
+import type { StateAnchorMode } from "../domain/trust-policy.js";
 
 export type LocalConfig = Readonly<{
   owner: string;
@@ -54,6 +60,15 @@ export type LocalConfig = Readonly<{
    * set state labels that AIR trusts.
    */
   allowOperatorApprover: boolean;
+  /** Operator private key: signs the state anchors the poller writes. */
+  operatorSigningKey: string;
+  /** Optional; when set it must match the operator signing key. */
+  operatorPublicKey?: string;
+  /** Deployer public key; required when a deployer is configured. */
+  deployPublicKey?: string;
+  stateAnchors: StateAnchorMode;
+  /** Hash-chained audit log file; one writer per file. */
+  auditLog: string;
 }>;
 
 const ENABLED = "true";
@@ -90,6 +105,17 @@ export function readLocalConfig(
     recordPublicKey: required(env, "AIR_AGENT_PUBLIC_KEY"),
     approverLogins: readApproverLogins(env),
     allowOperatorApprover: env.AIR_ALLOW_OPERATOR_APPROVER === ENABLED,
+    operatorSigningKey: required(env, "AIR_OPERATOR_SIGNING_KEY"),
+    ...(env.AIR_OPERATOR_PUBLIC_KEY
+      ? { operatorPublicKey: env.AIR_OPERATOR_PUBLIC_KEY }
+      : {}),
+    ...(env.AIR_DEPLOY_PUBLIC_KEY
+      ? { deployPublicKey: env.AIR_DEPLOY_PUBLIC_KEY }
+      : {}),
+    stateAnchors: readAnchorMode(env),
+    auditLog:
+      env.AIR_AUDIT_LOG ||
+      join(env.AIR_STATE_DIR || ".air", "audit-poller.jsonl"),
   };
 }
 
@@ -108,44 +134,62 @@ export async function composeLocal(
   const identity = await repository.identity();
   const users = new GitHubUserHttpAdapter(client);
   const accounts = await resolveServiceAccounts(users, config.accounts);
-  const operator = await assertTokenOwner(
-    users,
-    accounts.operator,
-    "AIR_GITHUB_TOKEN",
-  );
+  await assertTokenOwner(users, accounts.operator, "AIR_GITHUB_TOKEN");
   const approvers = await Promise.all(
     config.approverLogins.map((login) => users.byLogin(login)),
   );
-  const trust = trustPolicy(
+  const trust = trustPolicy(identity.id, accounts, {
+    approverIds: approvers.map(({ id }) => id),
+    operatorMayApprove: config.allowOperatorApprover,
+    stateAnchors: config.stateAnchors,
+  });
+  const comments = new GitHubIssueCommentHttpAdapter(client);
+  const audit = fileAuditLog(config.auditLog);
+  const signer = recordSigner(
+    config.operatorSigningKey,
+    config.operatorPublicKey,
+    KeyRole.Operator,
+  );
+  const agentKey = recordVerifier(config.recordPublicKey);
+  const anchors = stateAnchorStore(
+    comments,
     identity.id,
     accounts,
-    approvers.map(({ id }) => id),
-    config.allowOperatorApprover,
+    {
+      operator: signer.verifier,
+      agent: agentKey,
+      deployer: config.deployPublicKey
+        ? recordVerifier(config.deployPublicKey, "AIR_DEPLOY_PUBLIC_KEY")
+        : null,
+    },
+    signer,
   );
-  const comments = new GitHubIssueCommentHttpAdapter(client);
   const handler = new CommentCommandHandler(
     new RecordedDeliveryEvidence(
       new TrustedDeliveryRecords(
         new GitHubDeliveryRecordStore(comments, {
           repositoryId: identity.id,
-          verifier: recordVerifier(config.recordPublicKey),
+          verifier: agentKey,
         }),
         trust,
+        audit,
       ),
       new GitHubPullRequestHttpAdapter(client),
       () => new Date(),
       config.runTtlMs,
     ),
-    trustedExecutor(client, trust),
+    trustedExecutor(client, anchors, trust, audit),
     new GitHubCommandReplyAdapter(comments),
     // Replies are posted with this token, so only its markers are trusted.
-    new GitHubProcessedCommands(comments, operator.id),
+    new GitHubProcessedCommands(comments),
+    trust,
   );
   const ingestion = new IngestHumanCommand(
     new InMemoryDeliveryClaims(config.leaseMs),
     new GitHubCollaboratorAccess(repository),
     trust,
     handler,
+    audit,
   );
   return new GitHubCommentPoller(
     comments,
