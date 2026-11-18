@@ -102,7 +102,7 @@ interface TransitionDecision {
 interface DeliverySnapshot {
   id: string;
   position: PhasePosition;
-  version: string; // application-level concurrency token, semantics TBD
+  revision: string; // opaque concurrency token owned by the state adapter
 }
 
 function decideTransition(

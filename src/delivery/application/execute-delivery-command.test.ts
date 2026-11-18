@@ -48,12 +48,12 @@ class FakeState implements DeliveryStatePort {
 }
 
 const ready: DeliverySnapshot = {
-  labels: ["air:requirements:ready", "priority:high"],
   position: {
     phase: DeliveryPhase.Requirements,
     status: DeliveryStatus.Ready,
   },
   closed: false,
+  revision: "r1",
 };
 
 const start: Request = {
@@ -127,7 +127,7 @@ describe("ExecuteDeliveryCommand", () => {
 
   it("rejects commands on a closed delivery", async () => {
     const state = new FakeState(
-      loaded({ labels: [], position: null, closed: true }),
+      loaded({ position: null, closed: true, revision: "r1" }),
     );
     const useCase = new ExecuteDeliveryCommand(state);
 
@@ -142,7 +142,7 @@ describe("ExecuteDeliveryCommand", () => {
 
   it("requires initialization when no active state exists", async () => {
     const state = new FakeState(
-      loaded({ labels: [], position: null, closed: false }),
+      loaded({ position: null, closed: false, revision: "r1" }),
     );
     const useCase = new ExecuteDeliveryCommand(state);
 
@@ -154,9 +154,9 @@ describe("ExecuteDeliveryCommand", () => {
 
   it("initializes a delivery without an active state", async () => {
     const empty: DeliverySnapshot = {
-      labels: [],
       position: null,
       closed: false,
+      revision: "r1",
     };
     const state = new FakeState(loaded(empty));
     const useCase = new ExecuteDeliveryCommand(state);

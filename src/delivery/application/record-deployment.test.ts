@@ -76,7 +76,7 @@ function fixture(
 
 const applied: DeliveryResult = {
   ok: true,
-  snapshot: { labels: [], position: null, closed: false },
+  snapshot: { position: null, closed: false, revision: "r1" },
 };
 
 describe("RecordDeployment", () => {

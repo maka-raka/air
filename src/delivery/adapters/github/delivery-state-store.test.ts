@@ -176,6 +176,19 @@ async function main() {
       null,
     "deployment marker is not active",
   );
+  const revision = (labels: string[], closed = false) =>
+    parseSnapshot({ labels, closed }).revision;
+  assert(
+    revision(["priority:high", "air:build:ready"]) ===
+      revision(["air:build:ready", "priority:high"]),
+    "revision ignores label order",
+  );
+  assert(
+    revision(["air:build:ready"]) !==
+      revision(["air:build:ready", "priority:high"]),
+    "revision covers labels outside AIR",
+  );
+  assert(revision([]) !== revision([], true), "revision covers closed state");
   console.log("GitHub DeliveryStateStore passed: " + checks + " assertions");
 }
 await main();

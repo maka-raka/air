@@ -36,7 +36,7 @@ The exact order of posting comment and updating labels must be chosen for crash 
 
 | Port (proposed) | Required behavior | Initial adapter |
 | --- | --- | --- |
-| `DeliveryStatePort` | `load` snapshot; `save` next position only if state still equals the loaded snapshot, then verify. Never decides transitions | GitHub Issues labels (`GitHubDeliveryStateStore`) |
+| `DeliveryStatePort` | `load` a snapshot (position, closed, opaque `revision`); `save` the next position only if the stored revision still equals the loaded one, then verify. Never decides transitions. The application never sees the storage format | GitHub Issues labels (`GitHubDeliveryStateStore`: revision covers all labels and open/closed) |
 | `PhaseOutputStore` | Read/write append-only phase reports; retrieve latest applicable report | GitHub issue comments |
 | `CodeChangeReader` | PR metadata, head SHA, checks, review findings and overlap | GitHub API / local git |
 | `GateEvidenceProvider` | Collect authoritative, revision-linked evidence and report unavailable sources | Shell checks, CI checks, deployment/log readers |

@@ -33,6 +33,16 @@ function activeLabels(labels: readonly string[]): string[] {
     return !!match && phases.includes(match[1]) && statuses.includes(match[2]);
   });
 }
+/**
+ * Revision of an issue's delivery state: every label (not just AIR's) plus
+ * open/closed, so any concurrent label edit or reopen changes it.
+ */
+export function issueRevision(issue: ReadIssue): string {
+  return JSON.stringify({
+    labels: [...issue.labels].sort(),
+    closed: issue.closed,
+  });
+}
 export function parseSnapshot(issue: ReadIssue): DeliverySnapshot {
   const active = activeLabels(issue.labels);
   const malformed = issue.labels.filter(
@@ -50,25 +60,17 @@ export function parseSnapshot(issue: ReadIssue): DeliverySnapshot {
   if (issue.closed && active.length > 0) throw new Error("invalid-state");
   const match = active[0] ? activePattern.exec(active[0]) : null;
   return {
-    labels: [...issue.labels],
     position: match
       ? { phase: match[1] as Phase, status: match[2] as Status }
       : null,
     closed: issue.closed,
+    revision: issueRevision(issue),
   };
 }
-function equal(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((value, i) => value === b[i]);
-}
-function same(a: ReadIssue, b: ReadIssue): boolean {
+function matches(a: DeliverySnapshot, position: Position | null): boolean {
   return (
-    a.closed === b.closed && equal([...a.labels].sort(), [...b.labels].sort())
-  );
-}
-function matches(a: DeliverySnapshot, b: DeliverySnapshot): boolean {
-  return (
-    a.closed === b.closed &&
-    JSON.stringify(a.position) === JSON.stringify(b.position)
+    a.closed === (position === null) &&
+    JSON.stringify(a.position) === JSON.stringify(position)
   );
 }
 /**
@@ -103,9 +105,9 @@ export class GitHubDeliveryStateStore implements DeliveryStatePort {
         "Unable to confirm unchanged state: " + String(e),
       );
     }
-    if (!same(expected, latest))
+    if (issueRevision(latest) !== expected.revision)
       return fail(DeliveryFailure.StateConflict, "Issue changed before write");
-    const inactive = expected.labels.filter(
+    const inactive = latest.labels.filter(
       (label) => !activeLabels([label]).length,
     );
     const labels = next ? [...inactive, stateLabel(next)] : inactive;
@@ -126,18 +128,21 @@ export class GitHubDeliveryStateStore implements DeliveryStatePort {
       // A transport failure may occur after GitHub accepted the write.
       return fail(DeliveryFailure.UncertainWrite, String(e));
     }
+    let readBack: ReadIssue;
     let after: DeliverySnapshot;
     try {
-      after = parseSnapshot(await this.port.read(issue));
+      readBack = await this.port.read(issue);
+      after = parseSnapshot(readBack);
     } catch (e) {
       return fail(
         DeliveryFailure.UncertainWrite,
         "Cannot verify write: " + String(e),
       );
     }
-    if (!matches(after, { labels, position: next, closed: next === null }))
+    if (!matches(after, next))
       return fail(DeliveryFailure.UncertainWrite, "Read-back state mismatch");
-    if (next && !equal([...after.labels].sort(), [...labels].sort()))
+    const written = issueRevision({ labels, closed: readBack.closed });
+    if (next && after.revision !== written)
       return fail(
         DeliveryFailure.StateConflict,
         "Concurrent label modification detected after write",
