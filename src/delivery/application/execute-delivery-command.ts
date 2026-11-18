@@ -139,7 +139,8 @@ export class ExecuteDeliveryCommand {
     next: Position | null,
     saved: DeliveryResult,
   ): Promise<DeliveryResult> {
-    if (!saved.ok || !next || this.same(before, next)) return saved;
+    if (!saved.ok || !next) return saved;
+    if (this.same(before, next)) return saved;
     try {
       await this.anchors.append(issue, next);
     } catch (error) {

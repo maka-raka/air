@@ -210,14 +210,7 @@ export class TrustPolicy {
     const latest = anchors
       .filter((anchor) => this.trustedAnchor(anchor))
       .at(-1);
-    if (!latest) {
-      if (this.roster.stateAnchors === StateAnchorMode.Bootstrap)
-        return TRUSTED;
-      return deny(
-        TrustDenial.StateAnchorMissing,
-        "No signed state anchor from AIR vouches for the current state.",
-      );
-    }
+    if (!latest) return this.unanchored();
     const named = `${latest.position.phase}:${latest.position.status}`;
     const samePosition =
       latest.position.phase === position.phase &&
@@ -233,6 +226,15 @@ export class TrustPolicy {
         "The latest signed state anchor and the stored state have different writers.",
       );
     return TRUSTED;
+  }
+
+  /** No trusted anchor at all: only bootstrap mode falls back to history. */
+  private unanchored(): TrustDecision {
+    if (this.roster.stateAnchors === StateAnchorMode.Bootstrap) return TRUSTED;
+    return deny(
+      TrustDenial.StateAnchorMissing,
+      "No signed state anchor from AIR vouches for the current state.",
+    );
   }
 
   private trustedAnchor(anchor: AnchorEvidence): boolean {
