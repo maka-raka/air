@@ -96,9 +96,9 @@ class FakeExecutor {
 const working: DeliveryResult = {
   ok: true,
   snapshot: {
-    labels: ["air:build:working"],
     position: { phase: DeliveryPhase.Build, status: DeliveryStatus.Working },
     closed: false,
+    revision: "r1",
   },
 };
 const invalid: DeliveryResult = {

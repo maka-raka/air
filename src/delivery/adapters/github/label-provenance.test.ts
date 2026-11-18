@@ -18,9 +18,9 @@ const OPERATOR = 9;
 const AGENT = 77;
 const LABEL = "air:review:waiting";
 const waiting: DeliverySnapshot = {
-  labels: [LABEL],
   position: { phase: DeliveryPhase.Review, status: DeliveryStatus.Waiting },
   closed: false,
+  revision: "r1",
 };
 
 class FakeState implements DeliveryStatePort {
@@ -104,7 +104,7 @@ describe("ProvenanceVerifiedStateStore", () => {
 
   it("skips the history for an issue without delivery state", async () => {
     const { reader, store: verified } = store([], {
-      snapshot: { labels: [], position: null, closed: false },
+      snapshot: { position: null, closed: false, revision: "r1" },
     });
 
     assert.equal((await verified.load(42)).ok, true);

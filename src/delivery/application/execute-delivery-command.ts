@@ -15,7 +15,7 @@ export const DeliveryFailure = {
   WriteFailed: "write-failed",
   UncertainWrite: "uncertain-write",
   PartialCompletion: "partial-completion",
-  /** The current state label was not written by a trusted AIR account. */
+  /** The stored state was not written by a trusted AIR account. */
   UntrustedState: "untrusted-state",
 } as const;
 
@@ -23,9 +23,13 @@ export type DeliveryFailure =
   (typeof DeliveryFailure)[keyof typeof DeliveryFailure];
 
 export type DeliverySnapshot = Readonly<{
-  labels: readonly string[];
   position: Position | null;
   closed: boolean;
+  /**
+   * Opaque concurrency token owned by the state adapter. The application only
+   * hands it back to `save` so the adapter can detect concurrent changes.
+   */
+  revision: string;
 }>;
 
 export type DeliveryResult =
@@ -69,7 +73,7 @@ const fail = (reason: DeliveryFailure, detail?: string): DeliveryResult => ({
 /**
  * Executes a trusted delivery command: load, decide, save.
  * The caller must authenticate the actor and acquire evidence before invoking.
- * No retry: GitHub label writes are not atomic or exactly-once.
+ * No retry: state stores may not write atomically or exactly-once.
  */
 export class ExecuteDeliveryCommand {
   constructor(

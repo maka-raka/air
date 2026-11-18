@@ -71,9 +71,9 @@ const buildReady = {
 const applied: DeliveryResult = {
   ok: true,
   snapshot: {
-    labels: ["air:build:ready"],
     position: buildReady,
     closed: false,
+    revision: "r1",
   },
 };
 
