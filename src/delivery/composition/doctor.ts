@@ -11,6 +11,7 @@ import type {
 import { GitHubRestClient } from "../adapters/github/github-rest-client.js";
 import type { HttpRequest } from "../adapters/github/github-rest-client.js";
 import { GitHubRepositoryHttpAdapter } from "../adapters/github/repository-http-adapter.js";
+import { GitHubPlatformAudit } from "../adapters/github/github-hardening-checklist.js";
 import { GitHubRepositorySettingsHttpAdapter } from "../adapters/github/repository-settings-http-adapter.js";
 import type { AuditedAccount } from "../adapters/github/repository-settings-http-adapter.js";
 import { DEFAULT_ENV_FILE, repository } from "./config.js";
@@ -103,10 +104,12 @@ export function composeDoctor(
     request,
   });
   return new AuditRepository(
-    new GitHubRepositorySettingsHttpAdapter(
-      client,
-      new GitHubRepositoryHttpAdapter(client),
-      { accounts: config.accounts, environments: config.environments },
+    new GitHubPlatformAudit(
+      new GitHubRepositorySettingsHttpAdapter(
+        client,
+        new GitHubRepositoryHttpAdapter(client),
+        { accounts: config.accounts, environments: config.environments },
+      ),
     ),
   );
 }

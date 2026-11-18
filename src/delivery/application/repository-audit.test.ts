@@ -3,67 +3,38 @@ import { describe, it } from "node:test";
 import {
   AccountAccess,
   AccountRole,
+  AuditFindings,
   AuditRepository,
   AuditStatus,
   RepositoryAudit,
 } from "./repository-audit.js";
-import type { LocalSettings, RepositorySettings } from "./repository-audit.js";
+import type {
+  AccountSetting,
+  LocalSettings,
+  PlatformAudit,
+} from "./repository-audit.js";
 
-const protection = {
-  pullRequestRequired: true,
-  requiredApprovals: 1,
-  codeOwnerReview: true,
-  dismissStaleApprovals: true,
-  statusChecksRequired: true,
-  forcePushBlocked: true,
-  deletionBlocked: true,
-};
-const hardened: RepositorySettings = {
-  private: true,
-  defaultBranch: "main",
-  branch: { known: true, value: protection },
-  bypassActors: { known: true, value: [] },
-  codeowners: { known: true, value: { coversWorkflows: true, errors: 0 } },
-  workflows: {
-    known: true,
-    value: { readOnlyByDefault: true, canApprovePullRequests: false },
+const accounts: readonly AccountSetting[] = [
+  { role: AccountRole.Operator, login: "air-bot", access: AccountAccess.Write },
+  { role: AccountRole.Agent, login: "air-agent", access: AccountAccess.Write },
+  {
+    role: AccountRole.Approver,
+    login: "octocat",
+    access: AccountAccess.Admin,
   },
-  environments: {
-    known: true,
-    value: {
-      staging: {
-        exists: true,
-        requiredReviewers: true,
-        branchRestricted: true,
-      },
-    },
-  },
-  accounts: [
-    {
-      role: AccountRole.Operator,
-      login: "air-bot",
-      access: AccountAccess.Write,
-    },
-    {
-      role: AccountRole.Agent,
-      login: "air-agent",
-      access: AccountAccess.Write,
-    },
-    {
-      role: AccountRole.Approver,
-      login: "octocat",
-      access: AccountAccess.Admin,
-    },
-  ],
+];
+const hardened: PlatformAudit = {
+  findings: [AuditFindings.pass("platform.rule", "Platform rule holds")],
+  accounts,
 };
 const tidy: LocalSettings = { envFilePrivate: true, envFileIgnored: true };
 
 const audit = new RepositoryAudit();
-const statusOf = (settings: RepositorySettings, id: string, local = tidy) =>
-  audit.evaluate(settings, local).find((finding) => finding.id === id)?.status;
+const statusOf = (platform: PlatformAudit, id: string) =>
+  audit.evaluate(platform, tidy).find((finding) => finding.id === id)?.status;
 
 describe("RepositoryAudit", () => {
-  it("passes a hardened repository", () => {
+  it("passes hardened accounts and local settings", () => {
     const findings = audit.evaluate(hardened, tidy);
 
     assert.deepEqual(
@@ -72,111 +43,44 @@ describe("RepositoryAudit", () => {
     );
   });
 
-  for (const [id, settings] of [
-    ["repository.private", { ...hardened, private: false }],
-    [
-      "branch.approvals",
-      {
-        ...hardened,
-        branch: {
-          known: true,
-          value: { ...protection, requiredApprovals: 0 },
-        },
-      },
-    ],
-    [
-      "branch.bypass",
-      { ...hardened, bypassActors: { known: true, value: ["Integration 1"] } },
-    ],
-    [
-      "codeowners.workflows",
-      {
-        ...hardened,
-        codeowners: {
-          known: true,
-          value: { coversWorkflows: false, errors: 0 },
-        },
-      },
-    ],
-    [
-      "actions.approve-prs",
-      {
-        ...hardened,
-        workflows: {
-          known: true,
-          value: { readOnlyByDefault: true, canApprovePullRequests: true },
-        },
-      },
-    ],
-    [
-      "environment.staging",
-      {
-        ...hardened,
-        environments: {
-          known: true,
-          value: {
-            staging: {
-              exists: false,
-              requiredReviewers: false,
-              branchRestricted: false,
-            },
-          },
-        },
-      },
-    ],
+  it("lists the platform's findings first, unchanged", () => {
+    const platform: PlatformAudit = {
+      findings: [AuditFindings.fail("platform.rule", "Platform rule broken")],
+      accounts: [],
+    };
+
+    assert.deepEqual(audit.evaluate(platform, tidy)[0], {
+      id: "platform.rule",
+      status: AuditStatus.Fail,
+      message: "Platform rule broken",
+    });
+  });
+
+  for (const [id, account] of [
     [
       "account.agent.air-agent",
       {
-        ...hardened,
-        accounts: [
-          {
-            role: AccountRole.Agent,
-            login: "air-agent",
-            access: AccountAccess.Admin,
-          },
-        ],
+        role: AccountRole.Agent,
+        login: "air-agent",
+        access: AccountAccess.Admin,
       },
     ],
     [
       "account.approver.octocat",
       {
-        ...hardened,
-        accounts: [
-          {
-            role: AccountRole.Approver,
-            login: "octocat",
-            access: AccountAccess.Read,
-          },
-        ],
+        role: AccountRole.Approver,
+        login: "octocat",
+        access: AccountAccess.Read,
       },
     ],
   ] as const) {
     it(`fails ${id}`, () => {
       assert.equal(
-        statusOf(settings as RepositorySettings, id),
+        statusOf({ ...hardened, accounts: [account] }, id),
         AuditStatus.Fail,
       );
     });
   }
-
-  it("reports unreadable settings as unknown, with the reason", () => {
-    const settings: RepositorySettings = {
-      ...hardened,
-      workflows: { known: false, reason: "needs admin" },
-    };
-
-    const findings = audit
-      .evaluate(settings, tidy)
-      .filter(({ id }) => id.startsWith("actions."));
-
-    assert.deepEqual(
-      findings.map(({ status, message }) => [status, message]),
-      [
-        [AuditStatus.Unknown, "needs admin"],
-        [AuditStatus.Unknown, "needs admin"],
-      ],
-    );
-  });
 
   it("checks the local env file only when it exists", () => {
     const exposed = audit.evaluate(hardened, {
@@ -201,12 +105,32 @@ describe("RepositoryAudit", () => {
   });
 });
 
+describe("AuditFindings", () => {
+  it("reports an unreadable setting as unknown for every id", () => {
+    const findings = AuditFindings.known(
+      { known: false, reason: "needs admin" },
+      ["a", "b"],
+      () => [],
+    );
+
+    assert.deepEqual(
+      findings.map(({ id, status, message }) => [id, status, message]),
+      [
+        ["a", AuditStatus.Unknown, "needs admin"],
+        ["b", AuditStatus.Unknown, "needs admin"],
+      ],
+    );
+  });
+});
+
 describe("AuditRepository", () => {
-  const unknownWorkflows: RepositorySettings = {
-    ...hardened,
-    workflows: { known: false, reason: "needs admin" },
+  const unknown: PlatformAudit = {
+    findings: [
+      { id: "platform.rule", status: AuditStatus.Unknown, message: "?" },
+    ],
+    accounts,
   };
-  const port = { read: async () => unknownWorkflows };
+  const port = { read: async () => unknown };
 
   it("fails on unknown settings only in strict mode", async () => {
     const use = new AuditRepository(port);

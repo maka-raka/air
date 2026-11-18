@@ -2,12 +2,14 @@ import { AccountAccess } from "../../application/repository-audit.js";
 import type {
   AccountRole,
   AccountSetting,
+  Known,
+} from "../../application/repository-audit.js";
+import type {
   BranchProtection,
   EnvironmentProtection,
-  Known,
   RepositorySettings,
-  RepositorySettingsPort,
-} from "../../application/repository-audit.js";
+  RepositorySettingsReader,
+} from "./github-hardening-checklist.js";
 import {
   GitHubContentEncoding,
   GitHubEnvironmentRule,
@@ -148,7 +150,7 @@ export function codeownersCoverWorkflows(text: string): boolean {
 }
 
 /** Reads repository settings for `air doctor`. Read-only. */
-export class GitHubRepositorySettingsHttpAdapter implements RepositorySettingsPort {
+export class GitHubRepositorySettingsHttpAdapter implements RepositorySettingsReader {
   constructor(
     private readonly client: GitHubRestClient,
     private readonly permissions: RepositoryPermissionReader,
