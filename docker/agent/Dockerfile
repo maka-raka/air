@@ -9,8 +9,8 @@
 # Node major in step with .nvmrc.
 FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54
 
-# Pin a Claude Code version for reproducible runs, e.g. --build-arg CLAUDE_CODE_VERSION=2.1.0
-ARG CLAUDE_CODE_VERSION=latest
+# Pinned for reproducible runs; keep in step with compose.yaml.
+ARG CLAUDE_CODE_VERSION=2.1.318
 
 # Claude Code fetches its native binary in its install script: allowed here,
 # at build time and without secrets. Project dependencies never run scripts.

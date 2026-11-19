@@ -83,8 +83,10 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: "24"
-          cache: npm
-      - run: npm ci --no-audit --no-fund
+      # This job holds the deploy secrets: no dependency install script may
+      # run here (it could replace air-deploy before the report step), and no
+      # shared npm cache is restored into it.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
 
       - name: Find AIR issues
         id: issues

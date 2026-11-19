@@ -61,12 +61,14 @@ Git pushes use `AIR_AGENT_TOKEN` through a credential helper that reads it from 
 
 The container stops when the Claude Code session ends. Remove it with `docker rm air-agent-42`; anything not pushed is lost, which is intended. Each run writes its own audit log to the `air-agent-audit` volume (`agent-issue-<n>-<time>.jsonl`).
 
-`docker/agent/managed-settings.json` adds Claude Code deny rules the agent cannot change: no unclassified issue text, merges, reviews, releases, workflow runs, label edits, force pushes or edits under `.github/`. They back up branch protection; they do not replace it.
+`docker/agent/managed-settings.json` adds Claude Code deny rules the agent cannot change: no unclassified issue text, merges, reviews, releases, workflow runs, label edits, force pushes or edits under `.github/`. They catch mistakes; they are not a security boundary, because another spelling of a command is not denied ([Repository Hardening §4](security-hardening.md#4-agent-environment)). They back up branch protection; they do not replace it.
 
-Pin Claude Code for reproducible runs:
+Each container has a process limit, and the poller and agent have memory and CPU limits; raise the agent's in `compose.yaml` if a project's build needs more.
+
+Claude Code is pinned in `docker/agent/Dockerfile` and `compose.yaml`. To build another version:
 
 ```bash
-CLAUDE_CODE_VERSION=2.1.0 docker compose build agent
+CLAUDE_CODE_VERSION=2.1.318 docker compose build agent
 ```
 
 ## 4. Automatic agent runs

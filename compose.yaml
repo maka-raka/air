@@ -20,6 +20,8 @@ x-hardening: &hardening
   cap_drop: [ALL]
   security_opt: ["no-new-privileges:true"]
   init: true
+  # A runaway or hostile process must not exhaust the host.
+  pids_limit: 512
 
 services:
   poller:
@@ -29,6 +31,8 @@ services:
     restart: unless-stopped
     read_only: true
     tmpfs: [/tmp]
+    mem_limit: 512m
+    cpus: 1
     env_file:
       - path: .env.air
       - path: .env.air.poller
@@ -45,9 +49,11 @@ services:
     build:
       context: docker/agent
       args:
-        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-latest}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.318}
     image: air-agent:local
     profiles: [agent]
+    mem_limit: 8g
+    cpus: 4
     stdin_open: true
     tty: true
     env_file:
