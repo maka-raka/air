@@ -15,7 +15,14 @@ import type { DeliveryResult } from "../application/execute-delivery-command.js"
 import { DeliveryPhase } from "../domain/state-machine.js";
 import { isEntryPoint, loadEnvFile, repository, required } from "./config.js";
 import type { StateAnchorMode } from "../domain/trust-policy.js";
-import { initProject, renderInit } from "./project-init.js";
+import {
+  initProject,
+  parseLenses,
+  renderInit,
+  renderTemplates,
+  templatesBehind,
+  updateTemplates,
+} from "./project-init.js";
 import {
   composeDoctor,
   readDoctorConfig,
@@ -62,8 +69,10 @@ export const AgentCliCommand = {
   Gate: "gate",
   /** Prints a new record-signing key pair; needs no configuration. */
   Keygen: "keygen",
-  /** Adds AIR's skill, deploy workflow and env template to a project. */
+  /** Adds AIR's skill, review lenses, deploy workflow and env template. */
   Init: "init",
+  /** Updates those files after an AIR upgrade, keeping local changes. */
+  Templates: "templates",
   /** Audits repository settings against the hardening checklist. */
   Doctor: "doctor",
   /** `air audit verify <file>`: checks an audit log's hash chain. */
@@ -97,7 +106,8 @@ export const USAGE = `Usage:
   air report <issue> <phase> (--summary <text> | --summary-file <path>) [--facts <json>]
   air gate <issue>
   air keygen [agent|operator|deployer]
-  air init
+  air init [--lens <name,...|all>]
+  air templates [--check] [--force] [--lens <name,...|all>]
   air doctor [--strict]
   air audit verify <file>
 
@@ -122,6 +132,32 @@ function options(args: readonly string[]): Map<string, string> {
     parsed.set(name.slice(2), value);
   }
   return parsed;
+}
+
+const FLAG_CHECK = "--check";
+const FLAG_FORCE = "--force";
+const FLAG_LENS = "--lens";
+
+export type TemplateArgs = Readonly<{
+  check: boolean;
+  force: boolean;
+  lenses: readonly string[];
+}>;
+
+/** `air init` and `air templates` options. */
+export function templateArgs(args: readonly string[]): TemplateArgs {
+  let check = false;
+  let force = false;
+  let lenses: readonly string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === FLAG_CHECK) check = true;
+    else if (arg === FLAG_FORCE) force = true;
+    else if (arg === FLAG_LENS) lenses = parseLenses(args[++i] ?? "");
+    else throw new Error(`Invalid option: ${arg}`);
+  }
+  if (check && force) throw new Error("--check and --force exclude each other");
+  return { check, force, lenses };
 }
 
 function textSource(parsed: Map<string, string>, name: string): TextSource {
@@ -465,7 +501,18 @@ async function main(): Promise<void> {
     return;
   }
   if (argv[0] === AgentCliCommand.Init) {
-    console.log(renderInit(await initProject(process.cwd())));
+    const { check, force, lenses } = templateArgs(argv.slice(1));
+    if (check || force) throw new Error("init takes only --lens");
+    console.log(renderInit(await initProject(process.cwd(), { lenses })));
+    return;
+  }
+  if (argv[0] === AgentCliCommand.Templates) {
+    const args = templateArgs(argv.slice(1));
+    const changes = await updateTemplates(process.cwd(), args);
+    console.log(renderTemplates(changes));
+    // `--check` fails when an upgrade would change something (for CI).
+    if (args.check && templatesBehind(changes))
+      process.exitCode = ExitCode.Rejected;
     return;
   }
   if (argv[0] === AgentCliCommand.Audit) {

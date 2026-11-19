@@ -2,8 +2,9 @@ import {
   DeliveryRecordKind,
   DeliveryRisk,
   IntakeRecommendation,
-  ReviewLens,
+  MAX_REVIEW_LENSES,
   RunOutcome,
+  isReviewLens,
 } from "../../application/delivery-record.js";
 import type {
   DeliveryRecord,
@@ -62,16 +63,12 @@ const oneOf =
     value === undefined || allowed.includes(String(value));
 const knownRecommendation = oneOf(Object.values(IntakeRecommendation));
 const knownRisk = oneOf(Object.values(DeliveryRisk));
-const lensNames: readonly string[] = Object.values(ReviewLens);
-
 function knownLenses(value: unknown): boolean {
   if (value === undefined) return true;
   if (!Array.isArray(value)) return false;
-  const unique = new Set(value.map(String));
-  return (
-    unique.size === value.length &&
-    value.every((lens) => lensNames.includes(String(lens)))
-  );
+  if (value.length > MAX_REVIEW_LENSES) return false;
+  const unique = new Set(value);
+  return unique.size === value.length && value.every(isReviewLens);
 }
 
 function reportFacts(value: unknown): ReportFacts | null {

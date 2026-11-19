@@ -33,13 +33,16 @@ export type IntakeRecommendation =
 export const DeliveryRisk = { Low: "low", High: "high" } as const;
 export type DeliveryRisk = (typeof DeliveryRisk)[keyof typeof DeliveryRisk];
 
-/** Review angles the agent ran as subagents in one run (ADR-0013). */
-export const ReviewLens = {
-  Code: "code",
-  Security: "security",
-  Ux: "ux",
-} as const;
-export type ReviewLens = (typeof ReviewLens)[keyof typeof ReviewLens];
+/**
+ * A review lens the agent ran as a subagent in one run (ADR-0013): any
+ * `air-review-<name>` the project installed, standard or its own.
+ */
+const REVIEW_LENS = /^[a-z][a-z0-9-]{0,31}$/;
+export const MAX_REVIEW_LENSES = 32;
+
+export function isReviewLens(value: unknown): value is string {
+  return typeof value === "string" && REVIEW_LENS.test(value);
+}
 
 /** Machine-readable phase facts. Prose belongs in the comment text. */
 export type ReportFacts = Readonly<{
@@ -50,7 +53,7 @@ export type ReportFacts = Readonly<{
   artifact?: string;
   recommendation?: IntakeRecommendation;
   risk?: DeliveryRisk;
-  lenses?: readonly ReviewLens[];
+  lenses?: readonly string[];
 }>;
 
 export type DeliveryRecord =

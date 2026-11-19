@@ -144,7 +144,7 @@ describe("GitHubDeliveryRecordStore behind TrustPolicy", () => {
     const facts = {
       recommendation: "reject",
       risk: "high",
-      lenses: ["code", "security", "ux"],
+      lenses: ["code", "security", "ux", "perf-budget"],
     } as const;
     await store.append(
       42,
@@ -211,7 +211,9 @@ describe("GitHubDeliveryRecordStore behind TrustPolicy", () => {
         '"recommendation":"maybe"',
         '"risk":"medium"',
         '"lenses":"code"',
-        '"lenses":["code","perf"]',
+        '"lenses":["code","Perf"]',
+        '"lenses":["../x"]',
+        `"lenses":${JSON.stringify(Array.from({ length: 33 }, (_, i) => `l${i}`))}`,
         '"lenses":["code","code"]',
       ] as const
     ).map(
