@@ -13,6 +13,8 @@ export const AuditKind = {
   RecordDenied: "record-denied",
   /** The agent read an issue; how much of it was instruction or data. */
   AgentContext: "agent-context",
+  /** An agent run was requested after a trusted ready transition. */
+  AgentLaunch: "agent-launch",
 } as const;
 export type AuditKind = (typeof AuditKind)[keyof typeof AuditKind];
 

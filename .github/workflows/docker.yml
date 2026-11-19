@@ -58,6 +58,16 @@ jobs:
             /opt/air/dist/src/delivery/composition/agent-cli.js keygen >/dev/null
           test -z "$(docker run --rm --entrypoint sh air:ci -c 'find /opt/air/dist -name "*.test.js"')"
 
+      - name: Launcher refuses to run with AIR credentials
+        run: |
+          set +e
+          out=$(docker run --rm -e AIR_OPERATOR_SIGNING_KEY=k --entrypoint node air:ci \
+            /opt/air/dist/src/delivery/composition/launcher.js 2>&1); code=$?
+          set -e
+          echo "$out"
+          test "$code" -ne 0
+          grep -q "holds no AIR credentials" <<<"$out"
+
       - name: Agent entrypoint validates its input
         run: |
           set +e

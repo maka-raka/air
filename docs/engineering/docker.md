@@ -69,12 +69,47 @@ Pin Claude Code for reproducible runs:
 CLAUDE_CODE_VERSION=2.1.0 docker compose build agent
 ```
 
-## 4. Without Docker
+## 4. Automatic agent runs
+
+The poller can request an agent run when an approver's command makes a phase ready, and a separate `air-launcher` process starts it ([ADR-0011](../architecture/adr/0011-agent-execution.md) §3–4).
+
+1. Choose the phases in `.env.air.poller` and restart the poller:
+
+   ```bash
+   AIR_AGENT_LAUNCH_PHASES=requirements,design,build,review
+   ```
+
+2. Create the queue directory the poller writes to, owned by your user:
+
+   ```bash
+   mkdir -p .air/launch
+   ```
+
+3. Run the launcher on the host, next to `compose.yaml`, with no AIR tokens or keys in its environment (it refuses to start otherwise):
+
+   ```bash
+   npm ci && npm run build
+   AIR_AGENT_MAX=2 node dist/src/delivery/composition/launcher.js
+   ```
+
+What happens:
+
+- `/air initialize` or `/air advance build` is applied → the poller writes `.air/launch/<issue>-<phase>.json` and audits `agent-launch`.
+- The launcher sees it within `AIR_LAUNCH_INTERVAL_MS` (5 s) and runs `docker compose run --detach --name air-agent-<issue>-<phase>-<time> agent <issue>`, with labels `air.agent.issue` and `air.agent.phase`.
+- At most `AIR_AGENT_MAX` agent containers run at once (default 2), and one per issue: a request for an issue whose container is still running waits until it stops.
+- A container that cannot start leaves `<issue>-<phase>.json.failed` with the error; nothing is retried automatically.
+
+Only trusted transitions count: a ready label set by hand, a replayed command, or a deployment event never launches anything. Phases made ready by the deploy workflow (`accept`, `observe`) are not launched by the poller. The launched agent still has to pass `air start`, which checks the state again.
+
+Attach to a run as before: `docker exec -it air-agent-42-build-<time> tmux attach -t agent`; list them with `docker ps --filter label=air.agent.issue`. Stopped containers stay for their logs: `docker container prune --filter label=air.agent.issue`.
+
+The launcher needs the Docker API, which is root-equivalent on the host: prefer rootless Docker or Podman (`AIR_DOCKER=podman`). It reads `.env.air.agent` only through `docker compose`, and never holds the operator's key.
+
+## 5. Without Docker
 
 The host workflow in [Local runtime](local-runtime.md) still works and suits development, but the agent then sees your machine's credentials.
 
 ## Limits (see ADR-0011)
 
-- Agents are started by hand; automatic launch after `/air advance` is roadmap step 3.
 - Network egress is not restricted. Restrict it in your Docker network or firewall to `github.com`, `api.github.com`, `registry.npmjs.org` and `api.anthropic.com` if you can.
 - Never mount `/var/run/docker.sock` into either container.

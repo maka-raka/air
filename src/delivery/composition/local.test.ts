@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
 import { composeLocal, readLocalConfig, runLocal } from "./local.js";
+import { FileAgentLaunchQueue } from "../adapters/local/file-agent-launch-queue.js";
+import { DeliveryPhase } from "../domain/state-machine.js";
 import type { LocalConfig } from "./local.js";
 import type { HttpRequest } from "../adapters/github/github-rest-client.js";
 import {
@@ -149,6 +151,8 @@ const config = (dir: string): LocalConfig => ({
   stateAnchors: StateAnchorMode.Bootstrap,
   approverLogins: ["octocat"],
   allowOperatorApprover: false,
+  launchPhases: [],
+  launchDir: join(dir, "launch"),
 });
 
 describe("local composition", () => {
@@ -176,6 +180,42 @@ describe("local composition", () => {
       /<!-- air:state \{"phase":"requirements","status":"ready"/,
     );
     assert.match(github.posted[1]!, /air:requirements:ready/);
+  });
+
+  it("requests an agent run when the command makes an opted-in phase ready", async () => {
+    const github = new FakeGitHub();
+    const dir = join(stateDir, "launch-e2e");
+    const poller = await composeLocal(
+      { ...config(dir), launchPhases: [DeliveryPhase.Requirements] },
+      github.request,
+    );
+    await poller.pollOnce();
+    github.addComment(1001, "/air initialize\nAdopting this issue.");
+
+    await poller.pollOnce();
+
+    const pending = await new FileAgentLaunchQueue(
+      join(dir, "launch"),
+    ).pending();
+    assert.deepEqual(
+      pending.map(({ id, launch }) => [id, launch.issue, launch.phase]),
+      [["42-requirements.json", 42, DeliveryPhase.Requirements]],
+    );
+  });
+
+  it("requests nothing when no launch phase is configured", async () => {
+    const github = new FakeGitHub();
+    const dir = join(stateDir, "no-launch-e2e");
+    const poller = await composeLocal(config(dir), github.request);
+    await poller.pollOnce();
+    github.addComment(1001, "/air initialize\nAdopting this issue.");
+
+    await poller.pollOnce();
+
+    assert.deepEqual(
+      await new FileAgentLaunchQueue(join(dir, "launch")).pending(),
+      [],
+    );
   });
 
   it("writes a verifiable audit trail of the command and the transition", async () => {
@@ -491,7 +531,19 @@ describe("readLocalConfig", () => {
       operatorSigningKey: "c2VjcmV0",
       stateAnchors: StateAnchorMode.Require,
       auditLog: join(".air", "audit-poller.jsonl"),
+      launchPhases: [],
+      launchDir: join(".air", "launch"),
     });
+  });
+
+  it("reads agent launch phases and directory", () => {
+    const parsed = readLocalConfig({
+      ...base,
+      AIR_AGENT_LAUNCH_PHASES: " requirements, build,build ",
+      AIR_LAUNCH_DIR: "/var/lib/air-launch",
+    });
+    assert.deepEqual(parsed.launchPhases, ["requirements", "build"]);
+    assert.equal(parsed.launchDir, "/var/lib/air-launch");
   });
 
   it("accepts bootstrap mode for upgrades", () => {
@@ -514,6 +566,7 @@ describe("readLocalConfig", () => {
     [{ ...base, AIR_APPROVER_LOGINS: "a/b" }, /AIR_APPROVER_LOGINS/],
     [{ ...base, AIR_AGENT_LOGIN: "AIR-BOT" }, /different accounts/],
     [{ ...base, AIR_DEPLOY_LOGIN: "air-agent" }, /different accounts/],
+    [{ ...base, AIR_AGENT_LAUNCH_PHASES: "build,deploy" }, /deploy/],
   ] as const) {
     it(`rejects ${JSON.stringify(env)}`, () => {
       assert.throws(() => readLocalConfig(env), message);

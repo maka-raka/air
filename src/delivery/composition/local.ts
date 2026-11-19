@@ -3,6 +3,8 @@ import { resolve, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { isEntryPoint, loadEnvFile, repository, required } from "./config.js";
 import { CommentCommandHandler } from "../application/comment-command-handler.js";
+import type { DeliveryCommandExecutor } from "../application/comment-command-handler.js";
+import type { AuditPort } from "../application/audit.js";
 import { IngestHumanCommand } from "../application/ingest-human-command.js";
 import { GitHubCollaboratorAccess } from "../adapters/github/collaborator-authorization.js";
 import {
@@ -39,6 +41,13 @@ import {
 } from "./trust.js";
 import type { ServiceLogins } from "./trust.js";
 import type { StateAnchorMode } from "../domain/trust-policy.js";
+import { DeliveryPhase } from "../domain/state-machine.js";
+import type { Phase } from "../domain/state-machine.js";
+import {
+  AgentLaunchPolicy,
+  LaunchAgentOnReady,
+} from "../application/agent-launch.js";
+import { FileAgentLaunchQueue } from "../adapters/local/file-agent-launch-queue.js";
 
 export type LocalConfig = Readonly<{
   owner: string;
@@ -69,9 +78,38 @@ export type LocalConfig = Readonly<{
   stateAnchors: StateAnchorMode;
   /** Hash-chained audit log file; one writer per file. */
   auditLog: string;
+  /**
+   * Ready phases that request an agent run after a trusted Human transition
+   * (ADR-0011 step 3). Empty: nothing is ever launched.
+   */
+  launchPhases: readonly Phase[];
+  /** Directory shared with `air-launcher`. */
+  launchDir: string;
 }>;
 
 const ENABLED = "true";
+const LIST_SEPARATOR = ",";
+const PHASES: ReadonlySet<string> = new Set(Object.values(DeliveryPhase));
+
+function isPhase(value: string): value is Phase {
+  return PHASES.has(value);
+}
+
+/** `AIR_AGENT_LAUNCH_PHASES=requirements,build`; unknown phases fail closed. */
+export function readLaunchPhases(
+  env: Readonly<Record<string, string | undefined>>,
+): readonly Phase[] {
+  const names = (env.AIR_AGENT_LAUNCH_PHASES ?? "")
+    .split(LIST_SEPARATOR)
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
+  const unknown = names.filter((name) => !isPhase(name));
+  if (unknown.length > 0)
+    throw new Error(
+      `Unknown phase in AIR_AGENT_LAUNCH_PHASES: ${unknown.join(", ")}`,
+    );
+  return [...new Set(names.filter(isPhase))];
+}
 
 const MIN_POLL_INTERVAL_MS = 5_000;
 
@@ -116,6 +154,9 @@ export function readLocalConfig(
     auditLog:
       env.AIR_AUDIT_LOG ||
       join(env.AIR_STATE_DIR || ".air", "audit-poller.jsonl"),
+    launchPhases: readLaunchPhases(env),
+    launchDir:
+      env.AIR_LAUNCH_DIR || join(env.AIR_STATE_DIR || ".air", "launch"),
   };
 }
 
@@ -178,7 +219,7 @@ export async function composeLocal(
       () => new Date(),
       config.runTtlMs,
     ),
-    trustedExecutor(client, anchors, trust, audit),
+    launching(trustedExecutor(client, anchors, trust, audit), config, audit),
     new GitHubCommandReplyAdapter(comments),
     // Replies are posted with this token, so only its markers are trusted.
     new GitHubProcessedCommands(comments),
@@ -196,6 +237,22 @@ export async function composeLocal(
     new GitHubCommentIngress(ingestion),
     new FilePollCursorStore(resolve(config.stateDir, "cursor.json")),
     identity,
+  );
+}
+
+/** Wraps the executor so trusted ready transitions request agent runs. */
+function launching(
+  executor: DeliveryCommandExecutor,
+  config: Pick<LocalConfig, "launchPhases" | "launchDir">,
+  audit: AuditPort,
+): DeliveryCommandExecutor {
+  const policy = new AgentLaunchPolicy(new Set(config.launchPhases));
+  if (!policy.enabled) return executor;
+  return new LaunchAgentOnReady(
+    executor,
+    new FileAgentLaunchQueue(resolve(config.launchDir)),
+    policy,
+    audit,
   );
 }
 
@@ -246,6 +303,10 @@ async function main(): Promise<void> {
   console.log(
     `AIR local: polling ${config.owner}/${config.repo} every ${config.pollIntervalMs} ms (Ctrl+C to stop)`,
   );
+  if (config.launchPhases.length > 0)
+    console.log(
+      `AIR local: agent runs requested for ${config.launchPhases.join(", ")} in ${resolve(config.launchDir)}`,
+    );
   await runLocal(poller, config.pollIntervalMs, controller.signal, consoleLog);
 }
 
