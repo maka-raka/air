@@ -6,6 +6,7 @@ Changes that affect projects using AIR. Versions follow semver; before 1.0 a min
 
 ### Security
 
+- **A state is trusted only with a history AIR could have written** ([ADR-0010](docs/architecture/adr/0010-zero-trust.md) step 7). Before, it was enough that the label and the latest signed anchor agreed, so a compromised agent could set and sign a later phase itself. Now, from the operator's first anchor on, each anchor must follow from the previous one by a move its author's role may make; otherwise the state is `untrusted-state` with `state-history-invalid`. Nothing changes for deliveries AIR moved normally. **Upgrading:** an open delivery that has no anchor from the operator yet (it was anchored only by the agent, in bootstrap mode) is untrusted in `require` mode: keep `AIR_STATE_ANCHORS=bootstrap` until an approver has moved it once.
 - **The deploy workflow no longer runs dependency install scripts.** The job that holds `AIR_DEPLOY_TOKEN` and `AIR_DEPLOY_SIGNING_KEY` now runs `npm ci --ignore-scripts` and restores no npm cache, so a dependency of your project cannot replace `air-deploy` before it runs. `air templates` updates an untouched `.github/workflows/air-deploy.yml`; if you changed the file, make the same two edits yourself.
 - AIR's release is built and tested in a job without write or signing permissions; a separate job checks the tarball's hash, attests it and publishes it.
 - Docker: Claude Code is pinned (2.1.318) instead of `latest`, and containers have process, memory and CPU limits.

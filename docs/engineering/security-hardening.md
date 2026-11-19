@@ -71,7 +71,7 @@ Each account that writes state has its own Ed25519 key pair ([ADR-0010](../archi
 
 - [ ] Never put the agent or operator private key in CI, in the repository or in a shared password vault entry that others can read. The deployer key lives only in the deploy environments' secrets.
 - [ ] If a private key may have leaked, generate a new pair and update the public key everywhere. Records and state anchors signed with the old key stop counting: open deliveries become `untrusted-state` and must be repaired by an administrator (or re-anchored in bootstrap mode, below).
-- [ ] **Upgrading from an AIR without state anchors:** open deliveries have no anchor yet. Set `AIR_STATE_ANCHORS=bootstrap` in every process until each open delivery has moved once (each move writes an anchor), then remove it. In bootstrap mode an issue without any anchor is judged by its label history alone, as before.
+- [ ] **Upgrading from an AIR without state anchors:** open deliveries have no anchor yet. Set `AIR_STATE_ANCHORS=bootstrap` in every process until each open delivery has been moved by an approver's command once (that writes the operator's anchor, where the checked history starts), then remove it. In bootstrap mode an issue without any anchor is judged by its label history alone, as before.
 
 ## 6. Audit log
 

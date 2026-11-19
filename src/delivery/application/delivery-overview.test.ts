@@ -25,13 +25,14 @@ import type { DeliveryClosures, StateHistoryEntry } from "./delivery-flow.js";
 
 const OPERATOR = 9;
 const AGENT = 77;
+const DEPLOYER = 88;
 const SOURCE = 123;
 const trust = new TrustPolicy({
   sourceId: SOURCE,
   approverIds: [7],
   operatorId: OPERATOR,
   agentId: AGENT,
-  deployerId: null,
+  deployerId: DEPLOYER,
   operatorMayApprove: false,
   stateAnchors: StateAnchorMode.Require,
 });
@@ -62,6 +63,37 @@ const anchor = (
   at: time,
 });
 
+const PHASES: readonly Phase[] = Object.values(DeliveryPhase);
+const DEPLOYED: readonly Phase[] = [DeliveryPhase.Review, DeliveryPhase.Accept];
+
+/** What AIR anchors on the way to `to`, each by the account that writes it. */
+function historyTo(to: Position, time: string): StateHistoryEntry[] {
+  const steps: [Position, number][] = [
+    [at(DeliveryPhase.Requirements, DeliveryStatus.Ready), OPERATOR],
+  ];
+  const work = (phase: Phase, end: Status) =>
+    steps.push(
+      [at(phase, DeliveryStatus.Working), AGENT],
+      [at(phase, end), AGENT],
+    );
+  for (const phase of PHASES.slice(0, PHASES.indexOf(to.phase))) {
+    work(phase, DeliveryStatus.Waiting);
+    const next = PHASES[PHASES.indexOf(phase) + 1]!;
+    steps.push([
+      at(next, DeliveryStatus.Ready),
+      DEPLOYED.includes(phase) ? DEPLOYER : OPERATOR,
+    ]);
+  }
+  if (to.status === DeliveryStatus.Working)
+    steps.push([at(to.phase, DeliveryStatus.Working), AGENT]);
+  if (
+    to.status === DeliveryStatus.Blocked ||
+    to.status === DeliveryStatus.Waiting
+  )
+    work(to.phase, to.status);
+  return steps.map(([position, author]) => anchor(position, time, author));
+}
+
 const NO_CLOSURES: DeliveryClosures = {
   available: true,
   verified: true,
@@ -85,21 +117,28 @@ function overview(setup: Setup) {
   const positions = new Map(
     setup.deliveries.map((d) => [d.issue, d.position] as const),
   );
+  const historyOf = (issue: number): readonly StateHistoryEntry[] => {
+    const given = setup.histories?.get(issue);
+    if (given) return given;
+    const position = positions.get(issue);
+    return position ? historyTo(position, "2026-11-19T11:00:00Z") : [];
+  };
   return new ReadDeliveryOverview(
     { list: async () => setup.deliveries, find: async () => null },
     {
       provenance: async (issue): Promise<StateProvenance> =>
         setup.byHand?.includes(issue)
           ? { known: true, writerId: 1, writerLogin: "mallory" }
-          : { known: true, writerId: OPERATOR, writerLogin: "air-bot" },
+          : {
+              known: true,
+              writerId: historyOf(issue).at(-1)?.authorId ?? OPERATOR,
+              writerLogin: "air",
+            },
     },
     {
       history: async (issue): Promise<readonly StateHistoryEntry[]> => {
         if (setup.failing?.includes(issue)) throw new Error("rate limited");
-        const given = setup.histories?.get(issue);
-        if (given) return given;
-        const position = positions.get(issue);
-        return position ? [anchor(position, "2026-11-19T11:00:00Z")] : [];
+        return historyOf(issue);
       },
     },
     trust,
@@ -318,13 +357,19 @@ describe("ReadDeliveryOverview", () => {
         [
           31,
           [
+            ...historyTo(
+              at(DeliveryPhase.Design, DeliveryStatus.Ready),
+              "2026-11-18T09:00:00Z",
+            ),
             anchor(
               at(DeliveryPhase.Design, DeliveryStatus.Working),
               "2026-11-18T10:00:00Z",
+              AGENT,
             ),
             anchor(
               at(DeliveryPhase.Design, DeliveryStatus.Blocked),
               "2026-11-18T12:00:00Z",
+              AGENT,
             ),
           ],
         ],

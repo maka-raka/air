@@ -57,6 +57,8 @@ The checks above protect AIR's state. They cannot stop a writer from pushing cod
 | --- | --- | --- |
 | A repository admin can forge records | **closed** by signed records | — |
 | Anyone with write access can delete record comments (evidence disappears) | mitigated: deletion can only remove evidence, so gates fail closed; the decisions made on it are in AIR's hash-chained audit log outside GitHub ([ADR-0010](0010-zero-trust.md) step 6) | — |
+| A compromised agent sets and signs a state its role can never reach (skips a human approval or a deployment) | **closed** by the state history check ([ADR-0010](0010-zero-trust.md) step 7) | — |
+| A compromised agent moves within a phase as if its gate passed, or rolls an issue back to a state it set before | open: the phase gate runs in the agent's process | move the gate decision and the agent's state writes into the operator, so the agent needs neither a label-writing token nor an anchor key |
 | The agent's signing key leaks | open | keep it only in the agent environment; rotate by generating a new pair and updating `AIR_AGENT_PUBLIC_KEY` everywhere (old records then stop counting) |
 | Renaming a label in repository settings changes it on every issue; whether the event history then shows the old or the new name is unverified | **closed** by signed state anchors ([ADR-0010](0010-zero-trust.md) step 4): the label must also match the latest anchor | — |
 | Prompt injection: the agent reads text from any commenter and holds a write token | open | private repositories only; agent reads only approver-authored text; sandbox and Claude Code deny rules (P1) |

@@ -120,11 +120,23 @@ const HISTORY = [
   ),
   anchor(
     DeliveryPhase.Requirements,
+    DeliveryStatus.Working,
+    "2026-11-19T09:10:00Z",
+    AGENT,
+  ),
+  anchor(
+    DeliveryPhase.Requirements,
     DeliveryStatus.Waiting,
     "2026-11-19T09:40:00Z",
     AGENT,
   ),
   anchor(DeliveryPhase.Build, DeliveryStatus.Ready, "2026-11-19T10:15:00Z"),
+  anchor(
+    DeliveryPhase.Build,
+    DeliveryStatus.Working,
+    "2026-11-19T10:20:00Z",
+    AGENT,
+  ),
   anchor(
     DeliveryPhase.Build,
     DeliveryStatus.Waiting,
@@ -147,7 +159,7 @@ describe("ReadDeliveryDetail", () => {
       ],
     });
     const flow = detail?.flow;
-    assert.equal(flow?.segments.length, 4);
+    assert.equal(flow?.segments.length, HISTORY.length);
     assert.equal(flow?.current()?.position.status, DeliveryStatus.Waiting);
     assert.equal(flow?.current()?.start, Date.parse("2026-11-19T10:58:00Z"));
     assert.equal(
@@ -169,7 +181,7 @@ describe("ReadDeliveryDetail", () => {
   });
 
   it("is untrusted without an anchor for the current state", async () => {
-    const detail = await read({ history: HISTORY.slice(0, 3) });
+    const detail = await read({ history: HISTORY.slice(0, -1) });
     assert.equal(detail?.card.trust, CardTrust.Untrusted);
   });
 
@@ -193,7 +205,9 @@ describe("ReadDeliveryDetail", () => {
       [
         ["mallory", false],
         ["air-agent", true],
+        ["air-agent", true],
         ["air-bot", true],
+        ["air-agent", true],
         ["air-agent", true],
         ["air-bot", true],
       ],
@@ -295,6 +309,12 @@ describe("ReadDeliveryDetail intake reject", () => {
       DeliveryPhase.Requirements,
       DeliveryStatus.Ready,
       "2026-11-19T09:00:00Z",
+    ),
+    anchor(
+      DeliveryPhase.Requirements,
+      DeliveryStatus.Working,
+      "2026-11-19T09:10:00Z",
+      AGENT,
     ),
     anchor(
       DeliveryPhase.Requirements,

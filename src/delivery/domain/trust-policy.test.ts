@@ -5,7 +5,7 @@ import {
   TrustPolicy,
 } from "./trust-policy.js";
 import { DeliveryPhase, DeliveryStatus } from "./state-machine.js";
-import type { Position } from "./state-machine.js";
+import type { Phase, Position, Status } from "./state-machine.js";
 import type {
   AnchorEvidence,
   StateProvenance,
@@ -113,8 +113,9 @@ for (const [name, access, expected] of [
   );
 
 // state
-const HERE = { phase: DeliveryPhase.Build, status: DeliveryStatus.Working };
-const EARLIER = { phase: DeliveryPhase.Build, status: DeliveryStatus.Ready };
+const at = (phase: Phase, status: Status): Position => ({ phase, status });
+const { Requirements, Build, Review, Accept, Observe } = DeliveryPhase;
+const { Ready, Working, Blocked, Waiting } = DeliveryStatus;
 const anchor = (
   authorId: number,
   position: Position = HERE,
@@ -124,17 +125,42 @@ const anchor = (
   signatureValid: true,
   position,
 });
+/** What AIR writes for a small task until build starts. */
+const INITIALIZED = anchor(OPERATOR, at(Requirements, Ready));
+const TO_BUILD = [
+  INITIALIZED,
+  anchor(AGENT, at(Requirements, Working)),
+  anchor(AGENT, at(Requirements, Waiting)),
+  anchor(OPERATOR, at(Build, Ready)),
+];
+const HERE = at(Build, Working);
+const EARLIER = at(Build, Ready);
+/** Build ends in review; the deployer moves it on to acceptance. */
+const TO_ACCEPT = [
+  ...TO_BUILD,
+  anchor(AGENT, HERE),
+  anchor(AGENT, at(Build, Waiting)),
+  anchor(OPERATOR, at(Review, Ready)),
+  anchor(AGENT, at(Review, Working)),
+  anchor(AGENT, at(Review, Waiting)),
+  anchor(DEPLOYER, at(Accept, Ready)),
+];
 const by = (writerId: number, writerLogin = "air") =>
   ({ known: true, writerId, writerLogin }) as const;
 const stateOf = (
   provenance: StateProvenance,
   anchors: readonly AnchorEvidence[],
   rules = policy,
-) => rules.state(provenance, HERE, anchors);
+  position: Position = HERE,
+) => rules.state(provenance, position, anchors);
 
-for (const writerId of [OPERATOR, AGENT, DEPLOYER])
+for (const [writerId, anchors] of [
+  [OPERATOR, [INITIALIZED]],
+  [AGENT, [...TO_BUILD, anchor(AGENT)]],
+  [DEPLOYER, TO_ACCEPT],
+] as const)
   check(
-    stateOf(by(writerId), [anchor(writerId)]).trusted,
+    stateOf(by(writerId), anchors, policy, anchors.at(-1)!.position).trusted,
     `trusts state written and anchored by service account ${writerId}`,
   );
 const byPerson = stateOf(by(APPROVER, "octocat"), [anchor(APPROVER)]);
@@ -182,7 +208,8 @@ for (const [name, untrusted] of [
     `ignores an anchor that is ${name}`,
   );
 check(
-  stateOf(by(OPERATOR), [anchor(OPERATOR), anchor(APPROVER, EARLIER)]).trusted,
+  stateOf(by(AGENT), [...TO_BUILD, anchor(AGENT), anchor(APPROVER, EARLIER)])
+    .trusted,
   "ignores an untrusted anchor posted after the real one",
 );
 check(
@@ -212,6 +239,135 @@ check(
   denial(stateOf(by(OPERATOR), [anchor(OPERATOR, EARLIER)], bootstrap)) ===
     TrustDenial.StateAnchorMismatch,
   "bootstrap still requires a match once an issue has an anchor",
+);
+
+// state history (ADR-0010 step 7)
+const historyOf = (
+  writerId: number,
+  anchors: readonly AnchorEvidence[],
+  rules = policy,
+) => stateOf(by(writerId), anchors, rules, anchors.at(-1)!.position);
+for (const [name, writerId, anchors] of [
+  [
+    "a history without an operator anchor",
+    AGENT,
+    [anchor(AGENT, at(Requirements, Working))],
+  ],
+  [
+    "a history whose operator anchor is followed by a forged move",
+    AGENT,
+    [
+      anchor(OPERATOR, at(Requirements, Waiting)),
+      anchor(AGENT, at(Accept, Waiting)),
+    ],
+  ],
+  [
+    "the agent skipping a human approval",
+    AGENT,
+    [INITIALIZED, anchor(AGENT, at(Accept, Waiting))],
+  ],
+  [
+    "the agent advancing a phase",
+    AGENT,
+    [...TO_BUILD.slice(0, 3), anchor(AGENT, at(Build, Ready))],
+  ],
+  [
+    "the agent passing a gate it never started",
+    AGENT,
+    [INITIALIZED, anchor(AGENT, at(Requirements, Waiting))],
+  ],
+  [
+    "the operator signing the agent's start",
+    OPERATOR,
+    [INITIALIZED, anchor(OPERATOR, at(Requirements, Working))],
+  ],
+  [
+    "the deployer moving a build that is not in review",
+    DEPLOYER,
+    [
+      ...TO_BUILD,
+      anchor(AGENT),
+      anchor(AGENT, at(Build, Waiting)),
+      anchor(DEPLOYER, at(Accept, Ready)),
+    ],
+  ],
+  [
+    "the deployer closing acceptance before it waits",
+    DEPLOYER,
+    [...TO_ACCEPT, anchor(DEPLOYER, at(Observe, Ready))],
+  ],
+  [
+    "a gap where an anchor was deleted",
+    OPERATOR,
+    [...TO_BUILD.slice(0, 2), TO_BUILD[3]!],
+  ],
+  [
+    "an anchor that no longer counts inside the history",
+    OPERATOR,
+    [TO_BUILD[0]!, { ...TO_BUILD[1]!, edited: true }, ...TO_BUILD.slice(2)],
+  ],
+] as const)
+  check(
+    denial(historyOf(writerId, anchors)) === TrustDenial.StateHistoryInvalid,
+    `denies ${name}`,
+  );
+check(
+  detail(
+    historyOf(AGENT, [INITIALIZED, anchor(AGENT, at(Accept, Waiting))]),
+  ) ===
+    `Account ${AGENT} cannot move a delivery from requirements:ready to accept:waiting.`,
+  "names the move that is not allowed",
+);
+for (const [name, writerId, anchors] of [
+  [
+    "a blocked phase retried",
+    OPERATOR,
+    [
+      INITIALIZED,
+      anchor(AGENT, at(Requirements, Working)),
+      anchor(AGENT, at(Requirements, Blocked)),
+      anchor(OPERATOR, at(Requirements, Ready)),
+    ],
+  ],
+  [
+    "a closed delivery initialized again",
+    OPERATOR,
+    [...TO_ACCEPT, anchor(OPERATOR, at(Requirements, Ready))],
+  ],
+  [
+    "an issue the agent anchored first in bootstrap mode, once an approver moved it",
+    OPERATOR,
+    [
+      anchor(AGENT, HERE),
+      anchor(AGENT, at(Build, Waiting)),
+      anchor(OPERATOR, at(Review, Ready)),
+    ],
+  ],
+  [
+    "untrusted anchors between trusted ones",
+    AGENT,
+    [
+      INITIALIZED,
+      anchor(APPROVER, at(Accept, Waiting)),
+      { ...anchor(AGENT, at(Observe, Ready)), signatureValid: false },
+      anchor(AGENT, at(Requirements, Working)),
+    ],
+  ],
+] as const)
+  check(historyOf(writerId, anchors).trusted, `trusts ${name}`);
+check(
+  historyOf(AGENT, [anchor(AGENT)], bootstrap).trusted,
+  "bootstrap lets an issue from an earlier AIR start anywhere",
+);
+check(
+  denial(
+    historyOf(
+      AGENT,
+      [anchor(AGENT), anchor(AGENT, at(Accept, Waiting))],
+      bootstrap,
+    ),
+  ) === TrustDenial.StateHistoryInvalid,
+  "bootstrap still checks every move after the first anchor",
 );
 
 // record

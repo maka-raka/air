@@ -4,7 +4,8 @@
  * I/O or remembers an earlier answer. Anything not explicitly trusted is
  * denied, including facts that could not be established.
  */
-import type { Position } from "./state-machine.js";
+import { DeliveryActor, DeliveryStateMachine } from "./state-machine.js";
+import type { Actor, Position } from "./state-machine.js";
 
 export const TrustDenial = {
   /** The request belongs to another project than the configured one. */
@@ -23,6 +24,11 @@ export const TrustDenial = {
   StateAnchorMissing: "state-anchor-missing",
   /** The latest trusted anchor names another state or another writer. */
   StateAnchorMismatch: "state-anchor-mismatch",
+  /**
+   * The trusted anchors are not a history AIR could have written: a move
+   * its author's role may not make, or a gap left by a deleted anchor.
+   */
+  StateHistoryInvalid: "state-history-invalid",
   /** A delivery record not written by the agent account. */
   RecordNotByAgent: "record-not-by-agent",
   /** A delivery record changed after it was written. */
@@ -125,6 +131,8 @@ export type ContentFacts = Readonly<{
 }>;
 
 const TRUSTED: TrustDecision = { trusted: true };
+const named = (position: Position): string =>
+  `${position.phase}:${position.status}`;
 const deny = (denial: TrustDenial, detail: string): TrustDecision => ({
   trusted: false,
   denial,
@@ -135,14 +143,26 @@ export class TrustPolicy {
   private readonly serviceIds: readonly number[];
   /** Service accounts that may never act as a Human approver. */
   private readonly nonHumanIds: readonly number[];
+  /** The actors each service account signs state for (ADR-0010 step 7). */
+  private readonly actorsOf: ReadonlyMap<number, readonly Actor[]>;
 
-  constructor(private readonly roster: TrustRoster) {
+  constructor(
+    private readonly roster: TrustRoster,
+    private readonly machine = new DeliveryStateMachine(),
+  ) {
     const { operatorId, agentId, deployerId } = roster;
     this.serviceIds = [
       operatorId,
       agentId,
       ...(deployerId ? [deployerId] : []),
     ];
+    this.actorsOf = new Map<number, readonly Actor[]>([
+      [operatorId, [DeliveryActor.Human]],
+      [agentId, [DeliveryActor.Agent, DeliveryActor.Gate]],
+      ...(deployerId
+        ? [[deployerId, [DeliveryActor.DeploymentWorkflow]] as const]
+        : []),
+    ]);
     if (new Set(this.serviceIds).size !== this.serviceIds.length)
       throw new Error("Operator, agent and deployer must be distinct accounts");
     this.nonHumanIds = this.serviceIds.filter((id) => id !== operatorId);
@@ -182,12 +202,17 @@ export class TrustPolicy {
   }
 
   /**
-   * Current delivery state counts only if both hold:
+   * Current delivery state counts only if all hold:
    * - one of AIR's accounts wrote it (the store's write history);
-   * - the latest trusted signed anchor names the same state and writer.
+   * - the latest trusted signed anchor names the same state and writer;
+   * - from the operator's first anchor on, the trusted anchors form a
+   *   history of moves each author's role may make.
    * Anchors alone could be undone by deleting the newest; a platform's write
-   * history alone can be rewritten (on GitHub, by renaming labels).
-   * Together, either attack only denies.
+   * history alone can be rewritten (on GitHub, by renaming labels). The
+   * history check stops an AIR account from signing a state its role can
+   * never reach, such as the agent skipping a human approval. Together,
+   * deleting or rewriting evidence only denies or returns to a state the
+   * same account really set before.
    */
   state(
     provenance: StateProvenance,
@@ -213,21 +238,58 @@ export class TrustPolicy {
   ): TrustDecision {
     const latest = anchors.filter((anchor) => this.anchorCounts(anchor)).at(-1);
     if (!latest) return this.unanchored();
-    const named = `${latest.position.phase}:${latest.position.status}`;
     const samePosition =
       latest.position.phase === position.phase &&
       latest.position.status === position.status;
     if (!samePosition)
       return deny(
         TrustDenial.StateAnchorMismatch,
-        `The latest signed state anchor says ${named}.`,
+        `The latest signed state anchor says ${named(latest.position)}.`,
       );
     if (latest.authorId !== writerId)
       return deny(
         TrustDenial.StateAnchorMismatch,
         "The latest signed state anchor and the stored state have different writers.",
       );
+    return this.history(anchors.filter((anchor) => this.anchorCounts(anchor)));
+  }
+
+  /**
+   * Each trusted anchor must follow from the one before by a move its
+   * author's role may make. Only the operator's anchors can start a history:
+   * it signs only what an approver's command set, while the agent could sign
+   * any state as a first anchor once the earlier ones were deleted. Anchors
+   * before the operator's first are not judged, so an issue anchored first by
+   * the agent in bootstrap mode counts once an approver has moved it. In
+   * bootstrap mode the history starts at the first anchor.
+   */
+  private history(trusted: readonly AnchorEvidence[]): TrustDecision {
+    const bootstrap = this.roster.stateAnchors === StateAnchorMode.Bootstrap;
+    const start = bootstrap
+      ? 0
+      : trusted.findIndex(
+          (anchor) => anchor.authorId === this.roster.operatorId,
+        );
+    if (start < 0)
+      return deny(
+        TrustDenial.StateHistoryInvalid,
+        "No signed state anchor from the operator starts this history.",
+      );
+    for (let index = start + 1; index < trusted.length; index++) {
+      const from = trusted[index - 1]!.position;
+      const anchor = trusted[index]!;
+      if (!this.mayMove(anchor.authorId, from, anchor.position))
+        return deny(
+          TrustDenial.StateHistoryInvalid,
+          `Account ${anchor.authorId} cannot move a delivery from ${named(from)} to ${named(anchor.position)}.`,
+        );
+    }
     return TRUSTED;
+  }
+
+  private mayMove(authorId: number, from: Position, to: Position): boolean {
+    const actors = this.actorsOf.get(authorId) ?? [];
+    return actors.some((actor) => this.machine.leads(from, to, actor));
   }
 
   /** No trusted anchor at all: only bootstrap mode falls back to history. */
