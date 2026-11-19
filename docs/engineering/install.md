@@ -70,6 +70,6 @@ npx --no air templates --check   # what would change; exit code 2 if anything is
 npx --no air templates           # update untouched files, add new standard ones
 ```
 
-Files you changed are reported as `modified` and kept; compare them with the template under `node_modules/air/templates/<provider>/` (`claude/`, `github/`), or replace them with `--force`. Files written by an AIR version before template markers count as changed. Your own lenses (any other `.claude/agents/` file) are never touched.
+Files you changed are reported as `modified` and kept; compare them with the template under `node_modules/@air/delivery-core/templates/<provider>/` (`claude/`, `github/`), or replace them with `--force`. Files written by an AIR version before template markers count as changed. Your own lenses (any other `.claude/agents/` file) are never touched.
 
 Read [CHANGELOG.md](../../CHANGELOG.md) before upgrading: it lists changes that need action in your project.
