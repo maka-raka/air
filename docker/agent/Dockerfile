@@ -11,10 +11,12 @@ FROM ${NODE_IMAGE}
 # Pin a Claude Code version for reproducible runs, e.g. --build-arg CLAUDE_CODE_VERSION=2.1.0
 ARG CLAUDE_CODE_VERSION=latest
 
+# Claude Code fetches its native binary in its install script: allowed here,
+# at build time and without secrets. Project dependencies never run scripts.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates git gh tmux jq \
  && rm -rf /var/lib/apt/lists/* \
- && npm install -g --ignore-scripts "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+ && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
  && npm cache clean --force
 
 # Managed settings apply to every session and cannot be changed by the agent.

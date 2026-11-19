@@ -6,7 +6,16 @@ Do [Adopting AIR](install.md) steps 1–3 and [Repository Hardening](security-ha
 
 ## 1. Environment files
 
-Create three files next to `compose.yaml` and `chmod 600` each. They are git-ignored.
+Create three files next to `compose.yaml` from the templates in `docker/env/`. They are git-ignored.
+
+```bash
+cp docker/env/air.env.example    .env.air
+cp docker/env/poller.env.example .env.air.poller
+cp docker/env/agent.env.example  .env.air.agent
+chmod 600 .env.air .env.air.poller .env.air.agent
+```
+
+Requires Docker Compose 2.24 or later (`env_file` with `path:`).
 
 | File | Contents | Used by |
 | --- | --- | --- |
@@ -46,7 +55,9 @@ The entrypoint:
 1. refuses to start unless `AIR_AGENT_TOKEN` belongs to `AIR_AGENT_LOGIN`;
 2. clones `AIR_REPOSITORY` as the agent account and switches to `air/issue-42` (continuing it if it was pushed before);
 3. runs `npm ci --ignore-scripts`, so no dependency script runs next to the agent's secrets;
-4. starts Claude Code in tmux with the prompt `Take issue #42 …` (override with `AIR_AGENT_PROMPT`).
+4. starts Claude Code in tmux with the prompt `Take issue #42 …` (override with `AIR_AGENT_PROMPT`), with onboarding skipped, the checkout trusted and the API key from the environment accepted.
+
+Git pushes use `AIR_AGENT_TOKEN` through a credential helper that reads it from the environment; the token is never written to disk.
 
 The container stops when the Claude Code session ends. Remove it with `docker rm air-agent-42`; anything not pushed is lost, which is intended. Each run writes its own audit log to the `air-agent-audit` volume (`agent-issue-<n>-<time>.jsonl`).
 

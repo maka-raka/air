@@ -27,7 +27,9 @@ login="$(gh api user --jq .login)"
 id="$(gh api user --jq .id)"
 [[ "${login,,}" == "${AIR_AGENT_LOGIN,,}" ]] ||
   fail "AIR_AGENT_TOKEN belongs to $login, not to AIR_AGENT_LOGIN ($AIR_AGENT_LOGIN)"
-gh auth setup-git --hostname github.com
+# git pushes with the agent token; nothing is written to disk.
+git config --global credential.https://github.com.helper \
+  '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
 git config --global user.name "$login"
 git config --global user.email "${id}+${login}@users.noreply.github.com"
 
@@ -48,6 +50,20 @@ npm ci --ignore-scripts --no-audit --no-fund
 
 # One audit-log writer per file: one file per run.
 export AIR_AUDIT_LOG="${AIR_AUDIT_LOG:-/var/lib/air-audit/agent-issue-$issue-$(date -u +%Y%m%dT%H%M%SZ).jsonl}"
+
+# Claude Code first run: skip onboarding, trust this checkout and accept the
+# API key from the environment, so the session opens straight on the task.
+claude_state="$HOME/.claude.json"
+api_key="${ANTHROPIC_API_KEY:-}"
+(( ${#api_key} > 20 )) && api_key="${api_key: -20}"
+if [[ ! -f "$claude_state" ]]; then
+  jq -n --arg dir "$repo_dir" --arg key "$api_key" '{
+    hasCompletedOnboarding: true,
+    projects: { ($dir): { hasTrustDialogAccepted: true } },
+    customApiKeyResponses: { approved: (if $key == "" then [] else [$key] end), rejected: [] }
+  }' >"$claude_state"
+  chmod 600 "$claude_state"
+fi
 
 prompt="${AIR_AGENT_PROMPT:-Take issue #$issue under AIR delivery control, following the air-delivery skill.}"
 tmux new-session -d -s agent -c "$repo_dir" claude "$prompt"
