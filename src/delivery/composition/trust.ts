@@ -164,7 +164,8 @@ export function stateAnchorStore(
   repositoryId: number,
   accounts: ServiceAccounts,
   keys: StateKeys,
-  signer: Ed25519RecordSigner,
+  /** Omitted by readers such as the console: they never write state. */
+  signer?: Ed25519RecordSigner,
 ): StateAnchorPort {
   if (accounts.deployer && !keys.deployer)
     throw new Error("Set AIR_DEPLOY_PUBLIC_KEY");
@@ -178,7 +179,7 @@ export function stateAnchorStore(
   return new GitHubStateAnchorStore(comments, {
     repositoryId,
     verifiers,
-    signer,
+    ...(signer ? { signer } : {}),
   });
 }
 

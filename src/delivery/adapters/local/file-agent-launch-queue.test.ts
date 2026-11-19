@@ -85,6 +85,25 @@ describe("FileAgentLaunchQueue", () => {
     );
   });
 
+  it("lists failed launches with their error", async () => {
+    const dir = await queueDir();
+    const queue = new FileAgentLaunchQueue(dir);
+    assert.deepEqual(await queue.failed(), []);
+    await queue.enqueue(launch(4, "2026-11-19T10:00:00Z"));
+    await queue.fail("4-build.json", "no such service: agent");
+    await writeFile(join(dir, "x.json.failed"), "garbage");
+
+    assert.deepEqual(await queue.failed(), [
+      {
+        id: "4-build.json.failed",
+        issue: 4,
+        phase: DeliveryPhase.Build,
+        error: "no such service: agent",
+      },
+      { id: "x.json.failed", issue: null, phase: null, error: "" },
+    ]);
+  });
+
   it("refuses ids outside its directory", async () => {
     const queue = new FileAgentLaunchQueue(await queueDir());
     await assert.rejects(queue.complete("../cursor.json"), /Invalid launch id/);

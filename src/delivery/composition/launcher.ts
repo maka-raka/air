@@ -7,6 +7,11 @@ import { DispatchAgentLaunches } from "../application/agent-launch.js";
 import type { DispatchResult } from "../application/agent-launch.js";
 import { FileAgentLaunchQueue } from "../adapters/local/file-agent-launch-queue.js";
 import { DockerAgentRuntime } from "../adapters/local/docker-agent-runtime.js";
+import {
+  FileAgentRunsSnapshot,
+  agentRunsFile,
+} from "../adapters/local/file-agent-runs-snapshot.js";
+import { PublishAgentRuns } from "../application/agent-runs.js";
 import type { CommandRunner } from "../adapters/local/docker-agent-runtime.js";
 
 export type LauncherConfig = Readonly<{
@@ -56,22 +61,41 @@ export function readLauncherConfig(env: Env): LauncherConfig {
   };
 }
 
+export type LauncherRound = Pick<DispatchAgentLaunches, "dispatchOnce">;
+
+/**
+ * One round: start what is queued, then publish what runs so the console
+ * can show it without access to the container runtime (ADR-0012).
+ */
 export function composeLauncher(
   config: LauncherConfig,
   runner?: CommandRunner,
-): DispatchAgentLaunches {
-  return new DispatchAgentLaunches(
-    new FileAgentLaunchQueue(resolve(config.launchDir)),
-    new DockerAgentRuntime(
-      {
-        docker: config.docker,
-        composeFile: config.composeFile,
-        service: config.service,
-      },
-      runner,
-    ),
+): LauncherRound {
+  const launchDir = resolve(config.launchDir);
+  const runtime = new DockerAgentRuntime(
+    {
+      docker: config.docker,
+      composeFile: config.composeFile,
+      service: config.service,
+    },
+    runner,
+  );
+  const dispatcher = new DispatchAgentLaunches(
+    new FileAgentLaunchQueue(launchDir),
+    runtime,
     config.maxRunning,
   );
+  const publisher = new PublishAgentRuns(
+    runtime,
+    new FileAgentRunsSnapshot(agentRunsFile(launchDir)),
+  );
+  return {
+    dispatchOnce: async () => {
+      const results = await dispatcher.dispatchOnce();
+      await publisher.publishOnce();
+      return results;
+    },
+  };
 }
 
 export type LauncherLog = Readonly<{
@@ -81,7 +105,7 @@ export type LauncherLog = Readonly<{
 
 /** Dispatches until aborted; a failed round is logged and retried. */
 export async function runLauncher(
-  dispatcher: Pick<DispatchAgentLaunches, "dispatchOnce">,
+  dispatcher: LauncherRound,
   intervalMs: number,
   signal: AbortSignal,
   log: LauncherLog,

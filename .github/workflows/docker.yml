@@ -68,6 +68,16 @@ jobs:
           test "$code" -ne 0
           grep -q "holds no AIR credentials" <<<"$out"
 
+      - name: Console refuses to run with AIR credentials
+        run: |
+          set +e
+          out=$(docker run --rm -e AIR_GITHUB_TOKEN=t --entrypoint node air:ci \
+            /opt/air/dist/src/delivery/composition/console.js 2>&1); code=$?
+          set -e
+          echo "$out"
+          test "$code" -ne 0
+          grep -q "air-ui only reads" <<<"$out"
+
       - name: Agent entrypoint validates its input
         run: |
           set +e

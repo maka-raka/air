@@ -4,6 +4,12 @@ import type {
   AgentLaunch,
   AgentRuntimePort,
 } from "../../application/agent-launch.js";
+import type {
+  AgentRun,
+  AgentRunsSourcePort,
+} from "../../application/agent-runs.js";
+import { DeliveryPhase } from "../../domain/state-machine.js";
+import type { Phase } from "../../domain/state-machine.js";
 
 /** Runs a program without a shell and returns its stdout. */
 export type CommandRunner = (
@@ -33,6 +39,35 @@ export const AgentContainerLabel = {
 } as const;
 
 const NAME_PREFIX = "air-agent";
+const FIELD_SEPARATOR = "\t";
+/** Docker's `.State` for a container that is up. */
+const RUNNING_STATE = "running";
+const PHASES: ReadonlySet<string> = new Set(Object.values(DeliveryPhase));
+const RUN_FORMAT = [
+  "{{.Names}}",
+  `{{.Label "${AgentContainerLabel.Issue}"}}`,
+  `{{.Label "${AgentContainerLabel.Phase}"}}`,
+  "{{.State}}",
+  "{{.Status}}",
+].join(FIELD_SEPARATOR);
+
+function phaseOf(value: string | undefined): Phase | null {
+  return value !== undefined && PHASES.has(value) ? (value as Phase) : null;
+}
+
+function parseRun(line: string): AgentRun | null {
+  const [name = "", issue = "", phase, state, status = ""] =
+    line.split(FIELD_SEPARATOR);
+  const number = Number(issue);
+  if (!Number.isSafeInteger(number) || number < 1) return null;
+  return {
+    name,
+    issue: number,
+    phase: phaseOf(phase),
+    running: state === RUNNING_STATE,
+    status,
+  };
+}
 
 function stamp(date: Date): string {
   return date.toISOString().replace(/[-:]/g, "").replace(/\..*$/, "");
@@ -51,7 +86,9 @@ function issues(output: string): number[] {
  * hardening from compose.yaml. Arguments are fixed and passed without a
  * shell; the only variable parts are the issue number and the phase.
  */
-export class DockerAgentRuntime implements AgentRuntimePort {
+export class DockerAgentRuntime
+  implements AgentRuntimePort, AgentRunsSourcePort
+{
   constructor(
     private readonly options: DockerAgentRuntimeOptions,
     private readonly runner: CommandRunner = execFileRunner,
@@ -67,6 +104,22 @@ export class DockerAgentRuntime implements AgentRuntimePort {
       `{{.Label "${AgentContainerLabel.Issue}"}}`,
     ]);
     return issues(output);
+  }
+
+  /** Every agent container, running or stopped. */
+  async runs(): Promise<readonly AgentRun[]> {
+    const output = await this.runner(this.options.docker, [
+      "ps",
+      "--all",
+      "--filter",
+      `label=${AgentContainerLabel.Issue}`,
+      "--format",
+      RUN_FORMAT,
+    ]);
+    return output
+      .split("\n")
+      .map(parseRun)
+      .filter((run): run is AgentRun => run !== null);
   }
 
   async start({ issue, phase }: AgentLaunch): Promise<void> {

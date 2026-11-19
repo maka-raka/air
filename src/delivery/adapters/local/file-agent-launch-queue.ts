@@ -15,6 +15,10 @@ import type {
   PendingAgentLaunch,
   PendingAgentLaunchPort,
 } from "../../application/agent-launch.js";
+import type {
+  FailedAgentLaunch,
+  FailedAgentLaunchesPort,
+} from "../../application/delivery-overview.js";
 
 const ENTRY_SUFFIX = ".json";
 const FAILED_SUFFIX = ".failed";
@@ -53,6 +57,22 @@ function parseLaunch(text: string): AgentLaunch | null {
   return { issue, phase, requestedAt };
 }
 
+function parseFailure(id: string, text: string): FailedAgentLaunch {
+  let value: unknown = null;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    // An unreadable failure record is still shown, with its raw id.
+  }
+  const record = (value ?? {}) as Record<string, unknown>;
+  return {
+    id,
+    issue: isIssue(record.issue) ? record.issue : null,
+    phase: isPhase(record.phase) ? record.phase : null,
+    error: typeof record.error === "string" ? record.error : "",
+  };
+}
+
 function isEntry(name: string): boolean {
   return name.endsWith(ENTRY_SUFFIX) && !name.startsWith(HIDDEN_PREFIX);
 }
@@ -64,7 +84,10 @@ function isEntry(name: string): boolean {
  * rename, so a reader never sees half a file. Entries carry no secrets.
  */
 export class FileAgentLaunchQueue
-  implements AgentLaunchRequestPort, PendingAgentLaunchPort
+  implements
+    AgentLaunchRequestPort,
+    PendingAgentLaunchPort,
+    FailedAgentLaunchesPort
 {
   constructor(private readonly directory: string) {}
 
@@ -80,13 +103,7 @@ export class FileAgentLaunchQueue
   }
 
   async pending(): Promise<readonly PendingAgentLaunch[]> {
-    let names: string[];
-    try {
-      names = await readdir(this.directory);
-    } catch (error) {
-      if (missing(error)) return [];
-      throw error;
-    }
+    const names = await this.names();
     const entries = await Promise.all(
       names.filter(isEntry).map((id) => this.read(id)),
     );
@@ -97,6 +114,26 @@ export class FileAgentLaunchQueue
           a.launch.requestedAt.localeCompare(b.launch.requestedAt) ||
           a.id.localeCompare(b.id),
       );
+  }
+
+  /** Launches the launcher set aside, in name order. */
+  async failed(): Promise<readonly FailedAgentLaunch[]> {
+    const names = (await this.names())
+      .filter((name) => name.endsWith(FAILED_SUFFIX))
+      .sort();
+    const failures = await Promise.all(
+      names.map(async (id) => {
+        try {
+          return parseFailure(id, await readFile(this.path(id), "utf8"));
+        } catch (error) {
+          if (missing(error)) return null;
+          throw error;
+        }
+      }),
+    );
+    return failures.filter(
+      (failure): failure is FailedAgentLaunch => failure !== null,
+    );
   }
 
   async complete(id: string): Promise<void> {
@@ -118,6 +155,15 @@ export class FileAgentLaunchQueue
       "utf8",
     );
     await this.complete(id);
+  }
+
+  private async names(): Promise<string[]> {
+    try {
+      return await readdir(this.directory);
+    } catch (error) {
+      if (missing(error)) return [];
+      throw error;
+    }
   }
 
   private async read(id: string): Promise<PendingAgentLaunch | null> {

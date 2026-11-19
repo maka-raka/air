@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   CommandParseError,
   CommentCommandParser,
+  formatCommand,
 } from "./comment-command-parser.js";
 import { DeliveryAction, DeliveryPhase } from "../domain/state-machine.js";
 
@@ -77,5 +78,32 @@ describe("CommentCommandParser", () => {
 
     assert.deepEqual(recognized, [true, true, true, true]);
     assert.deepEqual(ignored, [false, false, false, false, false]);
+  });
+});
+
+describe("formatCommand", () => {
+  const parser = new CommentCommandParser();
+
+  it("formats the commands parse reads back", () => {
+    for (const [action, target] of [
+      [DeliveryAction.Advance, DeliveryPhase.Review],
+      [DeliveryAction.Rework, undefined],
+      [DeliveryAction.Retry, undefined],
+      [DeliveryAction.Close, undefined],
+      [DeliveryAction.Initialize, undefined],
+      [DeliveryAction.Recover, undefined],
+    ] as const) {
+      const line = formatCommand(action, target);
+      assert.ok(line);
+      const parsed = parser.parse(line);
+      assert.ok(parsed.ok, line);
+      assert.equal(parsed.command.action, action);
+      assert.equal(parsed.command.target, target);
+    }
+  });
+
+  it("has no command for agent, gate or deployment actions", () => {
+    assert.equal(formatCommand(DeliveryAction.Start), null);
+    assert.equal(formatCommand(DeliveryAction.DeployStage), null);
   });
 });
