@@ -62,7 +62,7 @@ See [Strategic Domain Design](domain-model.md) and [candidate Context Map](likec
 | Delivery | Lifecycle of a change, phases, state transitions and gates | Core MVP, proposed bounded context |
 | Planning | Work intake, qualification and selection | Future bounded context candidate |
 | Operations | Incident lifecycle, investigation and Plan proposals | Future bounded context candidate |
-| Agent Execution | Carry out bounded work in a configured runtime | Supporting capability; local MVP |
+| Agent Execution | Carry out bounded work in a configured runtime | Supporting capability; local MVP, one container per run ([ADR-0011](adr/0011-agent-execution.md)) |
 | Evidence | Collect revision-bound test, PR and deployment facts | Supporting capability; minimal MVP |
 | Governance | Human authority, policy constraints and access rules | Cross-cutting capability |
 
@@ -71,7 +71,7 @@ See [Strategic Domain Design](domain-model.md) and [candidate Context Map](likec
 Tactical Delivery proposals: [domain model, aggregate and invariants](delivery-domain.md) and [application use cases, ports and adapters](delivery-application.md). Before implementation, resolve deployment-driven advancement from blocked states, concurrent label updates, stale evidence, and whether each issue maps to exactly one Delivery.
 
 ## 6. Runtime View — Delivery MVP (proposed)
-The [Delivery State Machine](delivery-state-machine.md) specifies phase transitions, actor authority, gate preconditions, deployment-driven advancement, errors and recovery for the manual MVP. The GitHub state-store tradeoff is captured in [ADR-0002](adr/0002-github-labels-as-mvp-delivery-state.md). Runtime dynamic views and implementation-level execution design remain to be completed.
+The [Delivery State Machine](delivery-state-machine.md) specifies phase transitions, actor authority, gate preconditions, deployment-driven advancement, errors and recovery for the manual MVP. The GitHub state-store tradeoff is captured in [ADR-0002](adr/0002-github-labels-as-mvp-delivery-state.md). Where agents run and how they may be launched is decided in [ADR-0011](adr/0011-agent-execution.md). Runtime dynamic views remain to be completed.
 
 ## 7. Deployment View (planned)
 Local execution in MVP; isolated CI-based execution after MVP.

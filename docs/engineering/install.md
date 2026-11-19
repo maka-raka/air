@@ -51,6 +51,8 @@ Fill in the repository, accounts, approvers, the public keys, the operator token
 | Agent (Claude Code, uses the skill) | `npx --no air start <n>`, `report`, `gate`, `block` |
 | Deploy (CI) | call `.github/workflows/air-deploy.yml` after each deploy job (example at the top of the file) |
 
+To run the poller and each agent in their own container instead, see [Running AIR in Docker](docker.md).
+
 Approvers then work in the issue: `/air initialize`, `/air advance <phase>`, `/air close`.
 
 ## Pull request convention

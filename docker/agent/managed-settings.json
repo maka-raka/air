@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(gh issue view:*)",
+      "Bash(gh api:*comments*)",
+      "Bash(gh pr merge:*)",
+      "Bash(gh pr review:*)",
+      "Bash(gh release:*)",
+      "Bash(gh workflow:*)",
+      "Bash(gh secret:*)",
+      "Bash(gh label:*)",
+      "Bash(gh issue edit:*)",
+      "Bash(gh issue close:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push origin main:*)",
+      "Bash(env:*)",
+      "Bash(printenv:*)",
+      "Read(/proc/*/environ)",
+      "Edit(.github/**)",
+      "Edit(CODEOWNERS)",
+      "Edit(.env*)"
+    ]
+  }
+}
