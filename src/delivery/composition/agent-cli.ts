@@ -494,27 +494,29 @@ export function keygen(
   ].join("\n");
 }
 
+async function init(args: readonly string[]): Promise<void> {
+  const { check, force, lenses } = templateArgs(args);
+  if (check || force) throw new Error("init takes only --lens");
+  console.log(renderInit(await initProject(process.cwd(), { lenses })));
+}
+
+async function templates(args: readonly string[]): Promise<void> {
+  const options = templateArgs(args);
+  const changes = await updateTemplates(process.cwd(), options);
+  console.log(renderTemplates(changes));
+  // `--check` fails when an upgrade would change something (for CI).
+  const behind = options.check && templatesBehind(changes);
+  process.exitCode = behind ? ExitCode.Rejected : ExitCode.Ok;
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   if (argv[0] === AgentCliCommand.Keygen) {
     console.log(keygen(generateRecordKeys(), keyRole(argv[1])));
     return;
   }
-  if (argv[0] === AgentCliCommand.Init) {
-    const { check, force, lenses } = templateArgs(argv.slice(1));
-    if (check || force) throw new Error("init takes only --lens");
-    console.log(renderInit(await initProject(process.cwd(), { lenses })));
-    return;
-  }
-  if (argv[0] === AgentCliCommand.Templates) {
-    const args = templateArgs(argv.slice(1));
-    const changes = await updateTemplates(process.cwd(), args);
-    console.log(renderTemplates(changes));
-    // `--check` fails when an upgrade would change something (for CI).
-    if (args.check && templatesBehind(changes))
-      process.exitCode = ExitCode.Rejected;
-    return;
-  }
+  if (argv[0] === AgentCliCommand.Init) return init(argv.slice(1));
+  if (argv[0] === AgentCliCommand.Templates) return templates(argv.slice(1));
   if (argv[0] === AgentCliCommand.Audit) {
     const { text, ok } = await auditVerify(argv.slice(1));
     console.log(text);
