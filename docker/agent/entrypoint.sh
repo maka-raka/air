@@ -37,8 +37,12 @@ repo_dir=/work/repo
 branch="air/issue-$issue"
 git clone --filter=blob:none "https://github.com/$AIR_REPOSITORY.git" "$repo_dir"
 cd "$repo_dir"
+default_ref="$(git symbolic-ref --short refs/remotes/origin/HEAD)"
 if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
   git fetch origin "$branch"
+  # Anyone with write access can push this branch: refuse one that changes
+  # the session's configuration before Claude Code reads it.
+  air-check-branch "$default_ref" "origin/$branch"
   git switch --track -c "$branch" "origin/$branch"
 else
   git switch -c "$branch"
@@ -53,6 +57,9 @@ export AIR_AUDIT_LOG="${AIR_AUDIT_LOG:-/var/lib/air-audit/agent-issue-$issue-$(d
 
 # Claude Code first run: skip onboarding, trust this checkout and accept the
 # API key from the environment, so the session opens straight on the task.
+# Trusting it is safe only because managed settings ignore project hooks,
+# MCP servers and permission rules, and air-check-branch refused changes to
+# instruction files that did not come from the default branch.
 claude_state="$HOME/.claude.json"
 api_key="${ANTHROPIC_API_KEY:-}"
 (( ${#api_key} > 20 )) && api_key="${api_key: -20}"

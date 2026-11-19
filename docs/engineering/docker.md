@@ -53,7 +53,7 @@ docker exec -it air-agent-42 tmux attach -t agent    # detach: Ctrl-b d
 The entrypoint:
 
 1. refuses to start unless `AIR_AGENT_TOKEN` belongs to `AIR_AGENT_LOGIN`;
-2. clones `AIR_REPOSITORY` as the agent account and switches to `air/issue-42` (continuing it if it was pushed before);
+2. clones `AIR_REPOSITORY` as the agent account and switches to `air/issue-42`. If that branch was pushed before, it continues it only when the branch's own changes leave `.claude/`, `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `.mcp.json`, `.github/` and the AIR entry in `package-lock.json` as they were on the default branch; otherwise it stops and names the files. Anyone with write access can push that branch, and those files configure the session before the model reads anything. Review such a branch and remove the changes, or delete it;
 3. runs `npm ci --ignore-scripts`, so no dependency script runs next to the agent's secrets;
 4. starts Claude Code in tmux with the prompt `Take issue #42 …` (override with `AIR_AGENT_PROMPT`), with onboarding skipped, the checkout trusted and the API key from the environment accepted.
 
@@ -61,7 +61,7 @@ Git pushes use `AIR_AGENT_TOKEN` through a credential helper that reads it from 
 
 The container stops when the Claude Code session ends. Remove it with `docker rm air-agent-42`; anything not pushed is lost, which is intended. Each run writes its own audit log to the `air-agent-audit` volume (`agent-issue-<n>-<time>.jsonl`).
 
-`docker/agent/managed-settings.json` adds Claude Code deny rules the agent cannot change: no unclassified issue text, merges, reviews, releases, workflow runs, label edits, force pushes or edits under `.github/`. They catch mistakes; they are not a security boundary, because another spelling of a command is not denied ([Repository Hardening §4](security-hardening.md#4-agent-environment)). They back up branch protection; they do not replace it.
+`docker/agent/managed-settings.json` makes Claude Code ignore the checkout's hooks, MCP servers and permission rules (`allowManagedHooksOnly`, `allowManagedMcpServersOnly` with an empty `allowedMcpServers`, `allowManagedPermissionRulesOnly`) and disables bypass-permissions mode. That is why the entrypoint can mark the checkout as trusted. It also adds deny rules the agent cannot change: no unclassified issue text, merges, reviews, releases, workflow runs, label edits, force pushes or edits under `.github/`. They catch mistakes; they are not a security boundary, because another spelling of a command is not denied ([Repository Hardening §4](security-hardening.md#4-agent-environment)). They back up branch protection; they do not replace it.
 
 Each container has a process limit, and the poller and agent have memory and CPU limits; raise the agent's in `compose.yaml` if a project's build needs more.
 

@@ -7,6 +7,8 @@ Changes that affect projects using AIR. Versions follow semver; before 1.0 a min
 ### Security
 
 - **The deploy workflow no longer runs dependency install scripts.** The job that holds `AIR_DEPLOY_TOKEN` and `AIR_DEPLOY_SIGNING_KEY` now runs `npm ci --ignore-scripts` and restores no npm cache, so a dependency of your project cannot replace `air-deploy` before it runs. `air templates` updates an untouched `.github/workflows/air-deploy.yml`; if you changed the file, make the same two edits yourself.
+- **Docker agent: an existing agent branch is checked before it is used.** The agent container continues `air/issue-<n>` only if the branch's own changes leave `.claude/`, `CLAUDE.md`, `AGENTS.md`, `.mcp.json`, `.github/` and the AIR entry in `package-lock.json` untouched; otherwise it stops and lists the files. Claude Code in the container now ignores project hooks, MCP servers and permission rules. Rebuild the agent image. If a project relies on its own Claude Code hooks, MCP servers or allow rules inside the AIR agent container, they no longer apply there.
+- Repository hardening recommends a ruleset for `air/**` and Code Owners for Claude Code configuration and instruction files.
 - AIR's release is built and tested in a job without write or signing permissions; a separate job checks the tarball's hash, attests it and publishes it.
 - Docker: Claude Code is pinned (2.1.318) instead of `latest`, and containers have process, memory and CPU limits.
 - The documentation now says plainly that Claude Code deny rules are not a security boundary.
