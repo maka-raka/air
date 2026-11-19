@@ -2,6 +2,15 @@
 
 Changes that affect projects using AIR. Versions follow semver; before 1.0 a minor version may break.
 
+## Unreleased
+
+### Security
+
+- **The deploy workflow no longer runs dependency install scripts.** The job that holds `AIR_DEPLOY_TOKEN` and `AIR_DEPLOY_SIGNING_KEY` now runs `npm ci --ignore-scripts` and restores no npm cache, so a dependency of your project cannot replace `air-deploy` before it runs. `air templates` updates an untouched `.github/workflows/air-deploy.yml`; if you changed the file, make the same two edits yourself.
+- AIR's release is built and tested in a job without write or signing permissions; a separate job checks the tarball's hash, attests it and publishes it.
+- Docker: Claude Code is pinned (2.1.318) instead of `latest`, and containers have process, memory and CPU limits.
+- The documentation now says plainly that Claude Code deny rules are not a security boundary.
+
 ## 0.3.0 (2026-11-20)
 
 ### Breaking
