@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_ENV_FILE } from "./config.js";
+import { DEMO_VARIABLE } from "./demo-mode.js";
+import { KeyRole, keyNames } from "./trust.js";
 
 /** The installed package root (holds `templates/` and `.env.example`). */
 const PACKAGE_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
@@ -69,6 +72,20 @@ export const TEMPLATES: readonly TemplateFile[] = [
   providerFile("github/workflows/air-deploy.yml"),
   { source: ".env.example", target: ".env.air.example", optional: false },
 ];
+
+/** Lenses `air init --demo` installs: the ones marked *always*, plus security. */
+export const DEMO_LENSES = ["code", "tests", "scope", "security"] as const;
+
+/**
+ * The minimum a demo needs (ADR-0014): the skill, its lens rules and a few
+ * lenses. No deploy workflow and no env template: demo mode writes
+ * `.env.air` itself. `air templates` later adds everything else.
+ */
+export const DEMO_TEMPLATES: readonly TemplateFile[] = TEMPLATES.filter(
+  (file) =>
+    file.source.startsWith(`${TEMPLATE_ROOT}claude/skills/`) ||
+    DEMO_LENSES.some((lens) => file.source === lensFile(lens, false).source),
+);
 
 /** Source in the package → destination in the project (always installed). */
 export const PROJECT_FILES: Readonly<Record<string, string>> =
@@ -150,11 +167,21 @@ async function readOrNull(path: string): Promise<string | null> {
   }
 }
 
-async function createOnce(path: string, content: string): Promise<boolean> {
+/** Owner read and write only: the demo env file holds tokens and keys. */
+const PRIVATE_FILE = 0o600;
+
+async function createOnce(
+  path: string,
+  content: string,
+  mode?: number,
+): Promise<boolean> {
   await mkdir(dirname(path), { recursive: true });
   try {
     // `wx` fails instead of overwriting, even if the file appears meanwhile.
-    await writeFile(path, content, { flag: "wx" });
+    await writeFile(path, content, {
+      flag: "wx",
+      ...(mode === undefined ? {} : { mode }),
+    });
     return true;
   } catch (error) {
     if (code(error) === EXISTS) return false;
@@ -194,7 +221,73 @@ export function parseLenses(value: string | undefined): readonly string[] {
 const requested = (file: TemplateFile, lenses: readonly string[]) =>
   lenses.some((lens) => file.source === lensFile(lens, true).source);
 
-export type InitOptions = Readonly<{ lenses?: readonly string[] }>;
+export type KeyPair = Readonly<{ privateKey: string; publicKey: string }>;
+
+/** `air init --demo <owner>/<repo>`: the repository and fresh key pairs. */
+export type DemoSetup = Readonly<{
+  repository: string;
+  agentKeys: KeyPair;
+  operatorKeys: KeyPair;
+}>;
+
+export type InitOptions = Readonly<{
+  lenses?: readonly string[];
+  /** Demo mode (ADR-0014): minimal files and a ready `.env.air`. */
+  demo?: DemoSetup;
+}>;
+
+const REPOSITORY = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
+
+/** Validates the `--demo` repository. */
+export function demoRepository(value: string | undefined): string {
+  if (value === undefined || !REPOSITORY.test(value))
+    throw new Error("air init --demo takes the throwaway <owner>/<repo>");
+  return value;
+}
+
+/**
+ * The demo's `.env.air`: bound to one repository by `AIR_DEMO`, the operator
+ * may approve, and both key pairs are filled in. Only the logins and the two
+ * tokens are left to the person trying AIR.
+ */
+export function demoEnv(setup: DemoSetup): string {
+  const agent = keyNames[KeyRole.Agent];
+  const operator = keyNames[KeyRole.Operator];
+  return [
+    "# AIR DEMO MODE: NOT PRODUCTION-SAFE (ADR-0014). Throwaway repository only.",
+    "# Hardening is skipped, you are operator and approver, and every key and",
+    "# token is in this one file, which an agent on this machine can read.",
+    "# `air doctor` fails while AIR_DEMO is set. For real use, delete this file",
+    "# and follow docs/engineering/install.md.",
+    "",
+    "# Demo mode is bound to this repository: AIR refuses to run if",
+    "# AIR_REPOSITORY names any other.",
+    `${DEMO_VARIABLE}=${setup.repository}`,
+    `AIR_REPOSITORY=${setup.repository}`,
+    "",
+    "# You: your own GitHub login, in both.",
+    "AIR_OPERATOR_LOGIN=",
+    "AIR_APPROVER_LOGINS=",
+    "AIR_ALLOW_OPERATOR_APPROVER=true",
+    "# Your fine-grained token for this repository only, short expiry:",
+    "#   Issues RW · Pull requests R · Commit statuses R · Checks R · Metadata R",
+    "AIR_GITHUB_TOKEN=",
+    "",
+    "# The agent: a second GitHub account with write access to the repository.",
+    "AIR_AGENT_LOGIN=",
+    "# Its fine-grained token for this repository only:",
+    "#   Issues RW · Pull requests RW · Contents RW · Commit statuses R · Checks R",
+    "#   · Metadata R · no Workflows, no Administration",
+    "AIR_AGENT_TOKEN=",
+    "",
+    "# Generated by `air init --demo`; never reuse these keys elsewhere.",
+    `${agent.signing}=${setup.agentKeys.privateKey}`,
+    `${agent.public}=${setup.agentKeys.publicKey}`,
+    `${operator.signing}=${setup.operatorKeys.privateKey}`,
+    `${operator.public}=${setup.operatorKeys.publicKey}`,
+    "",
+  ].join("\n");
+}
 
 export type InitResult = Readonly<{
   created: readonly string[];
@@ -202,6 +295,17 @@ export type InitResult = Readonly<{
   kept: readonly string[];
   ignored: readonly string[];
 }>;
+
+/** Templates `air init` installs, in install order. */
+function selected(options: InitOptions): readonly TemplateFile[] {
+  const lenses = options.lenses ?? [];
+  const asked = (file: TemplateFile) => requested(file, lenses);
+  if (!options.demo)
+    return TEMPLATES.filter((file) => !file.optional || asked(file));
+  return TEMPLATES.filter(
+    (file) => DEMO_TEMPLATES.includes(file) || asked(file),
+  );
+}
 
 /**
  * Prepares a project for AIR: the agent skill, its review lenses, the
@@ -213,17 +317,23 @@ export async function initProject(
   options: InitOptions = {},
   packageRoot: string = PACKAGE_ROOT,
 ): Promise<InitResult> {
-  const lenses = options.lenses ?? [];
   const created: string[] = [];
   const kept: string[] = [];
-  for (const file of TEMPLATES) {
-    if (file.optional && !requested(file, lenses)) continue;
+  for (const file of selected(options)) {
     const content = await readFile(join(packageRoot, file.source), "utf8");
     const wrote = await createOnce(
       join(root, file.target),
       stamp(file.source, content),
     );
     (wrote ? created : kept).push(file.target);
+  }
+  if (options.demo) {
+    const wrote = await createOnce(
+      join(root, DEFAULT_ENV_FILE),
+      demoEnv(options.demo),
+      PRIVATE_FILE,
+    );
+    (wrote ? created : kept).push(DEFAULT_ENV_FILE);
   }
   return { created, kept, ignored: await ignoreLocalFiles(root) };
 }
@@ -319,13 +429,35 @@ export function renderTemplates(changes: readonly TemplateChange[]): string {
   ].join("\n");
 }
 
-export function renderInit({ created, kept, ignored }: InitResult): string {
-  return [
+export function renderInit(
+  { created, kept, ignored }: InitResult,
+  demo?: string,
+): string {
+  const files = [
     ...created.map((path) => `created  ${path}`),
     ...kept.map((path) => `kept     ${path} (already exists)`),
     ...ignored.map((entry) => `ignored  ${entry} (added to .gitignore)`),
     "",
-    "Next: docs/engineering/install.md in the AIR repository.",
-    "Later: `npx air templates` updates these files after an AIR upgrade.",
+  ];
+  if (demo === undefined)
+    return [
+      ...files,
+      "Next: docs/engineering/install.md in the AIR repository.",
+      "Later: `npx air templates` updates these files after an AIR upgrade.",
+    ].join("\n");
+  const envKept = kept.includes(DEFAULT_ENV_FILE);
+  return [
+    ...files,
+    `!!! AIR DEMO MODE for ${demo}: NOT PRODUCTION-SAFE (ADR-0014) !!!`,
+    "No repository hardening, you approve as the operator, and every key and",
+    "token is in one file. Use a throwaway repository and short-lived tokens.",
+    "",
+    envKept
+      ? `${DEFAULT_ENV_FILE} already exists and was kept: no keys were written. Use an empty checkout of the throwaway repository.`
+      : `Next: fill the logins and two tokens in ${DEFAULT_ENV_FILE} (the keys are already there), then:`,
+    "  npx --no air-local          # keep it running",
+    `  open an issue in ${demo} and comment: /air initialize`,
+    "  ask Claude Code to deliver the issue (it uses the air-delivery skill)",
+    "Real repositories: remove the demo and follow docs/engineering/install.md.",
   ].join("\n");
 }

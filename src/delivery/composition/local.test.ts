@@ -553,7 +553,15 @@ describe("readLocalConfig", () => {
     );
   });
 
+  it("carries demo mode only when bound to the configured repository", () => {
+    const demo = readLocalConfig({ ...base, AIR_DEMO: "example/air" }).demo;
+
+    assert.equal(demo?.repository, "example/air");
+    assert.equal("demo" in readLocalConfig(base), false);
+  });
+
   for (const [env, message] of [
+    [{ ...base, AIR_DEMO: "me/air-demo" }, /does not match AIR_REPOSITORY/],
     [{ ...base, AIR_GITHUB_TOKEN: "" }, /AIR_GITHUB_TOKEN/],
     [{ ...base, AIR_REPOSITORY: "example" }, /AIR_REPOSITORY/],
     [{ ...base, AIR_POLL_INTERVAL_MS: "100" }, /AIR_POLL_INTERVAL_MS/],

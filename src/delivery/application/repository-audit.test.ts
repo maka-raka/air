@@ -121,6 +121,26 @@ describe("AuditFindings", () => {
       ],
     );
   });
+
+  it("fails demo mode even when everything else is hardened", () => {
+    const findings = audit.evaluate(hardened, {
+      ...tidy,
+      demoProject: "me/air-demo",
+    });
+
+    const demo = findings.find(({ id }) => id === "local.demo-mode");
+    assert.equal(demo?.status, AuditStatus.Fail);
+    assert.match(demo?.message ?? "", /me\/air-demo.*not production-safe/);
+  });
+
+  it("reports no demo finding outside demo mode", () => {
+    const findings = audit.evaluate(hardened, tidy);
+
+    assert.equal(
+      findings.some(({ id }) => id === "local.demo-mode"),
+      false,
+    );
+  });
 });
 
 describe("AuditRepository", () => {
@@ -137,5 +157,16 @@ describe("AuditRepository", () => {
 
     assert.equal((await use.run(tidy, false)).failed, false);
     assert.equal((await use.run(tidy, true)).failed, true);
+  });
+
+  it("fails in demo mode without --strict", async () => {
+    const use = new AuditRepository({ read: async () => hardened });
+
+    const result = await use.run(
+      { ...tidy, demoProject: "me/air-demo" },
+      false,
+    );
+
+    assert.equal(result.failed, true);
   });
 });
