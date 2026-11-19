@@ -3,6 +3,7 @@
 #   docker compose up -d poller                             # keep running
 #   docker compose run -d --name air-agent-42 agent 42      # one agent run
 #   docker exec -it air-agent-42 tmux attach -t agent
+#   docker compose --profile ui up -d ui                   # console on localhost:7420
 #
 # Automatic agent runs (ADR-0011): set AIR_AGENT_LAUNCH_PHASES in
 # .env.air.poller, `mkdir -p .air/launch`, and run `air-launcher` on the host
@@ -12,6 +13,7 @@
 #   .env.air          shared, not secret: repository, logins, public keys
 #   .env.air.poller   operator token and signing key
 #   .env.air.agent    agent token, agent signing key, Anthropic API key
+#   .env.air.ui       read-only token for the console (profile "ui")
 # chmod 600 all three; they are git-ignored.
 
 x-hardening: &hardening
@@ -53,6 +55,29 @@ services:
       - path: .env.air.agent
     volumes:
       - air-agent-audit:/var/lib/air-audit
+
+  # Read-only console (ADR-0012): http://localhost:7420/
+  ui:
+    <<: *hardening
+    build: .
+    image: air:local
+    profiles: [ui]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    entrypoint: ["node", "/opt/air/dist/src/delivery/composition/console.js"]
+    env_file:
+      - path: .env.air
+      - path: .env.air.ui
+    environment:
+      AIR_UI_HOST: 0.0.0.0
+      AIR_LAUNCH_DIR: /var/lib/air-launch
+      AIR_AUDIT_LOG: /var/lib/air/audit-poller.jsonl
+    ports:
+      - "127.0.0.1:7420:7420"
+    volumes:
+      - air-poller-state:/var/lib/air:ro
+      - ./.air/launch:/var/lib/air-launch:ro
 
 volumes:
   air-poller-state:

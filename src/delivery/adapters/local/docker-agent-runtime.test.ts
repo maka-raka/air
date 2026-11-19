@@ -87,3 +87,48 @@ describe("DockerAgentRuntime", () => {
     assert.deepEqual(calls, []);
   });
 });
+
+describe("DockerAgentRuntime.runs", () => {
+  it("lists running and stopped agent containers", async () => {
+    const { runner, calls } = recording(
+      [
+        "air-agent-44-design-1\t44\tdesign\trunning\tUp 18 minutes",
+        "air-agent-41-build-1\t41\tbuild\texited\tExited (0) 12 minutes ago",
+        "stray\tnot-a-number\tbuild\trunning\tUp",
+        "air-agent-9-x\t9\tdeploy\tcreated\tCreated",
+        "",
+      ].join("\n"),
+    );
+    const runs = await new DockerAgentRuntime(options, runner).runs();
+
+    assert.deepEqual(runs, [
+      {
+        name: "air-agent-44-design-1",
+        issue: 44,
+        phase: DeliveryPhase.Design,
+        running: true,
+        status: "Up 18 minutes",
+      },
+      {
+        name: "air-agent-41-build-1",
+        issue: 41,
+        phase: DeliveryPhase.Build,
+        running: false,
+        status: "Exited (0) 12 minutes ago",
+      },
+      {
+        name: "air-agent-9-x",
+        issue: 9,
+        phase: null,
+        running: false,
+        status: "Created",
+      },
+    ]);
+    assert.deepEqual(calls[0]?.args.slice(0, 4), [
+      "ps",
+      "--all",
+      "--filter",
+      "label=air.agent.issue",
+    ]);
+  });
+});

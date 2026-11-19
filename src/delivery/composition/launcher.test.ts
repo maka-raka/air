@@ -11,6 +11,10 @@ import {
 } from "./launcher.js";
 import type { CommandRunner } from "../adapters/local/docker-agent-runtime.js";
 import { FileAgentLaunchQueue } from "../adapters/local/file-agent-launch-queue.js";
+import {
+  FileAgentRunsSnapshot,
+  agentRunsFile,
+} from "../adapters/local/file-agent-runs-snapshot.js";
 import { DispatchOutcome } from "../application/agent-launch.js";
 import { DeliveryPhase } from "../domain/state-machine.js";
 
@@ -87,7 +91,13 @@ describe("composeLauncher", () => {
     );
     assert.equal(calls[0]?.[0], "ps");
     assert.deepEqual(calls[1]?.slice(-2), ["agent", "9"]);
+    assert.deepEqual(calls[2]?.slice(0, 2), ["ps", "--all"]);
     assert.deepEqual(await new FileAgentLaunchQueue(launchDir).pending(), []);
+    const published = await new FileAgentRunsSnapshot(
+      agentRunsFile(launchDir),
+    ).snapshot();
+    assert.ok(published.at);
+    assert.deepEqual(published.runs, []);
   });
 });
 

@@ -41,6 +41,19 @@ const actions: Readonly<Record<string, Action>> = {
 };
 const phases: readonly string[] = Object.values(DeliveryPhase);
 const prefix = "/air";
+const words: ReadonlyMap<Action, string> = new Map(
+  Object.entries(actions).map(([word, action]) => [action, word]),
+);
+
+/**
+ * The command line a person posts for `action`, exactly as `parse` reads it
+ * back; null for actions no person can request by comment.
+ */
+export function formatCommand(action: Action, target?: Phase): string | null {
+  const word = words.get(action);
+  if (!word) return null;
+  return target ? `${prefix} ${word} ${target}` : `${prefix} ${word}`;
+}
 
 const failure = (
   error: CommandParseError,

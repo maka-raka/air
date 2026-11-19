@@ -105,7 +105,26 @@ Attach to a run as before: `docker exec -it air-agent-42-build-<time> tmux attac
 
 The launcher needs the Docker API, which is root-equivalent on the host: prefer rootless Docker or Podman (`AIR_DOCKER=podman`). It reads `.env.air.agent` only through `docker compose`, and never holds the operator's key.
 
-## 5. Without Docker
+## 5. Console
+
+A read-only page on `http://localhost:7420/` ([ADR-0012](../architecture/adr/0012-read-only-console.md)):
+
+- **Board**: every open issue with AIR state, by phase, with a warning on any state AIR did not write or cannot verify.
+- **Needs you**: what waits for an approver, most urgent first (repairs, then agent questions, then approvals), each with the exact `/air` command to post and a link to the issue.
+- **Agents & audit**: agent containers with their attach command, the launch queue, failed launches, and the poller's audit log with its hash chain checked.
+
+```bash
+cp docker/env/ui.env.example .env.air.ui && chmod 600 .env.air.ui   # add a read-only token
+docker compose --profile ui up -d ui
+```
+
+The console holds one read-only token (Issues: Read, Metadata: Read) of a person or a reader account. It refuses a token of `air-bot`, `air-agent` or the deployer, and refuses to start with any AIR signing key or service token in its environment. It never posts: copy the command and post it in the issue as yourself, so the approval is yours.
+
+It listens on `127.0.0.1` only, answers only `GET`/`HEAD`, rejects requests for other host names, and serves no scripts. It reads the audit log and the launch directory through read-only mounts; agent runs come from a snapshot `air-launcher` writes after each round, so the console has no Docker access. Trust is checked again on every refresh (`AIR_UI_REFRESH_MS`, 30 s): two GitHub API calls per open AIR issue.
+
+Without Docker: `npm run build && node dist/src/delivery/composition/console.js --env-file .env.air.ui` with the repository, logins, `AIR_OPERATOR_PUBLIC_KEY`, `AIR_AGENT_PUBLIC_KEY` and `AIR_UI_TOKEN` in that file only.
+
+## 6. Without Docker
 
 The host workflow in [Local runtime](local-runtime.md) still works and suits development, but the agent then sees your machine's credentials.
 
