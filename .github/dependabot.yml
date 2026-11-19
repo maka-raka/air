@@ -13,3 +13,8 @@ updates:
     groups:
       dev-tooling:
         dependency-type: development
+  - package-ecosystem: docker
+    directories: ["/", "/docker/agent"]
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

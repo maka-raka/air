@@ -1,0 +1,52 @@
+# AIR in containers (ADR-0011). See docs/engineering/docker.md.
+#
+#   docker compose up -d poller                             # keep running
+#   docker compose run -d --name air-agent-42 agent 42      # one agent run
+#   docker exec -it air-agent-42 tmux attach -t agent
+#
+# Secrets are split so each private key reaches only its own process:
+#   .env.air          shared, not secret: repository, logins, public keys
+#   .env.air.poller   operator token and signing key
+#   .env.air.agent    agent token, agent signing key, Anthropic API key
+# chmod 600 all three; they are git-ignored.
+
+x-hardening: &hardening
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  init: true
+
+services:
+  poller:
+    <<: *hardening
+    build: .
+    image: air:local
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    env_file:
+      - path: .env.air
+      - path: .env.air.poller
+    environment:
+      AIR_STATE_DIR: /var/lib/air
+    volumes:
+      - air-poller-state:/var/lib/air
+
+  agent:
+    <<: *hardening
+    build:
+      context: docker/agent
+      args:
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-latest}
+    image: air-agent:local
+    profiles: [agent]
+    stdin_open: true
+    tty: true
+    env_file:
+      - path: .env.air
+      - path: .env.air.agent
+    volumes:
+      - air-agent-audit:/var/lib/air-audit
+
+volumes:
+  air-poller-state:
+  air-agent-audit:
