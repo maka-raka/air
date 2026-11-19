@@ -9,6 +9,7 @@ import type { AuditPort } from "./audit.js";
 import type { DeliveryCommandExecutor } from "./comment-command-handler.js";
 import { DeliveryRecordHistory, DeliveryRisk } from "./delivery-record.js";
 import type { DeliveryRecordPort } from "./delivery-record.js";
+import { openPosition } from "./execute-delivery-command.js";
 import type {
   DeliveryCommand,
   DeliveryResult,
@@ -104,7 +105,7 @@ export class AgentLaunchPolicy {
     if (!result.ok) return null;
     if (result.replayed) return null;
     if (command.request.actor !== DeliveryActor.Human) return null;
-    const position = result.snapshot.position;
+    const position = openPosition(result.snapshot);
     if (position?.status !== DeliveryStatus.Ready) return null;
     return this.phases.has(position.phase) ? position.phase : null;
   }

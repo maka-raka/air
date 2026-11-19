@@ -13,7 +13,7 @@ import type { HttpRequest } from "../adapters/github/github-rest-client.js";
 import {
   Ed25519RecordSigner,
   generateRecordKeys,
-} from "../adapters/github/record-signature.js";
+} from "../adapters/signature/record-signature.js";
 import { GitHubStateAnchorStore } from "../adapters/github/state-anchor-store.js";
 import { HttpStatus } from "../adapters/http/console-server.js";
 import { FileAgentLaunchQueue } from "../adapters/local/file-agent-launch-queue.js";

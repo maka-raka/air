@@ -23,7 +23,7 @@ import { DeliveryFailure } from "../application/execute-delivery-command.js";
 import {
   Ed25519RecordSigner,
   generateRecordKeys,
-} from "../adapters/github/record-signature.js";
+} from "../adapters/signature/record-signature.js";
 
 const KEYS = generateRecordKeys();
 const AUDIT_DIR = await mkdtemp(join(tmpdir(), "air-agent-"));

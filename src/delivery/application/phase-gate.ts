@@ -180,7 +180,7 @@ export class EvaluatePhaseGate {
           at: this.runtime.now().toISOString(),
           outcome: RunOutcome.Completed,
         },
-        `Agent run \`${run}\` ended: gate passed.`,
+        "",
       );
     return { result, gate };
   }

@@ -3,18 +3,18 @@ import type {
   StateHistoryEntry,
   StateHistoryPort,
 } from "../../application/delivery-flow.js";
-import { DeliveryPhase, DeliveryStatus } from "../../domain/state-machine.js";
-import type { Phase, Position, Status } from "../../domain/state-machine.js";
+import type { Position } from "../../domain/state-machine.js";
+import { StateAnchorCodec } from "../codec/state-anchor-codec.js";
 import type { AnchorEvidence } from "../../domain/trust-policy.js";
 import type {
   IssueCommentReader,
   IssueCommentWriter,
 } from "./issue-comment-http-adapter.js";
-import { SignatureDomain } from "./record-signature.js";
+import { SignatureDomain } from "../signature/record-signature.js";
 import type {
   Ed25519RecordSigner,
   Ed25519RecordVerifier,
-} from "./record-signature.js";
+} from "../signature/record-signature.js";
 
 export type AnchorKeys = Readonly<{
   /** Anchors are bound to this repository. */
@@ -26,29 +26,7 @@ export type AnchorKeys = Readonly<{
 }>;
 
 const MARKER = /<!-- air:state (\{[^\n]*\}) sig=([A-Za-z0-9+/]+={0,2}) -->\s*$/;
-const phases: readonly string[] = Object.values(DeliveryPhase);
-const statuses: readonly string[] = Object.values(DeliveryStatus);
-
-type Anchored = Readonly<{ position: Position; at: string | null }>;
-
-function anchored(value: unknown): Anchored | null {
-  const at = position(value);
-  if (!at) return null;
-  const time = (value as Record<string, unknown>).at;
-  return {
-    position: at,
-    at:
-      typeof time === "string" && !Number.isNaN(Date.parse(time)) ? time : null,
-  };
-}
-
-function position(value: unknown): Position | null {
-  if (value === null || typeof value !== "object") return null;
-  const { phase, status } = value as Record<string, unknown>;
-  if (!phases.includes(String(phase))) return null;
-  if (!statuses.includes(String(status))) return null;
-  return { phase: phase as Phase, status: status as Status };
-}
+const codec = new StateAnchorCodec();
 
 /**
  * Signed state anchors as issue comments: a short visible line and a hidden
@@ -78,11 +56,7 @@ export class GitHubStateAnchorStore
 
   append(issue: number, next: Position): Promise<void> {
     if (!this.signer) throw new Error("This process cannot write state");
-    const encoded = JSON.stringify({
-      phase: next.phase,
-      status: next.status,
-      at: new Date().toISOString(),
-    });
+    const encoded = codec.encode(next, new Date());
     const signature = this.signer.sign(this.scope(issue), encoded);
     return this.comments.post(
       issue,
@@ -107,7 +81,7 @@ export class GitHubStateAnchorStore
       const marker = MARKER.exec(body);
       if (!marker) return [];
       const [, encoded, signature] = marker;
-      const decoded = this.decode(encoded!);
+      const decoded = codec.decode(encoded!);
       if (!decoded) return [];
       const verifier = this.verifiers.get(authorId);
       const signatureValid =
@@ -116,15 +90,7 @@ export class GitHubStateAnchorStore
     });
   }
 
-  private decode(encoded: string): Anchored | null {
-    try {
-      return anchored(JSON.parse(encoded));
-    } catch {
-      return null;
-    }
-  }
-
   private scope(issue: number) {
-    return { repositoryId: this.keys.repositoryId, issue };
+    return { sourceId: this.keys.repositoryId, issue };
   }
 }

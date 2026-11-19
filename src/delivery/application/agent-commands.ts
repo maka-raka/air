@@ -56,7 +56,7 @@ export class AgentCommands {
     await this.records.append(
       issue,
       { kind: DeliveryRecordKind.RunStart, runId, at: this.at() },
-      `Agent run \`${runId}\` started.`,
+      "",
     );
     return result;
   }
@@ -69,7 +69,7 @@ export class AgentCommands {
     await this.records.append(
       issue,
       { kind: DeliveryRecordKind.Block, at: this.at() },
-      `**Blocked:** ${question.trim()}`,
+      question.trim(),
     );
     const result = await this.execute(issue, DeliveryAction.Block, {
       reportRecorded: true,
@@ -100,7 +100,7 @@ export class AgentCommands {
     await this.records.append(
       issue,
       { kind: DeliveryRecordKind.RunEnd, runId, at: this.at(), outcome },
-      `Agent run \`${runId}\` ended: ${outcome}.`,
+      "",
     );
   }
 

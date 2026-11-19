@@ -13,6 +13,7 @@ import {
 import { GitHubDeploymentHttpAdapter } from "../adapters/github/deployment-http-adapter.js";
 import { GitHubRestClient } from "../adapters/github/github-rest-client.js";
 import type { HttpRequest } from "../adapters/github/github-rest-client.js";
+import { GitHubDeliveryNoticeAdapter } from "../adapters/github/delivery-notice-adapter.js";
 import { GitHubIssueCommentHttpAdapter } from "../adapters/github/issue-comment-http-adapter.js";
 import {
   AgentIdentityPreflight,
@@ -170,7 +171,7 @@ export async function composeDeploy(
     ),
     deployments,
     deployments,
-    comments,
+    new GitHubDeliveryNoticeAdapter(comments),
     new AgentIdentityPreflight(users, viewer.id),
     { now: () => new Date(), runTtlMs: config.runTtlMs },
   );

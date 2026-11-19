@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { GitHubDeliveryRecordStore } from "./delivery-record-store.js";
+import {
+  GitHubDeliveryRecordStore,
+  recordText,
+} from "./delivery-record-store.js";
 import type {
   IssueComment,
   IssueCommentReader,
@@ -8,12 +11,16 @@ import type {
 } from "./issue-comment-http-adapter.js";
 import {
   DeliveryRecordKind,
+  RunOutcome,
   TrustedDeliveryRecords,
 } from "../../application/delivery-record.js";
 import type { DeliveryRecord } from "../../application/delivery-record.js";
 import { DeliveryPhase } from "../../domain/state-machine.js";
 import { StateAnchorMode, TrustPolicy } from "../../domain/trust-policy.js";
-import { Ed25519RecordSigner, generateRecordKeys } from "./record-signature.js";
+import {
+  Ed25519RecordSigner,
+  generateRecordKeys,
+} from "../signature/record-signature.js";
 import type { AuditPort } from "../../application/audit.js";
 
 /** Audit is covered by its own tests. */
@@ -34,7 +41,7 @@ const TRUST = new TrustPolicy({
 
 /** A marker signed with the agent key, as the agent would write it. */
 function signed(json: string, issue = 42, signer = SIGNER): string {
-  const sig = signer.sign({ repositoryId: REPOSITORY, issue }, json);
+  const sig = signer.sign({ sourceId: REPOSITORY, issue }, json);
   return `x\n\n<!-- air:record ${json} sig=${sig} -->`;
 }
 
@@ -235,4 +242,42 @@ describe("GitHubDeliveryRecordStore behind TrustPolicy", () => {
       assert.deepEqual(await store.list(42), []);
     });
   }
+});
+
+describe("recordText", () => {
+  const at = "2026-11-11T12:00:00.000Z";
+
+  it("frames each record kind for people; the note is the agent's words", () => {
+    const texts = [
+      recordText({ kind: DeliveryRecordKind.RunStart, runId: "r1", at }, ""),
+      recordText(
+        {
+          kind: DeliveryRecordKind.RunEnd,
+          runId: "r1",
+          at,
+          outcome: RunOutcome.Completed,
+        },
+        "",
+      ),
+      recordText(
+        {
+          kind: DeliveryRecordKind.RunEnd,
+          runId: "r1",
+          at,
+          outcome: RunOutcome.Blocked,
+        },
+        "",
+      ),
+      recordText({ kind: DeliveryRecordKind.Block, at }, "Which API?"),
+      recordText(report, "Requirements done."),
+    ];
+
+    assert.deepEqual(texts, [
+      "Agent run `r1` started.",
+      "Agent run `r1` ended: gate passed.",
+      "Agent run `r1` ended: blocked.",
+      "**Blocked:** Which API?",
+      "Requirements done.",
+    ]);
+  });
 });
