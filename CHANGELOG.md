@@ -2,7 +2,7 @@
 
 Changes that affect projects using AIR. Versions follow semver; before 1.0 a minor version may break.
 
-## 0.3.0 (unreleased)
+## 0.3.0 (2026-11-20)
 
 ### Breaking
 
