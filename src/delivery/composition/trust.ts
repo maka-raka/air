@@ -166,7 +166,7 @@ export function stateAnchorStore(
   keys: StateKeys,
   /** Omitted by readers such as the console: they never write state. */
   signer?: Ed25519RecordSigner,
-): StateAnchorPort {
+): GitHubStateAnchorStore {
   if (accounts.deployer && !keys.deployer)
     throw new Error("Set AIR_DEPLOY_PUBLIC_KEY");
   const verifiers = new Map([

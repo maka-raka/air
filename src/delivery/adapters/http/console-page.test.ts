@@ -10,6 +10,9 @@ import type {
   DeliveryOverview,
 } from "../../application/delivery-overview.js";
 import { AuditKind } from "../../application/audit.js";
+import { PhaseStep } from "../../application/delivery-detail.js";
+import type { DeliveryDetail } from "../../application/delivery-detail.js";
+import { DeliveryRecordKind } from "../../application/delivery-record.js";
 import {
   DeliveryAction,
   DeliveryPhase,
@@ -19,6 +22,7 @@ import {
 const page = new ConsolePage({
   repository: "example/app",
   issueUrl: (issue) => `https://github.com/example/app/issues/${issue}`,
+  pullRequestUrl: (pull) => `https://github.com/example/app/pull/${pull}`,
   refreshSeconds: 30,
 });
 
@@ -118,6 +122,7 @@ describe("ConsolePage.board", () => {
     assert.match(html, /value="\/air advance review"/);
     assert.match(html, /value="\/air rework"/);
     assert.match(html, /href="https:\/\/github.com\/example\/app\/issues\/41"/);
+    assert.match(html, /href="\/issues\/41">Details/);
   });
 
   it("shows untrusted states and never offers a command for them", () => {
@@ -135,6 +140,10 @@ describe("ConsolePage.board", () => {
   it("has no scripts or forms and refreshes itself", () => {
     assert.doesNotMatch(html, /<script|<form|onclick=/i);
     assert.match(html, /http-equiv="refresh" content="30"/);
+  });
+
+  it("links board cards to the console issue page", () => {
+    assert.match(html, /<a class="card" href="\/issues\/49">/);
   });
 
   it("puts cards in their phase column and marks running agents", () => {
@@ -206,5 +215,116 @@ describe("ConsolePage.failure", () => {
     const html = page.failure("GitHub said <no>");
     assert.match(html, /role="alert"/);
     assert.match(html, /GitHub said &lt;no&gt;/);
+  });
+});
+
+const detail: DeliveryDetail = {
+  card: waiting,
+  progress: [
+    { phase: DeliveryPhase.Requirements, step: PhaseStep.Done },
+    { phase: DeliveryPhase.Design, step: PhaseStep.Skipped },
+    { phase: DeliveryPhase.Build, step: PhaseStep.Current },
+    { phase: DeliveryPhase.Review, step: PhaseStep.Next },
+    { phase: DeliveryPhase.Accept, step: PhaseStep.Next },
+    { phase: DeliveryPhase.Observe, step: PhaseStep.Next },
+  ],
+  history: [
+    {
+      position: { phase: DeliveryPhase.Review, status: DeliveryStatus.Ready },
+      at: "2026-11-19T11:00:00Z",
+      by: "<mallory>",
+      counts: false,
+    },
+    {
+      position: { phase: DeliveryPhase.Build, status: DeliveryStatus.Waiting },
+      at: "2026-11-19T10:58:00Z",
+      by: "air-agent",
+      counts: true,
+    },
+  ],
+  records: [
+    {
+      kind: DeliveryRecordKind.Report,
+      phase: DeliveryPhase.Build,
+      at: "2026-11-19T10:57:00Z",
+      facts: { pullRequest: 88, artifact: "<dist>" },
+    },
+  ],
+  ignoredRecords: 1,
+  reports: [
+    {
+      kind: DeliveryRecordKind.Report,
+      phase: DeliveryPhase.Build,
+      at: "2026-11-19T10:57:00Z",
+      facts: { pullRequest: 88, artifact: "<dist>" },
+    },
+  ],
+  runs: [
+    {
+      name: "air-agent-41-build-x",
+      issue: 41,
+      phase: DeliveryPhase.Build,
+      running: true,
+      status: "Up 3 minutes",
+    },
+  ],
+};
+
+describe("ConsolePage.issue", () => {
+  const html = page.issue(detail, overview(), READ_AT);
+
+  it("shows the state, trust and phase progress", () => {
+    assert.match(html, /Rate limit for public API/);
+    assert.match(html, /build:waiting/);
+    assert.match(html, /State written and signed by AIR/);
+    assert.match(html, /<li class="skipped"><b>Design<\/b>Skipped<\/li>/);
+    assert.match(html, /<li class="current"><b>Build<\/b>Current<\/li>/);
+  });
+
+  it("shows the next commands and links to GitHub to post them", () => {
+    assert.match(html, /Your next step/);
+    assert.match(html, /value="\/air advance review"/);
+    assert.match(html, /Post in GitHub as you/);
+  });
+
+  it("shows reports with a pull request link, escaped", () => {
+    assert.match(html, /href="https:\/\/github.com\/example\/app\/pull\/88"/);
+    assert.match(html, /&lt;dist&gt;/);
+  });
+
+  it("marks history that does not count and escapes the author", () => {
+    assert.match(
+      html,
+      /&lt;mallory&gt;<\/b> set <code>review:ready<\/code> <span class="chip untrusted">does not count/,
+    );
+    assert.match(html, /agent<\/b> recorded a report for build/);
+  });
+
+  it("warns about ignored records and lists this issue's runs", () => {
+    assert.match(html, /1 record on this issue do not count/);
+    assert.match(
+      html,
+      /docker exec -it air-agent-41-build-x tmux attach -t agent/,
+    );
+  });
+
+  it("shows an untrusted state's reason", () => {
+    const untrusted = page.issue(
+      { ...detail, card: hostile },
+      overview(),
+      READ_AT,
+    );
+    assert.match(
+      untrusted,
+      /class="warn">The current state was set by &lt;img src=x&gt;/,
+    );
+    assert.doesNotMatch(untrusted, /id="cmd-58-/);
+  });
+
+  it("says when an issue is not in delivery", () => {
+    assert.match(
+      page.notFound("<7>", overview(), READ_AT),
+      /Issue &lt;7&gt; is not open/,
+    );
   });
 });

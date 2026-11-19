@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import type { DeliveryOverview } from "../../application/delivery-overview.js";
+import type { DeliveryDetail } from "../../application/delivery-detail.js";
 import { ConsolePage, ConsolePath } from "./console-page.js";
 
 export const HttpStatus = {
@@ -48,6 +49,14 @@ export interface OverviewSource {
   current(): Promise<Readonly<{ overview: DeliveryOverview; readAt: Date }>>;
 }
 
+/** One issue's detail; null when it is not in delivery. */
+export interface DetailSource {
+  detail(issue: number): Promise<DeliveryDetail | null>;
+}
+
+const NO_DETAILS: DetailSource = { detail: async () => null };
+const ISSUE_NUMBER = /^[1-9][0-9]{0,8}$/;
+
 const HTML = "text/html; charset=utf-8";
 const TEXT = "text/plain; charset=utf-8";
 
@@ -70,6 +79,7 @@ export class ConsoleRequestHandler {
     private readonly page: ConsolePage,
     port: number,
     extraHosts: readonly string[] = [],
+    private readonly details: DetailSource = NO_DETAILS,
   ) {
     this.hosts = new Set(
       [...LOCAL_HOSTNAMES, ...extraHosts].flatMap((name) => [
@@ -90,7 +100,26 @@ export class ConsoleRequestHandler {
       return this.render((o, at) => this.page.board(o, at));
     if (path === ConsolePath.Agents)
       return this.render((o, at) => this.page.agents(o, at));
+    if (path.startsWith(ConsolePath.IssuePrefix))
+      return this.issue(path.slice(ConsolePath.IssuePrefix.length));
     return text(HttpStatus.NotFound, "Not found");
+  }
+
+  private async issue(number: string): Promise<ConsoleResponse> {
+    if (!ISSUE_NUMBER.test(number))
+      return text(HttpStatus.NotFound, "Not found");
+    let detail: DeliveryDetail | null;
+    try {
+      detail = await this.details.detail(Number(number));
+    } catch (error) {
+      return this.failed(error);
+    }
+    const found = detail;
+    const response = await this.render((o, at) =>
+      found ? this.page.issue(found, o, at) : this.page.notFound(number, o, at),
+    );
+    if (found) return response;
+    return { ...response, status: HttpStatus.NotFound };
   }
 
   private async render(
@@ -104,14 +133,18 @@ export class ConsoleRequestHandler {
         body: view(overview, readAt),
       };
     } catch (error) {
-      return {
-        status: HttpStatus.ServiceUnavailable,
-        contentType: HTML,
-        body: this.page.failure(
-          error instanceof Error ? error.message : String(error),
-        ),
-      };
+      return this.failed(error);
     }
+  }
+
+  private failed(error: unknown): ConsoleResponse {
+    return {
+      status: HttpStatus.ServiceUnavailable,
+      contentType: HTML,
+      body: this.page.failure(
+        error instanceof Error ? error.message : String(error),
+      ),
+    };
   }
 }
 
@@ -152,6 +185,36 @@ export class CachedOverview implements OverviewSource {
     const overview = await this.read();
     this.cached = { overview, readAt: this.now() };
     return this.cached;
+  }
+}
+
+/**
+ * Per-issue cache with the same rule as CachedOverview: one read per issue
+ * per `ttlMs`, failures not cached, at most `maxEntries` issues kept.
+ */
+export class CachedDetails implements DetailSource {
+  private readonly entries = new Map<
+    number,
+    Readonly<{ detail: DeliveryDetail | null; readAt: number }>
+  >();
+
+  constructor(
+    private readonly read: (issue: number) => Promise<DeliveryDetail | null>,
+    private readonly ttlMs: number,
+    private readonly maxEntries = 200,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
+
+  async detail(issue: number): Promise<DeliveryDetail | null> {
+    const at = this.now().getTime();
+    const cached = this.entries.get(issue);
+    if (cached && at - cached.readAt < this.ttlMs) return cached.detail;
+    const detail = await this.read(issue);
+    this.entries.delete(issue);
+    this.entries.set(issue, { detail, readAt: at });
+    if (this.entries.size > this.maxEntries)
+      this.entries.delete(this.entries.keys().next().value as number);
+    return detail;
   }
 }
 

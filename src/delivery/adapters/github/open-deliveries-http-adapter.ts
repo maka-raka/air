@@ -1,6 +1,8 @@
 import { parseSnapshot } from "./delivery-state-store.js";
 import { GitHubIssueState } from "./github-protocol.js";
 import {
+  GitHubApiError,
+  GitHubApiErrorCategory,
   GitHubRestClient,
   HttpMethod,
   invalidResponse,
@@ -60,6 +62,21 @@ export class GitHubOpenDeliveries implements OpenDeliveriesPort {
       if (batch.length < PAGE_SIZE) break;
     }
     return deliveries.sort((a, b) => a.issue - b.issue);
+  }
+
+  async find(issue: number): Promise<OpenDelivery | null> {
+    if (!Number.isSafeInteger(issue) || issue < 1) return null;
+    let data: unknown;
+    try {
+      data = await this.client.call(HttpMethod.Get, `/issues/${issue}`);
+    } catch (error) {
+      if (!(error instanceof GitHubApiError)) throw error;
+      if (error.category !== GitHubApiErrorCategory.NotFound) throw error;
+      return null;
+    }
+    if (!object(data)) throw invalidResponse("Invalid issue payload");
+    if (data.state !== GitHubIssueState.Open) return null;
+    return delivery(data);
   }
 
   private async page(page: number): Promise<readonly unknown[]> {

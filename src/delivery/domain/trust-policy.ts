@@ -211,9 +211,7 @@ export class TrustPolicy {
     position: Position,
     anchors: readonly AnchorEvidence[],
   ): TrustDecision {
-    const latest = anchors
-      .filter((anchor) => this.trustedAnchor(anchor))
-      .at(-1);
+    const latest = anchors.filter((anchor) => this.anchorCounts(anchor)).at(-1);
     if (!latest) return this.unanchored();
     const named = `${latest.position.phase}:${latest.position.status}`;
     const samePosition =
@@ -241,7 +239,11 @@ export class TrustPolicy {
     );
   }
 
-  private trustedAnchor(anchor: AnchorEvidence): boolean {
+  /**
+   * Whether one signed anchor counts as evidence: written by an AIR account,
+   * never edited, signature valid. Readers use it to show a state history.
+   */
+  anchorCounts(anchor: AnchorEvidence): boolean {
     const byAir = this.serviceIds.includes(anchor.authorId);
     return byAir && !anchor.edited && anchor.signatureValid;
   }

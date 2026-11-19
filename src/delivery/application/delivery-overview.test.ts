@@ -62,7 +62,7 @@ function overview(setup: Setup) {
     setup.deliveries.map((d) => [d.issue, d.position] as const),
   );
   return new ReadDeliveryOverview(
-    { list: async () => setup.deliveries },
+    { list: async () => setup.deliveries, find: async () => null },
     {
       provenance: async (issue): Promise<StateProvenance> =>
         setup.byHand?.includes(issue)

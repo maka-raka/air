@@ -296,6 +296,29 @@ check(
   "denies an edited reply marker",
 );
 
+// anchorCounts
+const anchorAt: Position = {
+  phase: DeliveryPhase.Build,
+  status: DeliveryStatus.Ready,
+};
+for (const [name, anchor, expected] of [
+  ["an operator anchor", { authorId: OPERATOR }, true],
+  ["an agent anchor", { authorId: AGENT }, true],
+  ["a deployer anchor", { authorId: DEPLOYER }, true],
+  ["an approver's anchor", { authorId: APPROVER }, false],
+  ["an edited anchor", { authorId: OPERATOR, edited: true }, false],
+  ["a bad signature", { authorId: OPERATOR, signatureValid: false }, false],
+] as const)
+  check(
+    policy.anchorCounts({
+      edited: false,
+      signatureValid: true,
+      position: anchorAt,
+      ...anchor,
+    }) === expected,
+    `${expected ? "counts" : "does not count"} ${name}`,
+  );
+
 // roster
 for (const [name, change] of [
   ["shared service accounts", { agentId: OPERATOR }],
