@@ -1,5 +1,8 @@
 import { IngestionDecision } from "../../application/ingest-human-command.js";
-import type { HumanCommandMessage } from "../../application/ingest-human-command.js";
+import type {
+  HumanCommandIngestion,
+  HumanCommandMessage,
+} from "../../application/ingest-human-command.js";
 
 export type WebhookComment = Readonly<{ id: number; body: string }>;
 
@@ -28,11 +31,6 @@ export const GitHubCommentAction = {
   /** Never executed: the author may not be the person who wrote the text. */
   Edited: "edited",
 } as const;
-
-/** The platform-neutral use case this adapter feeds. */
-export interface HumanCommandIngestion {
-  execute(message: HumanCommandMessage): Promise<IngestionDecision>;
-}
 
 /**
  * Applies GitHub's rules for which comments may carry a Human command, then

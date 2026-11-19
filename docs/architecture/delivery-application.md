@@ -82,6 +82,33 @@ A local runtime (`src/delivery/composition/local.ts`) polls comments instead of 
 
 Not yet decided: lease TTL for hosted use, the durable claim-store, evidence adapters, a hosted webhook entrypoint, and the HTTP mapping of `in-progress` (GitHub does not retry failed deliveries automatically; redelivery is manual or API-driven).
 
+## Second adapter set: the memory tracker
+
+`src/delivery/adapters/memory/` runs the same use cases on a minimal in-memory tracker (accounts, issues with custom fields and a field-change log, comments with machine properties and an edit flag, code changes, commits, deployments). `src/delivery/composition/memory.ts` wires one process per service account, each with its own key and audit chain, as the CLIs do on GitHub. `composition/memory.test.ts` takes one issue from requirements to a closed observe phase, including refused agent and non-approver commands, a blocked step, hand-set state and an edited record.
+
+| Port | Memory adapter |
+| --- | --- |
+| `DeliveryStatePort` | `MemoryDeliveryStateStore`: the `air-state` field (`phase:status`); revision is the issue version |
+| `StateProvenancePort` | `MemoryStateProvenance`: latest `air-state` change in the field history |
+| `StateAnchorPort`, `StateHistoryPort` | `MemoryStateAnchorStore`: signed `air.state` comment property |
+| `DeliveryRecordSource` | `MemoryDeliveryRecordStore`: signed `air.record` comment property |
+| `CommandReplyPort`, `ProcessedCommandPort` | `MemoryCommandReplies`: `air.reply` comment property |
+| `AuthorAccessPort`, `AgentPreflightPort` | `MemoryAuthorAccess`, `MemoryAccountPreflight` |
+| `PullRequestStatusPort`, `DeploymentEvidencePort` | `MemoryCodeChangeAdapter` |
+| `IssueNoticePort`, `DeploymentMarkerPort` | `MemoryIssueNotices`: plain comments, issue tags |
+| `IssueTextPort` | `MemoryIssueText` |
+| `HumanCommandIngestion` (inbound) | `MemoryCommentIngress` |
+| `DeliveryClaimPort`, `AuditPort` | shared `InMemoryDeliveryClaims`, `HashChainedAuditLog` |
+
+Shared by every platform's adapters: `adapters/signature` (Ed25519 signing bound to project and issue) and `adapters/codec` (validation of stored records and anchors).
+
+Port contracts made explicit by the second adapter:
+
+- `DeliveryRecordPort.append` takes the agent's own words as `note`; the store decides how a record reads to people.
+- `IssueNoticePort.post` takes a structured `DeliveryNotice`; wording and format belong to the adapter.
+- `DeliverySnapshot.position` may survive closing. Read `closed`, or `openPosition`; never infer closure from a missing position.
+- A platform must provide an immutable account ID, a login that resolves to it, write access, an edit flag on comments and a log of who changed state. `TrustPolicy` needs all of them.
+
 ## Evidence lifecycle
 
 - Every evidence bundle has `source`, `capturedAt`, `scope` and stable `revision` (PR head SHA, deployed artifact or equivalent).

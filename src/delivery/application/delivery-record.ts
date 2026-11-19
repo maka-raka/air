@@ -91,7 +91,11 @@ export type ReportRecord = Extract<
  * policy accepts, in chronological order: use `TrustedDeliveryRecords`.
  */
 export interface DeliveryRecordPort {
-  append(issue: number, record: DeliveryRecord, text: string): Promise<void>;
+  /**
+   * `note`: the agent's own words (a report summary or a blocking question),
+   * empty for run records. How a record reads to people is the store's job.
+   */
+  append(issue: number, record: DeliveryRecord, note: string): Promise<void>;
   list(issue: number): Promise<readonly DeliveryRecord[]>;
 }
 
@@ -106,7 +110,7 @@ export type RecordCandidate = Readonly<{
  * well-formed record, from anyone, with its evidence; decides nothing.
  */
 export interface DeliveryRecordSource {
-  append(issue: number, record: DeliveryRecord, text: string): Promise<void>;
+  append(issue: number, record: DeliveryRecord, note: string): Promise<void>;
   candidates(issue: number): Promise<readonly RecordCandidate[]>;
 }
 
@@ -121,8 +125,8 @@ export class TrustedDeliveryRecords implements DeliveryRecordPort {
     private readonly audit: AuditPort,
   ) {}
 
-  append(issue: number, record: DeliveryRecord, text: string): Promise<void> {
-    return this.source.append(issue, record, text);
+  append(issue: number, record: DeliveryRecord, note: string): Promise<void> {
+    return this.source.append(issue, record, note);
   }
 
   /** Every record that does not count is audited, with the reason. */

@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  DeliveryNoticeKind,
   DeploymentEnvironment,
   RecordDeployment,
 } from "./record-deployment.js";
 import type {
+  DeliveryNotice,
   DeploymentEvidencePort,
   MergedPullRequest,
 } from "./record-deployment.js";
@@ -47,7 +49,7 @@ function fixture(
 ) {
   const commands: DeliveryCommand[] = [];
   const marks: string[] = [];
-  const notices: string[] = [];
+  const notices: DeliveryNotice[] = [];
   const evidence: DeploymentEvidencePort = {
     succeeded: async () => options.succeeded ?? true,
     pullRequest: async () => (options.pr === undefined ? merged : options.pr),
@@ -67,7 +69,7 @@ function fixture(
     },
     evidence,
     { mark: async (_issue, environment) => void marks.push(environment) },
-    { post: async (_issue, text) => void notices.push(text) },
+    { post: async (_issue, notice) => void notices.push(notice) },
     { check: async () => options.preflight ?? true },
     { now: () => new Date("2026-11-11T12:00:00Z"), runTtlMs: 1000 },
   );
@@ -123,8 +125,14 @@ describe("RecordDeployment", () => {
 
     assert.equal(result.ok, false);
     assert.deepEqual(marks, ["stage"]);
-    assert.match(notices[0]!, /deployment-state-mismatch/);
-    assert.match(notices[0]!, /invalid-transition/);
+    assert.deepEqual(notices, [
+      {
+        kind: DeliveryNoticeKind.DeploymentStateMismatch,
+        environment: DeploymentEnvironment.Stage,
+        sha: SHA,
+        reason: DeliveryFailure.InvalidTransition,
+      },
+    ]);
   });
 
   for (const [name, options, fact, expected] of [

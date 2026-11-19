@@ -30,6 +30,11 @@ export type DeliveryFailure =
   (typeof DeliveryFailure)[keyof typeof DeliveryFailure];
 
 export type DeliverySnapshot = Readonly<{
+  /**
+   * The stored state. A closed delivery may keep its last position (some
+   * trackers keep a status field on resolved issues): read `closed`, never
+   * infer it from a missing position.
+   */
   position: Position | null;
   closed: boolean;
   /**
@@ -38,6 +43,11 @@ export type DeliverySnapshot = Readonly<{
    */
   revision: string;
 }>;
+
+/** The active position, or null once the delivery is closed. */
+export function openPosition(snapshot: DeliverySnapshot): Position | null {
+  return snapshot.closed ? null : snapshot.position;
+}
 
 export type DeliveryResult =
   | {
@@ -116,7 +126,7 @@ export class ExecuteDeliveryCommand {
   /** Every outcome, applied or rejected, is audited before it is returned. */
   async execute(command: DeliveryCommand): Promise<DeliveryResult> {
     const result = await this.run(command);
-    const to = result.ok ? result.snapshot.position : null;
+    const to = result.ok ? openPosition(result.snapshot) : null;
     await this.audit.record({
       kind: AuditKind.Transition,
       issue: command.issue,

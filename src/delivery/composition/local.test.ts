@@ -13,7 +13,7 @@ import type { HttpRequest } from "../adapters/github/github-rest-client.js";
 import {
   Ed25519RecordSigner,
   generateRecordKeys,
-} from "../adapters/github/record-signature.js";
+} from "../adapters/signature/record-signature.js";
 
 const KEYS = generateRecordKeys();
 const OPERATOR_KEYS = generateRecordKeys();
@@ -22,7 +22,7 @@ const SIGNER = Ed25519RecordSigner.fromBase64(KEYS.privateKey);
 /** A record marker signed with the agent key for issue 42 of repository 123. */
 const signedMarker = (record: unknown) => {
   const encoded = JSON.stringify(record);
-  const sig = SIGNER.sign({ repositoryId: 123, issue: 42 }, encoded);
+  const sig = SIGNER.sign({ sourceId: 123, issue: 42 }, encoded);
   return `<!-- air:record ${encoded} sig=${sig} -->`;
 };
 

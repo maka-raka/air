@@ -6,7 +6,10 @@ import type {
   IssueCommentReader,
   IssueCommentWriter,
 } from "./issue-comment-http-adapter.js";
-import { Ed25519RecordSigner, generateRecordKeys } from "./record-signature.js";
+import {
+  Ed25519RecordSigner,
+  generateRecordKeys,
+} from "../signature/record-signature.js";
 import { DeliveryPhase, DeliveryStatus } from "../../domain/state-machine.js";
 
 const OPERATOR = 9;
@@ -86,10 +89,7 @@ describe("GitHubStateAnchorStore", () => {
       at: "x",
     });
     // Signed in the record domain with the right key and scope.
-    const sig = OPERATOR_KEY.sign(
-      { repositoryId: REPOSITORY, issue: 42 },
-      encoded,
-    );
+    const sig = OPERATOR_KEY.sign({ sourceId: REPOSITORY, issue: 42 }, encoded);
     await comments.post(42, `x\n\n<!-- air:state ${encoded} sig=${sig} -->`);
 
     const [anchor] = await store(comments).candidates(42);

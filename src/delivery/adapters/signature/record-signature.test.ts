@@ -7,7 +7,7 @@ import {
   generateRecordKeys,
 } from "./record-signature.js";
 
-const scope = { repositoryId: 123, issue: 42 };
+const scope = { sourceId: 123, issue: 42 };
 const encoded = '{"kind":"block","at":"2026-11-11T12:00:00Z"}';
 
 describe("Ed25519 record signatures", () => {
@@ -29,8 +29,7 @@ describe("Ed25519 record signatures", () => {
     ],
     [
       "another repository",
-      () =>
-        verifier.verify({ ...scope, repositoryId: 124 }, encoded, signature),
+      () => verifier.verify({ ...scope, sourceId: 124 }, encoded, signature),
     ],
     [
       "another key",

@@ -57,7 +57,7 @@ import {
 } from "./trust.js";
 import { GitHubRepositoryHttpAdapter } from "../adapters/github/repository-http-adapter.js";
 import type { ServiceLogins } from "./trust.js";
-import { generateRecordKeys } from "../adapters/github/record-signature.js";
+import { generateRecordKeys } from "../adapters/signature/record-signature.js";
 import { verifyAuditChain } from "../adapters/local/hash-chained-audit-log.js";
 
 export const AgentCliCommand = {

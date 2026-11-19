@@ -5,12 +5,12 @@ import {
   GitHubCommentIngress,
   GitHubWebhookEvent,
 } from "./github-webhook.js";
+import type { WebhookEnvelope } from "./github-webhook.js";
+import { IngestionDecision } from "../../application/ingest-human-command.js";
 import type {
   HumanCommandIngestion,
-  WebhookEnvelope,
-} from "./github-webhook.js";
-import { IngestionDecision } from "../../application/ingest-human-command.js";
-import type { HumanCommandMessage } from "../../application/ingest-human-command.js";
+  HumanCommandMessage,
+} from "../../application/ingest-human-command.js";
 
 class FakeIngestion implements HumanCommandIngestion {
   readonly messages: HumanCommandMessage[] = [];

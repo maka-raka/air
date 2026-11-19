@@ -38,8 +38,23 @@ export interface DeploymentMarkerPort {
   mark(issue: number, environment: DeploymentEnvironment): Promise<void>;
 }
 
+export const DeliveryNoticeKind = {
+  /** A deployment was recorded but the delivery state did not follow it. */
+  DeploymentStateMismatch: "deployment-state-mismatch",
+} as const;
+
+/** Something a person must reconcile; wording and format belong to the adapter. */
+export type DeliveryNotice = Readonly<{
+  kind: typeof DeliveryNoticeKind.DeploymentStateMismatch;
+  environment: DeploymentEnvironment;
+  sha: string;
+  reason: DeliveryFailure;
+  detail?: string;
+}>;
+
+/** Tells the people on an issue about a notice. */
 export interface IssueNoticePort {
-  post(issue: number, text: string): Promise<void>;
+  post(issue: number, notice: DeliveryNotice): Promise<void>;
 }
 
 export type DeploymentOutcome = Readonly<{
@@ -90,10 +105,13 @@ export class RecordDeployment {
       },
     });
     if (!result.ok)
-      await this.notices.post(
-        issue,
-        `**AIR** ⚠️ \`deployment-state-mismatch\`: ${environment} deployment of \`${sha}\` was recorded, but the delivery state was preserved (\`${result.reason}\`${result.detail ? `: ${result.detail}` : ""}). A human must reconcile it.`,
-      );
+      await this.notices.post(issue, {
+        kind: DeliveryNoticeKind.DeploymentStateMismatch,
+        environment,
+        sha,
+        reason: result.reason,
+        ...(result.detail ? { detail: result.detail } : {}),
+      });
     return { result, facts };
   }
 

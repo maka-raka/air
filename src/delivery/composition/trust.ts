@@ -23,7 +23,7 @@ import type {
 import {
   Ed25519RecordSigner,
   Ed25519RecordVerifier,
-} from "../adapters/github/record-signature.js";
+} from "../adapters/signature/record-signature.js";
 import { required } from "./config.js";
 import type { Env } from "./config.js";
 

@@ -6,6 +6,7 @@ import type {
   CommandParseError,
   ParsedCommand,
 } from "./comment-command-parser.js";
+import { openPosition } from "./execute-delivery-command.js";
 import type {
   DeliveryCommand,
   DeliveryFailure,
@@ -109,7 +110,7 @@ export class CommentCommandHandler implements AdmittedCommandHandlerPort {
         ? {
             outcome: CommandOutcome.Applied,
             commentId: comment.id,
-            position: result.snapshot.position,
+            position: openPosition(result.snapshot),
           }
         : {
             outcome: CommandOutcome.Rejected,

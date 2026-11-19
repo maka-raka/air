@@ -84,6 +84,14 @@ export interface AuthorAccessPort {
   access(source: CommandSource, author: CommandAuthor): Promise<AuthorAccess>;
 }
 
+/**
+ * Inbound port: every platform's ingress adapter (webhook, poller, another
+ * tracker's event feed) hands its neutral messages to this.
+ */
+export interface HumanCommandIngestion {
+  execute(message: HumanCommandMessage): Promise<IngestionDecision>;
+}
+
 /** Downstream processing. May run more than once per message: be idempotent. */
 export interface AdmittedCommandHandlerPort {
   handle(message: HumanCommandMessage): Promise<void>;
@@ -98,7 +106,7 @@ export interface AdmittedCommandHandlerPort {
  * Guarantees: a message is completed only after its handler succeeds; a
  * failed handler releases the lease and rethrows. Delivery is at-least-once.
  */
-export class IngestHumanCommand {
+export class IngestHumanCommand implements HumanCommandIngestion {
   constructor(
     private readonly claims: DeliveryClaimPort,
     private readonly access: AuthorAccessPort,

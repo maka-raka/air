@@ -7,8 +7,8 @@ import {
 } from "node:crypto";
 import type { KeyObject } from "node:crypto";
 
-/** What a record signature is bound to: one issue of one repository. */
-export type RecordScope = Readonly<{ repositoryId: number; issue: number }>;
+/** What a signature is bound to: one issue of one project (on GitHub, the repository). */
+export type RecordScope = Readonly<{ sourceId: number; issue: number }>;
 
 /**
  * What a signature is for. Part of the signed bytes, so a signature made for
@@ -25,8 +25,8 @@ const ED25519 = "ed25519";
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
 
 /**
- * Bytes covered by a signature. The repository and issue are included, so a
- * signed record copied to another issue or repository does not verify.
+ * Bytes covered by a signature. The project and issue are included, so a
+ * signed record copied to another issue or project does not verify.
  */
 function signedBytes(
   domain: SignatureDomain,
@@ -34,7 +34,7 @@ function signedBytes(
   encoded: string,
 ): Buffer {
   return Buffer.from(
-    `${domain}\n${scope.repositoryId}\n${scope.issue}\n${encoded}`,
+    `${domain}\n${scope.sourceId}\n${scope.issue}\n${encoded}`,
     "utf8",
   );
 }

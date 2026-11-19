@@ -180,7 +180,7 @@ describe("AgentCommands", () => {
       records.appended.map(({ record }) => record.kind),
       [DeliveryRecordKind.Block, DeliveryRecordKind.RunEnd],
     );
-    assert.equal(records.appended[0]?.text, "**Blocked:** Which API version?");
+    assert.equal(records.appended[0]?.text, "Which API version?");
     assert.deepEqual(executor.commands[0]?.request, {
       action: DeliveryAction.Block,
       actor: DeliveryActor.Agent,

@@ -170,6 +170,23 @@ describe("CommentCommandHandler", () => {
     ]);
   });
 
+  it("replies closed when the store keeps the last position on close", async () => {
+    const { message, replies, handler } = fixture("/air close", {
+      result: {
+        ok: true,
+        snapshot: { position: buildReady, closed: true, revision: "r2" },
+      },
+    });
+
+    await handler.handle(message);
+
+    assert.deepEqual(replies.replies[0]?.reply, {
+      outcome: CommandOutcome.Applied,
+      commentId: 900,
+      position: null,
+    });
+  });
+
   it("records feedback only when the comment carries a reason", async () => {
     const withReason = fixture("/air rework\nCover edge cases");
     const withoutReason = fixture("/air rework");
