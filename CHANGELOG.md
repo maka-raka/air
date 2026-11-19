@@ -11,6 +11,7 @@ Changes that affect projects using AIR. Versions follow semver; before 1.0 a min
 
 ### Added
 
+- **Demo mode** for a first try on a throwaway repository: `npx --no air init --demo <owner>/<repo>` installs the skill and four review lenses and writes a private `.env.air` with generated keys. Demo mode skips the repository hardening and is not production-safe: it is bound to the repository in `AIR_DEMO`, every process warns, and `air doctor` fails while it is on ([ADR-0014](docs/architecture/adr/0014-demo-mode.md)). Projects that do not set `AIR_DEMO` are unaffected.
 - **Delivery flow metrics in `air-ui`** ([ADR-0015](docs/architecture/adr/0015-delivery-flow-metrics.md)). The board shows where delivery time goes: the share spent waiting on people versus agent work and launch queue, the current human-wait queue (longest first, with what each issue needs), median and p90 time per phase, lead time and closes in the last 7 and 28 days. Each issue page shows its own timeline. Everything is derived from signed state anchors and the poller's verified audit log; nothing new is stored.
 
 ### Changed

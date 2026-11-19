@@ -36,6 +36,11 @@ export type LocalSettings = Readonly<{
   /** Null when there is no env file. */
   envFilePrivate: boolean | null;
   envFileIgnored: boolean;
+  /**
+   * Set when the project runs in demo mode: the project it is bound to.
+   * Demo mode skips the hardening, so it never passes an audit.
+   */
+  demoProject?: string;
 }>;
 
 export const AuditStatus = {
@@ -141,6 +146,14 @@ export class RepositoryAudit {
 
   private local(local: LocalSettings): readonly AuditFinding[] {
     return [
+      ...(local.demoProject === undefined
+        ? []
+        : [
+            AuditFindings.fail(
+              "local.demo-mode",
+              `demo mode is on for ${local.demoProject} (AIR_DEMO): not production-safe; remove it and apply every hardening item`,
+            ),
+          ]),
       AuditFindings.check(
         "local.env-ignored",
         local.envFileIgnored,

@@ -50,6 +50,7 @@ import {
 } from "../application/agent-launch.js";
 import type { AgentRiskPort } from "../application/agent-launch.js";
 import { FileAgentLaunchQueue } from "../adapters/local/file-agent-launch-queue.js";
+import { DemoMode } from "./demo-mode.js";
 
 export type LocalConfig = Readonly<{
   owner: string;
@@ -87,6 +88,8 @@ export type LocalConfig = Readonly<{
   launchPhases: readonly Phase[];
   /** Directory shared with `air-launcher`. */
   launchDir: string;
+  /** Set only in demo mode (ADR-0014); then every start warns. */
+  demo?: DemoMode;
 }>;
 
 const ENABLED = "true";
@@ -133,6 +136,7 @@ export function readLocalConfig(
   const pollIntervalMs = integer(env.AIR_POLL_INTERVAL_MS, 20_000);
   if (pollIntervalMs < MIN_POLL_INTERVAL_MS)
     throw new Error(`AIR_POLL_INTERVAL_MS must be >= ${MIN_POLL_INTERVAL_MS}`);
+  const demo = DemoMode.fromEnv(env);
   return {
     owner,
     repo,
@@ -159,6 +163,7 @@ export function readLocalConfig(
     launchPhases: readLaunchPhases(env),
     launchDir:
       env.AIR_LAUNCH_DIR || join(env.AIR_STATE_DIR || ".air", "launch"),
+    ...(demo ? { demo } : {}),
   };
 }
 
@@ -307,6 +312,7 @@ async function main(): Promise<void> {
   const rest = loadEnvFile(process.argv.slice(2));
   if (rest.length > 0) throw new Error(LOCAL_USAGE);
   const config = readLocalConfig(process.env);
+  if (config.demo) console.error(config.demo.banner());
   const poller = await composeLocal(config);
   const controller = new AbortController();
   process.once("SIGINT", () => controller.abort());
