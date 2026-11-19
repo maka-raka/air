@@ -1,6 +1,7 @@
 import { DeliveryPhase, DeliveryStatus } from "../domain/state-machine.js";
 import type { Phase, Position } from "../domain/state-machine.js";
-import type { AnchorEvidence, TrustPolicy } from "../domain/trust-policy.js";
+import type { DeliveryFlow } from "../domain/delivery-flow.js";
+import type { TrustPolicy } from "../domain/trust-policy.js";
 import type { PendingAgentLaunchPort } from "./agent-launch.js";
 import type { AgentRun, AgentRunsPort } from "./agent-runs.js";
 import { DeliveryRecordKind, IntakeRecommendation } from "./delivery-record.js";
@@ -20,20 +21,9 @@ import type {
   JudgedDelivery,
   OpenDeliveriesPort,
 } from "./delivery-overview.js";
+import { DeliveryFlowReader } from "./delivery-flow.js";
+import type { StateHistoryPort } from "./delivery-flow.js";
 import type { StateProvenancePort } from "./execute-delivery-command.js";
-
-/** One stored state anchor with who posted it and the time it signs. */
-export type StateHistoryEntry = AnchorEvidence &
-  Readonly<{
-    authorLogin: string;
-    /** ISO-8601 from the signed payload; null when absent. */
-    at: string | null;
-  }>;
-
-/** Every well-formed state anchor on an issue, oldest first; reads only. */
-export interface StateHistoryPort {
-  history(issue: number): Promise<readonly StateHistoryEntry[]>;
-}
 
 export const PhaseStep = {
   Done: "done",
@@ -66,6 +56,8 @@ export type DeliveryDetail = Readonly<{
   /** The newest trusted report of each phase, in phase order. */
   reports: readonly ReportRecord[];
   runs: readonly AgentRun[];
+  /** Where the issue's time went, from its counted, signed anchors. */
+  flow: DeliveryFlow;
 }>;
 
 const PHASES: readonly Phase[] = Object.values(DeliveryPhase);
@@ -127,7 +119,8 @@ function attentionOf(
  * One issue for the console (ADR-0012): its judged state, the signed state
  * history, the agent's trusted records and its agent runs. Reads only: a
  * record that does not count is left out and counted, never audited from
- * here, because the console writes nothing.
+ * here, because the console writes nothing. Its flow is measured from the
+ * same anchors, so it costs no extra read (ADR-0015).
  */
 export class ReadDeliveryDetail {
   constructor(
@@ -138,6 +131,7 @@ export class ReadDeliveryDetail {
     private readonly trust: TrustPolicy,
     private readonly runs: AgentRunsPort,
     private readonly queue: Pick<PendingAgentLaunchPort, "pending">,
+    private readonly now: () => Date = () => new Date(),
   ) {}
 
   async detail(issue: number): Promise<DeliveryDetail | null> {
@@ -181,6 +175,10 @@ export class ReadDeliveryDetail {
       ignoredRecords: candidates.length - accepted.length,
       reports,
       runs,
+      flow: new DeliveryFlowReader(this.states, this.trust).open(
+        entries,
+        this.now(),
+      ),
     };
   }
 }

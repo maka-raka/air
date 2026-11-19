@@ -14,6 +14,7 @@ import { ConsolePage } from "./console-page.js";
 import { CardTrust } from "../../application/delivery-overview.js";
 import type { DeliveryOverview } from "../../application/delivery-overview.js";
 import type { DeliveryDetail } from "../../application/delivery-detail.js";
+import { DeliveryFlow, FlowOwner } from "../../domain/delivery-flow.js";
 
 const EMPTY: DeliveryOverview = {
   cards: [],
@@ -27,6 +28,25 @@ const EMPTY: DeliveryOverview = {
     problem: null,
     total: 0,
     recent: [],
+  },
+  flow: {
+    measuredAt: "2026-11-19T10:00:00.000Z",
+    phases: [],
+    leadTime: null,
+    totals: {
+      [FlowOwner.Human]: 0,
+      [FlowOwner.Agent]: 0,
+      [FlowOwner.Queue]: 0,
+      total: 0,
+    },
+    humanQueue: [],
+    throughput: {
+      available: false,
+      problem: "No audit log to count closed issues.",
+      closedLast7Days: 0,
+      closedLast28Days: 0,
+    },
+    sample: { open: 0, closed: 0 },
   },
 };
 
@@ -56,6 +76,7 @@ const DETAIL: DeliveryDetail = {
   ignoredRecords: 0,
   reports: [],
   runs: [],
+  flow: DeliveryFlow.of([], 0),
 };
 
 function handler(

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PhaseStep, ReadDeliveryDetail } from "./delivery-detail.js";
-import type { StateHistoryEntry } from "./delivery-detail.js";
+import type { StateHistoryEntry } from "./delivery-flow.js";
 import { AttentionReason, CardTrust } from "./delivery-overview.js";
 import type { OpenDelivery } from "./delivery-overview.js";
 import { DeliveryRecordKind, RunOutcome } from "./delivery-record.js";
@@ -108,6 +108,7 @@ function read(setup: Setup, issue = 41) {
       }),
     },
     { pending: async () => [] },
+    () => new Date("2026-11-19T12:00:00Z"),
   ).detail(issue);
 }
 
@@ -133,6 +134,28 @@ const HISTORY = [
 ];
 
 describe("ReadDeliveryDetail", () => {
+  it("measures where the issue's time went from counted anchors", async () => {
+    const detail = await read({
+      history: [
+        ...HISTORY,
+        anchor(
+          DeliveryPhase.Review,
+          DeliveryStatus.Ready,
+          "2026-11-19T11:00:00Z",
+          MALLORY,
+        ),
+      ],
+    });
+    const flow = detail?.flow;
+    assert.equal(flow?.segments.length, 4);
+    assert.equal(flow?.current()?.position.status, DeliveryStatus.Waiting);
+    assert.equal(flow?.current()?.start, Date.parse("2026-11-19T10:58:00Z"));
+    assert.equal(
+      flow?.totals().total,
+      Date.parse("2026-11-19T12:00:00Z") - Date.parse("2026-11-19T09:02:00Z"),
+    );
+  });
+
   it("is null for an unknown issue or a bad number", async () => {
     assert.equal(await read({}, 99), null);
     assert.equal(await read({}, 0), null);
