@@ -40,6 +40,15 @@ describe("initProject", () => {
       await readFile(join(root, ".env.air.example"), "utf8"),
       /AIR_AGENT_PUBLIC_KEY=/,
     );
+    for (const lens of ["code", "security", "ux"]) {
+      const agent = await readFile(
+        join(root, `.claude/agents/air-review-${lens}.md`),
+        "utf8",
+      );
+      assert.match(agent, new RegExp(`^---\nname: air-review-${lens}\n`));
+      // Lenses only read: no tool that edits, runs or posts.
+      assert.match(agent, /\ntools: Read, Grep, Glob\n/);
+    }
   });
 
   it("never overwrites existing files and is idempotent", async () => {

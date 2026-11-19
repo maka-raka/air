@@ -99,6 +99,14 @@ What happens:
 - At most `AIR_AGENT_MAX` agent containers run at once (default 2), and one per issue: a request for an issue whose container is still running waits until it stops.
 - A container that cannot start leaves `<issue>-<phase>.json.failed` with the error; nothing is retried automatically.
 
+Choose a model per phase, and a stronger one for high-risk issues ([ADR-0013](../architecture/adr/0013-agent-roles.md)), in the launcher's environment:
+
+```bash
+AIR_AGENT_MODELS=default=claude-sonnet-5-5,requirements=claude-fable-5-2,build=claude-opus-5-5,high-risk=claude-opus-5-5
+```
+
+`high-risk` wins whenever the newest trusted requirements report says `"risk":"high"`; then the phase; then `default`. The launcher passes the model to the container as `ANTHROPIC_MODEL`; unset means Claude Code's default. For a run started by hand: `docker compose run -d -e ANTHROPIC_MODEL=claude-opus-5-5 --name air-agent-42 agent 42`.
+
 Only trusted transitions count: a ready label set by hand, a replayed command, or a deployment event never launches anything. Phases made ready by the deploy workflow (`accept`, `observe`) are not launched by the poller. The launched agent still has to pass `air start`, which checks the state again.
 
 Attach to a run as before: `docker exec -it air-agent-42-build-<time> tmux attach -t agent`; list them with `docker ps --filter label=air.agent.issue`. Stopped containers stay for their logs: `docker container prune --filter label=air.agent.issue`.

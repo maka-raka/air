@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PhaseStep, ReadDeliveryDetail } from "./delivery-detail.js";
 import type { StateHistoryEntry } from "./delivery-detail.js";
-import { CardTrust } from "./delivery-overview.js";
+import { AttentionReason, CardTrust } from "./delivery-overview.js";
 import type { OpenDelivery } from "./delivery-overview.js";
 import { DeliveryRecordKind, RunOutcome } from "./delivery-record.js";
 import type { RecordCandidate } from "./delivery-record.js";
 import {
+  DeliveryAction,
   DeliveryPhase,
   DeliveryStatus,
   DeliveryTaskSize,
@@ -257,5 +258,69 @@ describe("ReadDeliveryDetail", () => {
       ["air-agent-41-build-x"],
     );
     assert.equal(detail?.card.agentRunning, false);
+  });
+});
+
+describe("ReadDeliveryDetail intake reject", () => {
+  const waitingIntake: OpenDelivery = {
+    issue: 41,
+    title: "Duplicate",
+    position: at(DeliveryPhase.Requirements, DeliveryStatus.Waiting),
+  };
+  const history = [
+    anchor(
+      DeliveryPhase.Requirements,
+      DeliveryStatus.Ready,
+      "2026-11-19T09:00:00Z",
+    ),
+    anchor(
+      DeliveryPhase.Requirements,
+      DeliveryStatus.Waiting,
+      "2026-11-19T09:30:00Z",
+      AGENT,
+    ),
+  ];
+  const intake = (facts: object, authorId = AGENT) =>
+    record(
+      {
+        kind: DeliveryRecordKind.Report,
+        phase: DeliveryPhase.Requirements,
+        at: "2026-11-19T09:29:00Z",
+        facts,
+      },
+      authorId,
+    );
+
+  it("offers close and rework when the agent advises not to build", async () => {
+    const detail = await read({
+      delivery: waitingIntake,
+      history,
+      records: [intake({ recommendation: "reject" })],
+    });
+    assert.deepEqual(detail?.card.attention, {
+      reason: AttentionReason.RejectRecommended,
+      commands: [
+        { action: DeliveryAction.Close },
+        { action: DeliveryAction.Rework },
+      ],
+    });
+  });
+
+  it("keeps advance for a build recommendation", async () => {
+    const detail = await read({
+      delivery: waitingIntake,
+      history,
+      records: [intake({ taskSize: "S", miniDesign: true })],
+    });
+    assert.equal(detail?.card.attention?.reason, AttentionReason.GatePassed);
+  });
+
+  it("ignores a reject that is not the agent's", async () => {
+    const detail = await read({
+      delivery: waitingIntake,
+      history,
+      records: [intake({ recommendation: "reject" }, MALLORY)],
+    });
+    assert.equal(detail?.card.attention?.reason, AttentionReason.GatePassed);
   });
 });

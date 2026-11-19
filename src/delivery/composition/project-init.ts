@@ -8,6 +8,11 @@ const PACKAGE_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
 /** Source in the package → destination in the project. */
 export const PROJECT_FILES: Readonly<Record<string, string>> = {
   "templates/skill/SKILL.md": ".claude/skills/air-delivery/SKILL.md",
+  // Read-only review lenses the agent runs in parallel (ADR-0013).
+  "templates/agents/air-review-code.md": ".claude/agents/air-review-code.md",
+  "templates/agents/air-review-security.md":
+    ".claude/agents/air-review-security.md",
+  "templates/agents/air-review-ux.md": ".claude/agents/air-review-ux.md",
   "templates/workflows/air-deploy.yml": ".github/workflows/air-deploy.yml",
   ".env.example": ".env.air.example",
 };

@@ -73,6 +73,8 @@ export type CardTrust = (typeof CardTrust)[keyof typeof CardTrust];
 /** Why a card waits for a person. */
 export const AttentionReason = {
   GatePassed: "gate-passed",
+  /** The agent advises not to build; a person closes or reworks. */
+  RejectRecommended: "reject-recommended",
   Blocked: "blocked",
   MergeAndDeployStage: "merge-and-deploy-stage",
   ReleaseToProd: "release-to-prod",
@@ -157,10 +159,17 @@ const BLOCKED: Attention = {
 
 const REPAIR: Attention = { reason: AttentionReason.RepairState, commands: [] };
 
+/** A rejected intake: closing is the agent's advice, rework the way back. */
+export const REJECTED_INTAKE: Attention = {
+  reason: AttentionReason.RejectRecommended,
+  commands: [{ action: DeliveryAction.Close }, rework],
+};
+
 /** Repairs first, then answers to agents, then approvals. */
 const URGENCY: readonly AttentionReason[] = [
   AttentionReason.RepairState,
   AttentionReason.Blocked,
+  AttentionReason.RejectRecommended,
   AttentionReason.GatePassed,
   AttentionReason.MergeAndDeployStage,
   AttentionReason.ReleaseToProd,

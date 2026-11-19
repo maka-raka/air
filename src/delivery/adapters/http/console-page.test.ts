@@ -328,3 +328,45 @@ describe("ConsolePage.issue", () => {
     );
   });
 });
+
+describe("ConsolePage intake and review facts", () => {
+  it("shows recommendation, risk, lenses and the reject advice", () => {
+    const report = {
+      kind: DeliveryRecordKind.Report,
+      phase: DeliveryPhase.Requirements,
+      at: "2026-11-19T09:29:00Z",
+      facts: {
+        recommendation: "reject",
+        risk: "high",
+        lenses: ["code", "security"],
+      },
+    } as const;
+    const html = page.issue(
+      {
+        ...detail,
+        card: card({
+          position: {
+            phase: DeliveryPhase.Requirements,
+            status: DeliveryStatus.Waiting,
+          },
+          attention: {
+            reason: AttentionReason.RejectRecommended,
+            commands: [
+              { action: DeliveryAction.Close },
+              { action: DeliveryAction.Rework },
+            ],
+          },
+        }),
+        reports: [report],
+      },
+      overview(),
+      READ_AT,
+    );
+    assert.match(html, /<dt>Recommendation<\/dt><dd>reject<\/dd>/);
+    assert.match(html, /<dt>Risk<\/dt><dd>high<\/dd>/);
+    assert.match(html, /<dt>Review lenses<\/dt><dd>code, security<\/dd>/);
+    assert.match(html, /advises not to build this/);
+    assert.match(html, /value="\/air close"/);
+    assert.doesNotMatch(html, /value="\/air advance/);
+  });
+});

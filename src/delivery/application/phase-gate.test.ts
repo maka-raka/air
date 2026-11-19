@@ -61,6 +61,9 @@ function accepted(phase: Phase, records: DeliveryRecord[], pr = green) {
 describe("PhaseGateEvaluator", () => {
   for (const [phase, facts] of [
     [DeliveryPhase.Requirements, { taskSize: "S" }],
+    [DeliveryPhase.Requirements, { recommendation: "reject" }],
+    [DeliveryPhase.Requirements, { taskSize: "L", risk: "high" }],
+    [DeliveryPhase.Review, { pullRequest: 57, lenses: ["code", "security"] }],
     [DeliveryPhase.Design, { artifact: "https://example.test/design" }],
     [DeliveryPhase.Build, { pullRequest: 57 }],
     [DeliveryPhase.Review, { pullRequest: 57 }],
@@ -77,6 +80,7 @@ describe("PhaseGateEvaluator", () => {
 
   for (const [phase, facts, problem] of [
     [DeliveryPhase.Requirements, {}, /Task size/],
+    [DeliveryPhase.Requirements, { recommendation: "build" }, /Task size/],
     [DeliveryPhase.Design, {}, /artifact/],
     [DeliveryPhase.Accept, {}, /Verdict/],
   ] as const) {

@@ -39,6 +39,8 @@ export const AgentContainerLabel = {
 } as const;
 
 const NAME_PREFIX = "air-agent";
+/** Checked again here: the name ends up in a process argument. */
+const MODEL_NAME = /^[a-z0-9][a-z0-9.-]{0,63}$/;
 const FIELD_SEPARATOR = "\t";
 /** Docker's `.State` for a container that is up. */
 const RUNNING_STATE = "running";
@@ -122,9 +124,14 @@ export class DockerAgentRuntime
       .filter((run): run is AgentRun => run !== null);
   }
 
-  async start({ issue, phase }: AgentLaunch): Promise<void> {
+  async start(
+    { issue, phase }: AgentLaunch,
+    model: string | null = null,
+  ): Promise<void> {
     if (!Number.isSafeInteger(issue) || issue < 1)
       throw new Error(`Invalid issue: ${issue}`);
+    if (model !== null && !MODEL_NAME.test(model))
+      throw new Error(`Invalid model: ${model}`);
     await this.runner(this.options.docker, [
       "compose",
       "--file",
@@ -137,6 +144,8 @@ export class DockerAgentRuntime
       `${AgentContainerLabel.Issue}=${issue}`,
       "--label",
       `${AgentContainerLabel.Phase}=${phase}`,
+      // Claude Code reads its model from ANTHROPIC_MODEL (ADR-0013).
+      ...(model ? ["--env", `ANTHROPIC_MODEL=${model}`] : []),
       this.options.service,
       String(issue),
     ]);

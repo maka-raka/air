@@ -1,16 +1,25 @@
-import { DeliveryPhase } from "../domain/state-machine.js";
+import { DeliveryPhase, DeliveryStatus } from "../domain/state-machine.js";
 import type { Phase, Position } from "../domain/state-machine.js";
 import type { AnchorEvidence, TrustPolicy } from "../domain/trust-policy.js";
 import type { PendingAgentLaunchPort } from "./agent-launch.js";
 import type { AgentRun, AgentRunsPort } from "./agent-runs.js";
-import { DeliveryRecordKind } from "./delivery-record.js";
+import { DeliveryRecordKind, IntakeRecommendation } from "./delivery-record.js";
 import type {
   DeliveryRecord,
   DeliveryRecordSource,
   ReportRecord,
 } from "./delivery-record.js";
-import { DeliveryJudge } from "./delivery-overview.js";
-import type { DeliveryCard, OpenDeliveriesPort } from "./delivery-overview.js";
+import {
+  CardTrust,
+  DeliveryJudge,
+  REJECTED_INTAKE,
+} from "./delivery-overview.js";
+import type {
+  Attention,
+  DeliveryCard,
+  JudgedDelivery,
+  OpenDeliveriesPort,
+} from "./delivery-overview.js";
 import type { StateProvenancePort } from "./execute-delivery-command.js";
 
 /** One stored state anchor with who posted it and the time it signs. */
@@ -96,6 +105,25 @@ function latestReports(
 }
 
 /**
+ * A trusted requirements phase waiting after the agent advised not to build
+ * offers close and rework instead of advance (ADR-0013).
+ */
+function attentionOf(
+  judged: JudgedDelivery,
+  reports: readonly ReportRecord[],
+): Attention | null {
+  const position = judged.position;
+  if (judged.trust !== CardTrust.Trusted) return judged.attention;
+  if (position?.phase !== DeliveryPhase.Requirements) return judged.attention;
+  if (position.status !== DeliveryStatus.Waiting) return judged.attention;
+  const intake = reports.find(
+    (report) => report.phase === DeliveryPhase.Requirements,
+  );
+  const rejected = intake?.facts.recommendation === IntakeRecommendation.Reject;
+  return rejected ? REJECTED_INTAKE : judged.attention;
+}
+
+/**
  * One issue for the console (ADR-0012): its judged state, the signed state
  * history, the agent's trusted records and its agent runs. Reads only: a
  * record that does not count is left out and counted, never audited from
@@ -139,9 +167,11 @@ export class ReadDeliveryDetail {
     const accepted = candidates
       .filter(({ evidence }) => this.trust.record(evidence).trusted)
       .map(({ record }) => record);
+    const reports = latestReports(accepted);
     return {
       card: {
         ...judged,
+        attention: attentionOf(judged, reports),
         agentRunning: runs.some((run) => run.running),
         launchQueued: queued.some(({ launch }) => launch.issue === issue),
       },
@@ -149,7 +179,7 @@ export class ReadDeliveryDetail {
       history,
       records: [...accepted].sort((a, b) => newestFirst(a.at, b.at)),
       ignoredRecords: candidates.length - accepted.length,
-      reports: latestReports(accepted),
+      reports,
       runs,
     };
   }

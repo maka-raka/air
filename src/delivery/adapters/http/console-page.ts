@@ -56,6 +56,8 @@ const STATUS_CLASS: Readonly<Record<Status, string>> = {
 const ATTENTION_TEXT: Readonly<Record<AttentionReason, string>> = {
   [AttentionReason.GatePassed]:
     "The gate passed. Read the report, then advance or send it back.",
+  [AttentionReason.RejectRecommended]:
+    "The agent advises not to build this. Read why, then close the issue or send it back.",
   [AttentionReason.Blocked]:
     "The agent asked a question. Answer in the issue, then unblock.",
   [AttentionReason.MergeAndDeployStage]:
@@ -253,6 +255,13 @@ ${detailLine}
             ? null
             : ["Mini-design", facts.miniDesign ? "recorded" : "no"],
           facts.verdict ? ["Verdict", escapeHtml(facts.verdict)] : null,
+          facts.recommendation
+            ? ["Recommendation", escapeHtml(facts.recommendation)]
+            : null,
+          facts.risk ? ["Risk", escapeHtml(facts.risk)] : null,
+          facts.lenses
+            ? ["Review lenses", escapeHtml(facts.lenses.join(", ") || "none")]
+            : null,
           facts.pullRequest
             ? [
                 "Pull request",

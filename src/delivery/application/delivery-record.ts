@@ -20,6 +20,27 @@ export const RunOutcome = {
 } as const;
 export type RunOutcome = (typeof RunOutcome)[keyof typeof RunOutcome];
 
+/** What the agent advises at intake (ADR-0013); a person decides. */
+export const IntakeRecommendation = {
+  Build: "build",
+  /** Do not build: duplicate, out of scope, or not worth it. */
+  Reject: "reject",
+} as const;
+export type IntakeRecommendation =
+  (typeof IntakeRecommendation)[keyof typeof IntakeRecommendation];
+
+/** The agent's estimate; it can only raise the model, never rights. */
+export const DeliveryRisk = { Low: "low", High: "high" } as const;
+export type DeliveryRisk = (typeof DeliveryRisk)[keyof typeof DeliveryRisk];
+
+/** Review angles the agent ran as subagents in one run (ADR-0013). */
+export const ReviewLens = {
+  Code: "code",
+  Security: "security",
+  Ux: "ux",
+} as const;
+export type ReviewLens = (typeof ReviewLens)[keyof typeof ReviewLens];
+
 /** Machine-readable phase facts. Prose belongs in the comment text. */
 export type ReportFacts = Readonly<{
   taskSize?: (typeof DeliveryTaskSize)[keyof typeof DeliveryTaskSize];
@@ -27,6 +48,9 @@ export type ReportFacts = Readonly<{
   verdict?: (typeof DeliveryVerdict)[keyof typeof DeliveryVerdict];
   pullRequest?: number;
   artifact?: string;
+  recommendation?: IntakeRecommendation;
+  risk?: DeliveryRisk;
+  lenses?: readonly ReviewLens[];
 }>;
 
 export type DeliveryRecord =

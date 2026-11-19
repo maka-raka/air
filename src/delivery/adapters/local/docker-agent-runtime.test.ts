@@ -74,6 +74,37 @@ describe("DockerAgentRuntime", () => {
     ]);
   });
 
+  it("passes the model to the agent container", async () => {
+    const { runner, calls } = recording();
+    await new DockerAgentRuntime(options, runner, () => NOW).start(
+      { issue: 7, phase: DeliveryPhase.Review, requestedAt: NOW.toISOString() },
+      "claude-opus-5-5",
+    );
+    const args = calls[0]?.args ?? [];
+    assert.deepEqual(args.slice(-4), [
+      "--env",
+      "ANTHROPIC_MODEL=claude-opus-5-5",
+      "agent",
+      "7",
+    ]);
+  });
+
+  it("refuses a malformed model", async () => {
+    const { runner, calls } = recording();
+    await assert.rejects(
+      new DockerAgentRuntime(options, runner).start(
+        {
+          issue: 7,
+          phase: DeliveryPhase.Review,
+          requestedAt: NOW.toISOString(),
+        },
+        "x --privileged",
+      ),
+      /Invalid model/,
+    );
+    assert.deepEqual(calls, []);
+  });
+
   it("refuses an invalid issue number", async () => {
     const { runner, calls } = recording();
     await assert.rejects(

@@ -10,9 +10,14 @@ import type { DeliveryCommandExecutor } from "./comment-command-handler.js";
 import {
   DeliveryRecordHistory,
   DeliveryRecordKind,
+  IntakeRecommendation,
   RunOutcome,
 } from "./delivery-record.js";
-import type { DeliveryRecordPort, ReportRecord } from "./delivery-record.js";
+import type {
+  DeliveryRecordPort,
+  ReportFacts,
+  ReportRecord,
+} from "./delivery-record.js";
 import { DeliveryFailure } from "./execute-delivery-command.js";
 import type {
   DeliveryResult,
@@ -87,14 +92,19 @@ export class PhaseGateEvaluator {
     pullRequest: PullRequestStatus | null,
   ): readonly string[] {
     const facts = report.facts;
-    if (phase === DeliveryPhase.Requirements)
-      return facts.taskSize ? [] : ["Task size (S or L) is missing"];
+    if (phase === DeliveryPhase.Requirements) return this.intakeProblems(facts);
     if (phase === DeliveryPhase.Design)
       return facts.artifact ? [] : ["Design artifact link is missing"];
     if (codePhases.includes(phase)) return this.codeProblems(pullRequest);
     if (verdictPhases.includes(phase))
       return facts.verdict ? [] : ["Verdict (go or no-go) is missing"];
     return [];
+  }
+
+  /** A rejected intake needs no size: it cannot be advanced anyway. */
+  private intakeProblems(facts: ReportFacts): readonly string[] {
+    if (facts.recommendation === IntakeRecommendation.Reject) return [];
+    return facts.taskSize ? [] : ["Task size (S or L) is missing"];
   }
 
   private codeProblems(pullRequest: PullRequestStatus | null) {
