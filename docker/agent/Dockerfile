@@ -5,8 +5,9 @@
 #   docker build -t air-agent docker/agent
 #   docker compose run -d --name air-agent-42 agent 42
 
-ARG NODE_IMAGE=node:24-bookworm-slim
-FROM ${NODE_IMAGE}
+# Base image pinned by digest (ADR-0010); Dependabot bumps it. Keep the
+# Node major in step with .nvmrc.
+FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54
 
 # Pin a Claude Code version for reproducible runs, e.g. --build-arg CLAUDE_CODE_VERSION=2.1.0
 ARG CLAUDE_CODE_VERSION=latest
