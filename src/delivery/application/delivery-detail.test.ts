@@ -70,12 +70,10 @@ const BUILD_WAITING: OpenDelivery = {
 function read(setup: Setup, issue = 41) {
   return new ReadDeliveryDetail(
     {
-      find: async (n) =>
-        n === 41
-          ? setup.delivery === undefined
-            ? BUILD_WAITING
-            : setup.delivery
-          : null,
+      find: async (n) => {
+        if (n !== 41) return null;
+        return setup.delivery === undefined ? BUILD_WAITING : setup.delivery;
+      },
     },
     {
       provenance: async () => ({
