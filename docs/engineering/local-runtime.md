@@ -95,6 +95,6 @@ After a deployment, a workflow reports it with the **deployer** account ([ADR-00
 ## Limitations
 
 - **Replies are posted as the operator account.** They can never trigger a command, because a reply's first line is never `/air`. Because the operator is not you, GitHub notifies you about them.
-- **Claims are in memory.** Run one process only. After a restart, protection against duplicates comes from the persisted cursor alone.
+- **Claims are in memory.** Run one process only. After a restart, duplicates are prevented by the persisted cursor and by AIR's own reply marker on each processed command ([ADR-0003](../architecture/adr/0003-github-comment-commands.md)).
 - **Latency** is up to one poll interval (default 20 s, minimum 5 s). A 20 s interval uses about 180 API requests per hour, plus a few per command.
 - Comments are ingested in ID order. A comment that becomes visible in the API after a later comment was already processed is skipped. This is rare and is accepted for local use.
