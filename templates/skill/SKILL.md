@@ -60,7 +60,7 @@ Facts must be true. AIR verifies what it can (PR state, checks, deployments) and
 In the review phase, review the PR from several angles in parallel, then act on the findings yourself:
 
 1. Write the diff: `git diff origin/<default-branch>...HEAD > review.diff` (do not commit it).
-2. Choose lenses: `air-review-code` always; `air-review-security` when the diff touches auth, crypto, secrets, dependencies, `.github/`, build scripts, input parsing or external calls, or the issue is high-risk; `air-review-ux` when it changes user-facing UI or copy.
+2. Choose lenses by the rules in `lenses.md` next to this file: the ones marked *always*, plus each one whose trigger matches the diff or the issue, and only those installed in `.claude/agents/`.
 3. Run the chosen subagents **in parallel**, each with the path to `review.diff` and the acceptance criteria.
 4. Fix blockers and majors on the same PR, push, and keep checks green. Mention in the report what each lens found and what you fixed or why you did not.
 5. Report the lenses you ran in `lenses`.

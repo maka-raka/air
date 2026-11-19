@@ -21,7 +21,7 @@ Commit `package.json` and `package-lock.json`; the lockfile pins the tarball's h
 npx --no air init
 ```
 
-This adds the agent skill, the deploy workflow and `.env.air.example`, and ignores `.env.air` and `.air/`. Existing files are kept.
+This adds the agent skill, the standard review lenses (`.claude/agents/air-review-*.md`), the rules for choosing them (`.claude/skills/air-delivery/lenses.md`), the deploy workflow and `.env.air.example`, and ignores `.env.air` and `.air/`. Existing files are kept. Add optional lenses with `--lens privacy,cost` or `--lens all` ([ADR-0013](../architecture/adr/0013-agent-roles.md)). Commit these files; edit `lenses.md` and the lens files to fit the project.
 
 ## 3. Accounts, keys and settings
 
@@ -61,4 +61,11 @@ The agent writes `AIR-Issue: #<n>` on its own line in the PR description and nev
 
 ## Upgrading
 
-Repeat step 1 with the new version and review the lockfile diff. Re-run `npx --no air init` after removing a template file you want refreshed; it never overwrites.
+Repeat step 1 with the new version and review the lockfile diff, then update the project files:
+
+```bash
+npx --no air templates --check   # what would change; exit code 2 if anything is behind
+npx --no air templates           # update untouched files, add new standard ones
+```
+
+Files you changed are reported as `modified` and kept; compare them with the template under `node_modules/air/templates/`, or replace them with `--force`. Files written by an AIR version before template markers count as changed. Your own lenses (any other `.claude/agents/` file) are never touched.

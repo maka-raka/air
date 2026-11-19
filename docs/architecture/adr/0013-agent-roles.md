@@ -40,20 +40,33 @@ The risk is the agent's own claim. That is acceptable because it can only *raise
 
 ### 3. Review lenses inside one run
 
-`air init` adds three read-only Claude Code subagents to `.claude/agents/`:
+A lens is a read-only Claude Code subagent, `.claude/agents/air-review-<name>.md`, with `tools: Read, Grep, Glob` only: it cannot edit, run commands, push or comment. AIR ships nineteen:
 
-| Lens | Model | When |
-| --- | --- | --- |
-| `air-review-code` | sonnet | always |
-| `air-review-security` | opus | auth, crypto, secrets, dependencies, workflows, input handling, or a high-risk issue |
-| `air-review-ux` | sonnet | user-facing UI or copy |
+- **Standard** (installed by `air init`): `code`, `tests`, `scope`, `security`, `ux`, `architecture`, `performance`, `data`, `api`, `docs`, `deps`.
+- **Optional** (`air init --lens <name>` or `air templates --lens <name>`): `resilience`, `concurrency`, `privacy`, `infra`, `rollout`, `cost`, `ai-safety`, `observability`.
 
-In the review phase the agent picks the lenses from the changed paths, runs them **in parallel within its one run**, consolidates their findings, fixes what it can on the same PR, and reports `{"pullRequest":<n>,"lenses":["code","security"]}`. The lenses can read, grep and run `git diff`/`git log`; they cannot edit, push or comment. The review gate still decides on the PR and its checks; `lenses` is shown to the approver, not enforced, so projects with an older skill keep working.
+Each lens file holds what to look for and how to report it. Which lenses run is decided by `.claude/skills/air-delivery/lenses.md`, a table of triggers the project edits; the strongest models are reserved for lenses where a miss costs most (security, architecture, data, concurrency, privacy, AI safety).
+
+In the review phase the agent writes the diff to `review.diff`, picks the lenses from that table, runs them **in parallel within its one run**, fixes blockers and majors on the same PR, and reports `{"pullRequest":<n>,"lenses":["code","tests","security"]}`. A lens name is any `[a-z][a-z0-9-]{0,31}` (at most 32 per report), so a project can add its own lenses without changing AIR. The review gate still decides on the PR and its checks; `lenses` is shown to the approver, not enforced, so projects with an older skill keep working.
+
+### 4. Updating shipped files
+
+Every file `air init` writes ends with a marker line naming its template and the hash of what was installed (`<!-- air-template: templates/agents/air-review-code.md 3f1c… -->`, or `# air-template: …` in YAML and env files). `air templates` compares each project copy with the template shipped now:
+
+| Project copy | Result |
+| --- | --- |
+| same as the template | `current` |
+| unchanged since install, template changed | `updated` (replaced) |
+| changed by the project, or written before markers existed | `modified` (kept; `--force` replaces it) |
+| missing standard file, or an optional lens asked for with `--lens` | `added` |
+
+An optional lens is updated once installed and never added unasked. `air templates --check` writes nothing and exits with code 2 when an update would change something, for CI. A project lens with another name is never touched.
 
 ## Consequences
 
 - An intake can end in a clear "no" that a person confirms, instead of a forced size classification.
 - Routine phases can run on cheaper models; high-risk work gets the strongest one without a person picking it per issue.
 - Several review angles without breaking one run per issue; the approver sees which lenses ran.
+- Projects get template fixes with one command and keep their own edits; nothing is overwritten silently.
 - New facts are optional and validated: older reports stay valid; an unknown value makes the record malformed, as today.
 - Not covered: risk set by the approver (a command or a label) instead of the agent; enforcing lenses in the gate.

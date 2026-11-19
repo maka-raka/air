@@ -14,6 +14,7 @@ import {
   readAgentConfig,
   render,
   runAgent,
+  templateArgs,
 } from "./agent-cli.js";
 import type { AgentConfig } from "./agent-cli.js";
 import type { HttpRequest } from "../adapters/github/github-rest-client.js";
@@ -517,5 +518,27 @@ describe("readAgentConfig", () => {
       () => readAgentConfig({ ...full, AIR_STATE_ANCHORS: "off" }),
       /AIR_STATE_ANCHORS/,
     );
+  });
+});
+
+describe("templateArgs", () => {
+  it("reads check, force and lenses", () => {
+    assert.deepEqual(templateArgs([]), {
+      check: false,
+      force: false,
+      lenses: [],
+    });
+    assert.deepEqual(templateArgs(["--check", "--lens", "privacy,cost"]), {
+      check: true,
+      force: false,
+      lenses: ["privacy", "cost"],
+    });
+    assert.equal(templateArgs(["--force"]).force, true);
+  });
+
+  it("rejects unknown options, unknown lenses and check with force", () => {
+    assert.throws(() => templateArgs(["--yes"]), /Invalid option/);
+    assert.throws(() => templateArgs(["--lens", "i18n"]), /Unknown lens/);
+    assert.throws(() => templateArgs(["--check", "--force"]), /exclude/);
   });
 });
