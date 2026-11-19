@@ -19,10 +19,9 @@ import {
 } from "../domain/state-machine.js";
 import type { Phase, Position, Status } from "../domain/state-machine.js";
 import { StateAnchorMode, TrustPolicy } from "../domain/trust-policy.js";
-import type {
-  AnchorEvidence,
-  StateProvenance,
-} from "../domain/trust-policy.js";
+import type { StateProvenance } from "../domain/trust-policy.js";
+import { FlowOwner } from "../domain/delivery-flow.js";
+import type { DeliveryClosures, StateHistoryEntry } from "./delivery-flow.js";
 
 const OPERATOR = 9;
 const AGENT = 77;
@@ -47,8 +46,33 @@ const AUDIT: AuditSummary = {
   recent: [],
 };
 
+const NOW = new Date("2026-11-19T12:00:00Z");
+const HOUR = 60 * 60 * 1000;
+
+const anchor = (
+  position: Position,
+  time: string,
+  authorId = OPERATOR,
+): StateHistoryEntry => ({
+  authorId,
+  authorLogin: "air-bot",
+  edited: false,
+  signatureValid: true,
+  position,
+  at: time,
+});
+
+const NO_CLOSURES: DeliveryClosures = {
+  available: true,
+  verified: true,
+  closures: [],
+};
+
 type Setup = Readonly<{
   deliveries: readonly OpenDelivery[];
+  /** Signed history per issue; by default one anchor for its state. */
+  histories?: ReadonlyMap<number, readonly StateHistoryEntry[]>;
+  closures?: DeliveryClosures;
   /** Issues whose state a person set; every other issue is AIR's. */
   byHand?: readonly number[];
   failing?: readonly number[];
@@ -70,19 +94,12 @@ function overview(setup: Setup) {
           : { known: true, writerId: OPERATOR, writerLogin: "air-bot" },
     },
     {
-      candidates: async (issue): Promise<readonly AnchorEvidence[]> => {
+      history: async (issue): Promise<readonly StateHistoryEntry[]> => {
         if (setup.failing?.includes(issue)) throw new Error("rate limited");
+        const given = setup.histories?.get(issue);
+        if (given) return given;
         const position = positions.get(issue);
-        return position
-          ? [
-              {
-                authorId: OPERATOR,
-                edited: false,
-                signatureValid: true,
-                position,
-              },
-            ]
-          : [];
+        return position ? [anchor(position, "2026-11-19T11:00:00Z")] : [];
       },
     },
     trust,
@@ -90,6 +107,8 @@ function overview(setup: Setup) {
     { pending: async () => setup.queued ?? [] },
     { failed: async () => setup.failed ?? [] },
     { summary: async () => AUDIT },
+    { closures: async () => setup.closures ?? NO_CLOSURES },
+    () => NOW,
   ).overview();
 }
 
@@ -268,5 +287,152 @@ describe("ReadDeliveryOverview", () => {
     assert.equal(byIssue.get(20)?.launchQueued, false);
     assert.equal(byIssue.get(21)?.agentRunning, false);
     assert.equal(byIssue.get(21)?.launchQueued, true);
+  });
+
+  it("queues trusted issues that wait on people, longest first", async () => {
+    const result = await overview({
+      deliveries: [
+        {
+          issue: 30,
+          title: "approve",
+          position: at(DeliveryPhase.Build, DeliveryStatus.Waiting),
+        },
+        {
+          issue: 31,
+          title: "question",
+          position: at(DeliveryPhase.Design, DeliveryStatus.Blocked),
+        },
+        {
+          issue: 32,
+          title: "busy",
+          position: at(DeliveryPhase.Build, DeliveryStatus.Working),
+        },
+        {
+          issue: 33,
+          title: "forged",
+          position: at(DeliveryPhase.Build, DeliveryStatus.Waiting),
+        },
+      ],
+      byHand: [33],
+      histories: new Map([
+        [
+          31,
+          [
+            anchor(
+              at(DeliveryPhase.Design, DeliveryStatus.Working),
+              "2026-11-18T10:00:00Z",
+            ),
+            anchor(
+              at(DeliveryPhase.Design, DeliveryStatus.Blocked),
+              "2026-11-18T12:00:00Z",
+            ),
+          ],
+        ],
+      ]),
+    });
+    assert.deepEqual(
+      result.flow.humanQueue.map(({ issue, reason, waitedMs }) => ({
+        issue,
+        reason,
+        waitedMs,
+      })),
+      [
+        { issue: 31, reason: AttentionReason.Blocked, waitedMs: 24 * HOUR },
+        { issue: 30, reason: AttentionReason.GatePassed, waitedMs: HOUR },
+      ],
+    );
+    assert.equal(result.flow.humanQueue[0]?.since, "2026-11-18T12:00:00.000Z");
+    assert.equal(result.flow.measuredAt, NOW.toISOString());
+  });
+
+  it("splits time by owner and summarizes finished phases", async () => {
+    const result = await overview({
+      deliveries: [
+        {
+          issue: 40,
+          title: "flowing",
+          position: at(DeliveryPhase.Build, DeliveryStatus.Ready),
+        },
+      ],
+      histories: new Map([
+        [
+          40,
+          [
+            anchor(
+              at(DeliveryPhase.Requirements, DeliveryStatus.Ready),
+              "2026-11-19T06:00:00Z",
+            ),
+            anchor(
+              at(DeliveryPhase.Requirements, DeliveryStatus.Working),
+              "2026-11-19T07:00:00Z",
+            ),
+            anchor(
+              at(DeliveryPhase.Requirements, DeliveryStatus.Waiting),
+              "2026-11-19T08:00:00Z",
+            ),
+            anchor(
+              at(DeliveryPhase.Build, DeliveryStatus.Ready),
+              "2026-11-19T11:00:00Z",
+            ),
+          ],
+        ],
+      ]),
+    });
+    const flow = result.flow;
+    assert.deepEqual(flow.totals, {
+      [FlowOwner.Human]: 3 * HOUR,
+      [FlowOwner.Agent]: HOUR,
+      [FlowOwner.Queue]: 2 * HOUR,
+      total: 6 * HOUR,
+    });
+    assert.deepEqual(
+      flow.phases.map(({ phase }) => phase),
+      [DeliveryPhase.Requirements],
+    );
+    assert.equal(flow.phases[0]?.total.p50, 5 * HOUR);
+    assert.equal(flow.phases[0]?.p50ByOwner[FlowOwner.Human], 3 * HOUR);
+    assert.deepEqual(flow.sample, { open: 1, closed: 0 });
+  });
+
+  it("measures closed issues from the audit trail", async () => {
+    const result = await overview({
+      deliveries: [],
+      histories: new Map([
+        [
+          50,
+          [
+            anchor(
+              at(DeliveryPhase.Observe, DeliveryStatus.Waiting),
+              "2026-11-17T12:00:00Z",
+            ),
+          ],
+        ],
+      ]),
+      closures: {
+        available: true,
+        verified: true,
+        closures: [{ issue: 50, at: "2026-11-18T12:00:00Z" }],
+      },
+    });
+    assert.deepEqual(result.flow.sample, { open: 0, closed: 1 });
+    assert.equal(result.flow.leadTime?.p50, 24 * HOUR);
+    assert.equal(result.flow.throughput.closedLast7Days, 1);
+    assert.equal(result.flow.totals[FlowOwner.Human], 24 * HOUR);
+  });
+
+  it("gives an issue whose history cannot be read no flow", async () => {
+    const result = await overview({
+      deliveries: [
+        {
+          issue: 60,
+          title: "unreadable",
+          position: at(DeliveryPhase.Build, DeliveryStatus.Waiting),
+        },
+      ],
+      failing: [60],
+    });
+    assert.equal(result.cards[0]?.trust, CardTrust.Untrusted);
+    assert.deepEqual(result.flow.humanQueue, []);
+    assert.equal(result.flow.totals.total, 0);
   });
 });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { ConsolePage, escapeHtml } from "./console-page.js";
+import { ConsolePage, escapeHtml, formatDuration } from "./console-page.js";
 import {
   AttentionReason,
   CardTrust,
@@ -18,6 +18,9 @@ import {
   DeliveryPhase,
   DeliveryStatus,
 } from "../../domain/state-machine.js";
+import { DeliveryFlow, FlowOwner } from "../../domain/delivery-flow.js";
+
+const HOUR = 60 * 60 * 1000;
 
 const page = new ConsolePage({
   repository: "example/app",
@@ -101,6 +104,47 @@ const overview = (
         },
       },
     ],
+  },
+  flow: {
+    measuredAt: READ_AT.toISOString(),
+    phases: [
+      {
+        phase: DeliveryPhase.Requirements,
+        total: { count: 3, p50: 5 * HOUR, p90: 26 * HOUR },
+        p50ByOwner: {
+          [FlowOwner.Human]: 3 * HOUR,
+          [FlowOwner.Agent]: HOUR,
+          [FlowOwner.Queue]: HOUR,
+        },
+      },
+    ],
+    leadTime: { count: 2, p50: 50 * HOUR, p90: 80 * HOUR },
+    totals: {
+      [FlowOwner.Human]: 6 * HOUR,
+      [FlowOwner.Agent]: 3 * HOUR,
+      [FlowOwner.Queue]: HOUR,
+      total: 10 * HOUR,
+    },
+    humanQueue: [
+      {
+        issue: 77,
+        title: "<b>slow</b> approval",
+        position: {
+          phase: DeliveryPhase.Build,
+          status: DeliveryStatus.Waiting,
+        },
+        reason: AttentionReason.GatePassed,
+        since: "2026-11-18T09:30:00.000Z",
+        waitedMs: 26 * HOUR,
+      },
+    ],
+    throughput: {
+      available: true,
+      problem: null,
+      closedLast7Days: 4,
+      closedLast28Days: 11,
+    },
+    sample: { open: 3, closed: 2 },
   },
   ...overrides,
 });
@@ -268,6 +312,25 @@ const detail: DeliveryDetail = {
       status: "Up 3 minutes",
     },
   ],
+  flow: DeliveryFlow.of(
+    [
+      {
+        position: {
+          phase: DeliveryPhase.Requirements,
+          status: DeliveryStatus.Working,
+        },
+        at: Date.parse("2026-11-19T07:30:00Z"),
+      },
+      {
+        position: {
+          phase: DeliveryPhase.Build,
+          status: DeliveryStatus.Waiting,
+        },
+        at: Date.parse("2026-11-19T09:30:00Z"),
+      },
+    ],
+    READ_AT.getTime(),
+  ),
 };
 
 describe("ConsolePage.issue", () => {
@@ -368,5 +431,94 @@ describe("ConsolePage intake and review facts", () => {
     assert.match(html, /advises not to build this/);
     assert.match(html, /value="\/air close"/);
     assert.doesNotMatch(html, /value="\/air advance/);
+  });
+});
+
+describe("formatDuration", () => {
+  it("uses the two largest units", () => {
+    assert.equal(formatDuration(45 * 60 * 1000), "45m");
+    assert.equal(formatDuration(3 * HOUR + 20 * 60 * 1000), "3h 20m");
+    assert.equal(formatDuration(52 * HOUR), "2d 4h");
+    assert.equal(formatDuration(-5), "0m");
+  });
+});
+
+describe("ConsolePage flow metrics", () => {
+  it("shows where time goes on the board", () => {
+    const html = page.board(overview(), READ_AT);
+
+    assert.match(html, /Where the time goes/);
+    assert.match(html, /Time waiting on people<\/span><b>60%<\/b>/);
+    assert.match(html, /Closed, last 7 days<\/span><b>4<\/b>/);
+    assert.match(html, /11 in the last 28 days/);
+    assert.match(html, /Lead time, median<\/span><b>2d 2h<\/b>/);
+    assert.match(
+      html,
+      /<td>Requirements<\/td>\n<td>5h 0m <span class="note">p90 1d 2h · n=3/,
+    );
+  });
+
+  it("lists the human-wait queue, escaped, with what it needs", () => {
+    const html = page.board(overview(), READ_AT);
+
+    assert.match(html, /Human-wait queue/);
+    assert.match(
+      html,
+      /href="\/issues\/77">#77<\/a> &lt;b&gt;slow&lt;\/b&gt; approval/,
+    );
+    assert.match(html, /Approve or send back/);
+    assert.match(html, /<b>1d 2h<\/b>/);
+    assert.doesNotMatch(html, /<b>slow<\/b>/);
+  });
+
+  it("says why closed issues are not counted", () => {
+    const base = overview();
+    const html = page.board(
+      overview({
+        flow: {
+          ...base.flow,
+          humanQueue: [],
+          leadTime: null,
+          throughput: {
+            available: false,
+            problem:
+              "The audit chain is broken; closed issues are not counted.",
+            closedLast7Days: 0,
+            closedLast28Days: 0,
+          },
+        },
+      }),
+      READ_AT,
+    );
+
+    assert.match(html, /The audit chain is broken/);
+    assert.match(html, /No trusted issue waits on a person/);
+    assert.match(html, /no closed issue in the window/);
+  });
+
+  it("shows where the issue's time went on its page", () => {
+    const html = page.issue(detail, overview(), READ_AT);
+
+    assert.match(html, /Where the time went/);
+    assert.match(
+      html,
+      /In <code>build:waiting<\/code> for <b>2h 0m<\/b> · waiting on people/,
+    );
+    assert.match(
+      html,
+      /<td>Requirements<\/td><td><b>2h 0m<\/b><\/td><td>0m<\/td><td>2h 0m<\/td>/,
+    );
+    assert.match(html, /Build <span class="note">\(now\)<\/span>/);
+    assert.match(html, /2h 0m so far/);
+  });
+
+  it("says when an issue has no timed history", () => {
+    const html = page.issue(
+      { ...detail, flow: DeliveryFlow.of([], READ_AT.getTime()) },
+      overview(),
+      READ_AT,
+    );
+
+    assert.match(html, /No counted, timed state anchor yet/);
   });
 });

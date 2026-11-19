@@ -21,6 +21,14 @@ import type {
   ReportRecord,
 } from "../../application/delivery-record.js";
 import type { AgentRun } from "../../application/agent-runs.js";
+import { FlowOwner } from "../../domain/delivery-flow.js";
+import type {
+  DeliveryFlow,
+  FlowSummary,
+  FlowTotals,
+} from "../../domain/delivery-flow.js";
+import type { DeliveryFlowMetrics } from "../../application/delivery-overview.js";
+import { FLOW_WINDOW_DAYS } from "../../application/delivery-flow.js";
 
 const HTML_ESCAPES: Readonly<Record<string, string>> = {
   "&": "&amp;",
@@ -69,6 +77,47 @@ const ATTENTION_TEXT: Readonly<Record<AttentionReason, string>> = {
   [AttentionReason.RepairState]:
     "AIR does not trust this state. An administrator has to repair it before anyone acts on it.",
 };
+
+/** What a person in the human-wait queue has to do, in a few words. */
+const WAIT_TEXT: Readonly<Record<AttentionReason, string>> = {
+  [AttentionReason.GatePassed]: "Approve or send back",
+  [AttentionReason.RejectRecommended]: "Decide on a rejection",
+  [AttentionReason.Blocked]: "Answer the agent",
+  [AttentionReason.MergeAndDeployStage]: "Merge the pull request",
+  [AttentionReason.ReleaseToProd]: "Release to prod",
+  [AttentionReason.ObserveAndClose]: "Close after observing",
+  [AttentionReason.RepairState]: "Repair the state",
+};
+
+const OWNER_TEXT: Readonly<Record<FlowOwner, string>> = {
+  [FlowOwner.Human]: "Waiting on people",
+  [FlowOwner.Agent]: "Agent working",
+  [FlowOwner.Queue]: "Queued for an agent",
+};
+
+const OWNERS: readonly FlowOwner[] = [
+  FlowOwner.Human,
+  FlowOwner.Agent,
+  FlowOwner.Queue,
+];
+
+const MINUTE_MS = 60_000;
+const HOUR_MINUTES = 60;
+const DAY_HOURS = 24;
+const PERCENT = 100;
+
+/** A duration in the two largest units: `45m`, `3h 20m`, `2d 4h`. */
+export function formatDuration(ms: number): string {
+  const minutes = Math.floor(Math.max(0, ms) / MINUTE_MS);
+  const hours = Math.floor(minutes / HOUR_MINUTES);
+  const days = Math.floor(hours / DAY_HOURS);
+  if (days > 0) return `${days}d ${hours % DAY_HOURS}h`;
+  if (hours > 0) return `${hours}h ${minutes % HOUR_MINUTES}m`;
+  return `${minutes}m`;
+}
+
+const share = (part: number, totals: FlowTotals) =>
+  totals.total > 0 ? Math.round((part / totals.total) * PERCENT) : 0;
 
 const STYLE = `
 *{box-sizing:border-box}
@@ -128,6 +177,11 @@ td{padding:10px;border-bottom:1px solid #EEF0F3;vertical-align:top}
 .facts dt{color:#5B6472}.facts dd{margin:0}
 .timeline{list-style:none;margin:0;padding:0}
 .timeline li{display:grid;grid-template-columns:150px 1fr;gap:10px;padding:9px 0;border-top:1px solid #EEF0F3;font-size:14px}
+.flowbar{display:flex;height:12px;border-radius:999px;overflow:hidden;background:#EEF0F3}
+.flowbar span{display:block;height:100%}
+.f-human{background:#E0A23A}.f-agent{background:#2E9A5E}.f-queue{background:#7C9BE6}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:#3B4350}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px}
 @media (max-width:640px){.steps{grid-template-columns:repeat(2,minmax(0,1fr))}.timeline li{grid-template-columns:1fr}}
 `;
 
@@ -185,7 +239,9 @@ export class ConsolePage {
       ConsoleView.Board,
       overview,
       readAt,
-      this.needsYou(overview) + this.deliveryBoard(overview),
+      this.needsYou(overview) +
+        this.deliveryBoard(overview) +
+        this.flowMetrics(overview.flow),
     );
   }
 
@@ -223,7 +279,7 @@ ${detailLine}
       )
       .join("");
     const progress = `<section aria-labelledby="phases" class="card"><h2 id="phases">Phases</h2><ol class="steps">${steps}</ol></section>`;
-    const wide = `<div class="wide">${progress}${this.reports(detail.reports)}${this.timeline(detail.history, detail.records)}</div>`;
+    const wide = `<div class="wide">${progress}${this.issueFlow(detail.flow)}${this.reports(detail.reports)}${this.timeline(detail.history, detail.records)}</div>`;
     const side = `<div class="side">${this.nextStep(card)}${this.issueRuns(detail.runs)}${this.ignored(detail.ignoredRecords)}</div>`;
     return this.layout(
       ConsoleView.Board,
@@ -453,6 +509,130 @@ ${broken}<div class="scroll"><div class="board">${columns}</div></div></section>
   private trustChip(card: DeliveryCard): string {
     if (card.trust !== CardTrust.Untrusted) return "";
     return '<span class="chip untrusted">untrusted</span>';
+  }
+
+  /** A stacked bar and legend of where the time went. */
+  private flowBar(totals: FlowTotals): string {
+    const parts = OWNERS.filter((owner) => totals[owner] > 0)
+      .map(
+        (owner) =>
+          `<span class="f-${owner}" style="width:${(totals[owner] / totals.total) * PERCENT}%"></span>`,
+      )
+      .join("");
+    const legend = OWNERS.map(
+      (owner) =>
+        `<span><i class="f-${owner}"></i>${OWNER_TEXT[owner]} <b>${formatDuration(totals[owner])}</b> · ${share(totals[owner], totals)}%</span>`,
+    ).join("");
+    return `<div class="flowbar" role="img" aria-label="${OWNERS.map((owner) => `${OWNER_TEXT[owner]} ${share(totals[owner], totals)}%`).join(", ")}">${parts}</div><div class="legend">${legend}</div>`;
+  }
+
+  private summary(value: FlowSummary | null): string {
+    return value
+      ? `${formatDuration(value.p50)} <span class="note">p90 ${formatDuration(value.p90)} · n=${value.count}</span>`
+      : '<span class="note">no data yet</span>';
+  }
+
+  /** Where delivery time goes, across issues (ADR-0014). */
+  private flowMetrics(flow: DeliveryFlowMetrics): string {
+    const stat = (label: string, value: string, note: string) =>
+      `<div class="card stat"><span class="muted">${label}</span><b>${value}</b><span class="note">${note}</span></div>`;
+    const throughput = flow.throughput;
+    const closed = throughput.available
+      ? stat(
+          "Closed, last 7 days",
+          String(throughput.closedLast7Days),
+          `${throughput.closedLast28Days} in the last ${FLOW_WINDOW_DAYS} days`,
+        )
+      : stat("Closed, last 7 days", "—", escapeHtml(throughput.problem ?? ""));
+    const lead = flow.leadTime
+      ? stat(
+          "Lead time, median",
+          formatDuration(flow.leadTime.p50),
+          `p90 ${formatDuration(flow.leadTime.p90)} over ${flow.leadTime.count} closed`,
+        )
+      : stat("Lead time, median", "—", "no closed issue in the window");
+    const humanShare = stat(
+      "Time waiting on people",
+      `${share(flow.totals[FlowOwner.Human], flow.totals)}%`,
+      `of ${formatDuration(flow.totals.total)} across ${flow.sample.open} open and ${flow.sample.closed} closed`,
+    );
+    const queue = stat(
+      "Waiting on people now",
+      String(flow.humanQueue.length),
+      flow.humanQueue[0]
+        ? `longest ${formatDuration(flow.humanQueue[0].waitedMs)}`
+        : "nobody is holding delivery up",
+    );
+    return `<section aria-labelledby="flow" style="display:flex;flex-direction:column;gap:12px">
+<div class="head"><h2 id="flow">Where the time goes</h2><span class="muted">From AIR's signed state history; closed issues from the verified audit log, last ${FLOW_WINDOW_DAYS} days.</span></div>
+<div class="stats">${humanShare}${queue}${closed}${lead}</div>
+<div class="card">${this.flowBar(flow.totals)}</div>
+${this.humanQueue(flow)}${this.phaseTable(flow)}</section>`;
+  }
+
+  private humanQueue(flow: DeliveryFlowMetrics): string {
+    const rows = flow.humanQueue
+      .map(
+        (wait) => `<tr>
+<td><a href="${issuePath(wait.issue)}">#${wait.issue}</a> ${escapeHtml(wait.title)}</td>
+<td><span class="${STATUS_CLASS[wait.position.status]}">${escapeHtml(`${wait.position.phase}:${wait.position.status}`)}</span></td>
+<td>${WAIT_TEXT[wait.reason]}</td>
+<td class="mono">${time(wait.since)} UTC</td>
+<td><b>${formatDuration(wait.waitedMs)}</b></td>
+</tr>`,
+      )
+      .join("");
+    const table = rows
+      ? `<div class="scroll"><table><thead><tr><th scope="col">Issue</th><th scope="col">State</th><th scope="col">Needs</th><th scope="col">Since</th><th scope="col">Waited</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : '<p class="empty">No trusted issue waits on a person.</p>';
+    return `<section aria-labelledby="human-queue" class="card"><h3 id="human-queue">Human-wait queue</h3>${table}</section>`;
+  }
+
+  private phaseTable(flow: DeliveryFlowMetrics): string {
+    const rows = flow.phases
+      .map(
+        (phase) => `<tr>
+<td>${PHASE_NAMES[phase.phase]}</td>
+<td>${this.summary(phase.total)}</td>
+<td>${formatDuration(phase.p50ByOwner[FlowOwner.Human])}</td>
+<td>${formatDuration(phase.p50ByOwner[FlowOwner.Agent])}</td>
+<td>${formatDuration(phase.p50ByOwner[FlowOwner.Queue])}</td>
+</tr>`,
+      )
+      .join("");
+    const table = rows
+      ? `<div class="scroll"><table><thead><tr><th scope="col">Phase</th><th scope="col">Time in phase, median</th><th scope="col">People, median</th><th scope="col">Agent, median</th><th scope="col">Queued, median</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : '<p class="empty">No issue has finished a phase yet.</p>';
+    return `<section aria-labelledby="phase-times" class="card"><h3 id="phase-times">Time per phase</h3>${table}<p class="note">Per issue, rework included; only phases an issue has left. Percentiles are nearest-rank.</p></section>`;
+  }
+
+  /** Where this issue's time went. */
+  private issueFlow(flow: DeliveryFlow): string {
+    if (flow.segments.length === 0)
+      return '<section aria-labelledby="issue-flow" class="card"><h2 id="issue-flow">Where the time went</h2><p class="empty">No counted, timed state anchor yet.</p></section>';
+    const current = flow.current();
+    const now = current
+      ? `<p class="muted">In <code>${escapeHtml(`${current.position.phase}:${current.position.status}`)}</code> for <b>${formatDuration(current.durationMs)}</b> · ${OWNER_TEXT[current.owner].toLowerCase()}.</p>`
+      : "";
+    const phases = flow
+      .phases()
+      .map(
+        (phase) =>
+          `<tr><td>${PHASE_NAMES[phase.phase]}${phase.finished ? "" : ' <span class="note">(now)</span>'}</td><td><b>${formatDuration(phase.totals.total)}</b></td>${OWNERS.map((owner) => `<td>${formatDuration(phase.totals[owner])}</td>`).join("")}</tr>`,
+      )
+      .join("");
+    const steps = [...flow.segments]
+      .reverse()
+      .map(
+        (segment) =>
+          `<li><span class="mono note">${time(new Date(segment.start).toISOString())} UTC</span><span><span class="${STATUS_CLASS[segment.position.status]}">${escapeHtml(`${segment.position.phase}:${segment.position.status}`)}</span> ${formatDuration(segment.durationMs)}${segment.open ? " so far" : ""} <span class="note">${OWNER_TEXT[segment.owner].toLowerCase()}</span></span></li>`,
+      )
+      .join("");
+    return `<section aria-labelledby="issue-flow" class="card"><h2 id="issue-flow">Where the time went</h2>${now}
+${this.flowBar(flow.totals())}
+<div class="scroll"><table><thead><tr><th scope="col">Phase</th><th scope="col">Total</th><th scope="col">People</th><th scope="col">Agent</th><th scope="col">Queued</th></tr></thead><tbody>${phases}</tbody></table></div>
+<h3>Steps</h3><ol class="timeline">${steps}</ol>
+<p class="note">From signed state anchors that count; anchors that do not count are ignored.</p></section>`;
   }
 
   private agentStats(overview: DeliveryOverview): string {

@@ -29,6 +29,7 @@ CLI / Skill / CI Trigger
 | `AdvancePhase` | Human-authorized next phase | State |
 | `ApplyDeployment` | Check deployment facts and allowed automatic progression | State |
 | `RecoverPhaseRun` | Handle interrupted session and conflicting run tokens | State and audit |
+| `ReadDeliveryOverview` / `ReadDeliveryDetail` | Console views ([ADR-0012](adr/0012-read-only-console.md)), including delivery flow metrics: time per phase and status, human wait versus agent work, throughput ([ADR-0014](adr/0014-delivery-flow-metrics.md)) | No |
 
 The exact order of posting comment and updating labels must be chosen for crash consistency; do not assume distributed transactions across GitHub APIs.
 
@@ -44,6 +45,8 @@ The exact order of posting comment and updating labels must be chosen for crash 
 | `PhaseRunner` | Prepare session instructions and runtime execution context | Local Claude Code skill |
 | `DeploymentReader` | Verify successful stage/prod deployment, artifact identity and timing | GitHub Actions |
 | `PolicyProvider` | Effective non-weakenable policy combining defaults and repo-specific configuration | JSON configuration |
+| `StateHistoryPort` | Every well-formed signed state anchor on an issue with its signed time, oldest first; decides nothing | GitHub issue comments (`GitHubStateAnchorStore`) |
+| `DeliveryClosuresPort` | Applied close transitions, only from an audit chain that verifies ([ADR-0014](adr/0014-delivery-flow-metrics.md)) | Poller audit log (`FileAuditTrail`) |
 | `AuditSink` | Record transitions, failures and actor identity | MVP: issue activity and structured logs; future dedicated sink |
 
 Ports should be scoped to the consuming use case rather than forcing a universal `Tracker` or `DataAccess` interface. GitHub integrations may share internal infrastructure clients while exposing separate application ports.
