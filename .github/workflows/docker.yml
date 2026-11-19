@@ -1,0 +1,85 @@
+name: Docker images
+
+on:
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - compose.yaml
+      - docker/**
+      - src/**
+      - package.json
+      - package-lock.json
+      - tsconfig.json
+      - .github/workflows/docker.yml
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  images:
+    name: Build and smoke-test images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Compose file is valid
+        run: |
+          touch .env.air .env.air.poller .env.air.agent
+          docker compose config --quiet
+          docker compose --profile agent config --quiet
+
+      - name: Build poller image
+        run: docker build --pull -t air:ci .
+
+      - name: Build agent image
+        run: docker build --pull -t air-agent:ci docker/agent
+
+      - name: Poller refuses to start without configuration
+        run: |
+          set +e
+          out=$(docker run --rm --read-only --tmpfs /tmp --cap-drop ALL \
+            --security-opt no-new-privileges:true air:ci 2>&1)
+          code=$?
+          set -e
+          echo "$out"
+          test "$code" -ne 0
+          grep -q "Set AIR_" <<<"$out"
+
+      - name: Poller image runs as non-root and ships the CLIs
+        run: |
+          test "$(docker run --rm --entrypoint id air:ci -u)" != 0
+          docker run --rm --entrypoint node air:ci \
+            /opt/air/dist/src/delivery/composition/agent-cli.js keygen >/dev/null
+          test -z "$(docker run --rm --entrypoint sh air:ci -c 'find /opt/air/dist -name "*.test.js"')"
+
+      - name: Agent entrypoint validates its input
+        run: |
+          set +e
+          usage=$(docker run --rm air-agent:ci 2>&1); usage_code=$?
+          missing=$(docker run --rm air-agent:ci 1 2>&1); missing_code=$?
+          bad=$(docker run --rm -e AIR_REPOSITORY='x/y;rm' -e AIR_AGENT_LOGIN=a \
+            -e AIR_AGENT_TOKEN=t -e AIR_AGENT_SIGNING_KEY=k -e ANTHROPIC_API_KEY=k \
+            air-agent:ci 1 2>&1); bad_code=$?
+          set -e
+          printf '%s\n' "$usage" "$missing" "$bad"
+          test "$usage_code" -ne 0
+          grep -q "usage: air-agent" <<<"$usage"
+          test "$missing_code" -ne 0
+          grep -q "set AIR_REPOSITORY" <<<"$missing"
+          test "$bad_code" -ne 0
+          grep -q "must be <owner>/<repo>" <<<"$bad"
+
+      - name: Agent image tools and managed settings
+        run: |
+          test "$(docker run --rm --entrypoint id air-agent:ci -u)" != 0
+          docker run --rm --entrypoint claude air-agent:ci --version
+          docker run --rm --entrypoint sh air-agent:ci -c 'git --version && gh --version && tmux -V'
+          docker run --rm --entrypoint jq air-agent:ci -e \
+            '.permissions.deny | index("Bash(gh issue view:*)") != null' \
+            /etc/claude-code/managed-settings.json
