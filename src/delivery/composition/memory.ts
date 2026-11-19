@@ -1,4 +1,23 @@
 import { randomUUID } from "node:crypto";
+import {
+  AgentLaunchPolicy,
+  LaunchAgentOnReady,
+  RecordedRisk,
+} from "../application/agent-launch.js";
+import type { AgentLaunchRequestPort } from "../application/agent-launch.js";
+import type { DeliveryCommandExecutor } from "../application/comment-command-handler.js";
+import { ReadDeliveryDetail } from "../application/delivery-detail.js";
+import { ReadDeliveryOverview } from "../application/delivery-overview.js";
+import type { Phase } from "../domain/state-machine.js";
+import { FileAgentLaunchQueue } from "../adapters/local/file-agent-launch-queue.js";
+import {
+  FileAgentRunsSnapshot,
+  agentRunsFile,
+} from "../adapters/local/file-agent-runs-snapshot.js";
+import {
+  MemoryAuditTrail,
+  MemoryOpenDeliveries,
+} from "../adapters/memory/memory-console.js";
 import { AgentCommands } from "../application/agent-commands.js";
 import { ReadAgentContext } from "../application/agent-context.js";
 import type { AuditPort } from "../application/audit.js";
@@ -57,6 +76,12 @@ export type MemoryKeys = Readonly<{
   deployer: Ed25519RecordSigner;
 }>;
 
+/** Agent runs the operator requests after trusted ready transitions. */
+export type MemoryLaunchConfig = Readonly<{
+  phases: readonly Phase[];
+  queue: AgentLaunchRequestPort;
+}>;
+
 export type MemoryConfig = Readonly<{
   roster: MemoryRoster;
   keys: MemoryKeys;
@@ -64,6 +89,14 @@ export type MemoryConfig = Readonly<{
   runTtlMs: number;
   leaseMs: number;
   newRunId?: () => string;
+  /** ADR-0011 step 3; absent: no agent run is ever requested. */
+  launch?: MemoryLaunchConfig;
+}>;
+
+/** The read-only console's use cases over the memory tracker (ADR-0012). */
+export type MemoryConsole = Readonly<{
+  overview: ReadDeliveryOverview;
+  detail: ReadDeliveryDetail;
 }>;
 
 /** One AIR process: what it can do and the audit log it writes. */
@@ -140,7 +173,11 @@ export class MemoryComposition {
         this.config.now,
         this.config.runTtlMs,
       ),
-      this.executor(roster.operator, keys.operator, log),
+      this.launching(
+        this.executor(roster.operator, keys.operator, log),
+        records,
+        log,
+      ),
       new MemoryCommandReplies(this.tracker, roster.operator.id),
       new MemoryCommandReplies(this.tracker, roster.operator.id),
       this.trust,
@@ -216,6 +253,71 @@ export class MemoryComposition {
         { now, runTtlMs },
       ),
     };
+  }
+
+  /**
+   * The console as `air-ui` composes it on GitHub, over this tracker: it
+   * reads the operator's audit log and the launcher's directory, and holds
+   * no key.
+   */
+  console(operatorAudit: MemoryAuditLines, launchDir: string): MemoryConsole {
+    const { roster, now } = this.config;
+    const reader = roster.operator.id;
+    const deliveries = new MemoryOpenDeliveries(this.tracker);
+    const provenance = new MemoryStateProvenance(this.tracker);
+    const states = new MemoryStateAnchorStore(
+      this.tracker,
+      reader,
+      { verifiers: this.verifiers },
+      now,
+    );
+    const queue = new FileAgentLaunchQueue(launchDir);
+    const runs = new FileAgentRunsSnapshot(agentRunsFile(launchDir));
+    const trail = new MemoryAuditTrail(operatorAudit);
+    return {
+      overview: new ReadDeliveryOverview(
+        deliveries,
+        provenance,
+        states,
+        this.trust,
+        runs,
+        queue,
+        queue,
+        trail,
+        trail,
+        now,
+      ),
+      detail: new ReadDeliveryDetail(
+        deliveries,
+        provenance,
+        states,
+        new MemoryDeliveryRecordStore(this.tracker, reader, {
+          verifier: this.config.keys.agent.verifier,
+        }),
+        this.trust,
+        runs,
+        queue,
+        now,
+      ),
+    };
+  }
+
+  /** Requests agent runs when the launch config says so (ADR-0011). */
+  private launching(
+    executor: DeliveryCommandExecutor,
+    records: TrustedDeliveryRecords,
+    audit: AuditPort,
+  ): DeliveryCommandExecutor {
+    const launch = this.config.launch;
+    if (!launch) return executor;
+    return new LaunchAgentOnReady(
+      executor,
+      launch.queue,
+      new AgentLaunchPolicy(new Set(launch.phases)),
+      audit,
+      this.config.now,
+      new RecordedRisk(records),
+    );
   }
 
   private log(lines: MemoryAuditLines): AuditPort {

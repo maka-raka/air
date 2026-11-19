@@ -21,7 +21,8 @@ export function stateValue(position: Position): string {
   return `${position.phase}${SEPARATOR}${position.status}`;
 }
 
-function parse(value: string): Position | null {
+/** `phase:status`, or null when the value is not a known position. */
+export function parseStateValue(value: string): Position | null {
   const [phase = "", status = "", ...rest] = value.split(SEPARATOR);
   if (rest.length > 0) return null;
   if (!phases.includes(phase)) return null;
@@ -50,7 +51,7 @@ export class MemoryDeliveryStateStore implements DeliveryStatePort {
     const stored = this.tracker.issue(issue);
     if (!stored) return fail(DeliveryFailure.InvalidState, "No such issue");
     const value = stored.fields[STATE_FIELD];
-    const position = value === undefined ? null : parse(value);
+    const position = value === undefined ? null : parseStateValue(value);
     if (value !== undefined && !position)
       return fail(DeliveryFailure.InvalidState, `Malformed state: ${value}`);
     return {

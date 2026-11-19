@@ -49,9 +49,12 @@ const lines = (text: string) =>
     .map((line) => line.trim())
     .filter((line) => line !== "");
 
-/** Reads a hash-chained audit log and verifies it; never writes to it. */
-export class FileAuditTrail implements AuditTrailPort, DeliveryClosuresPort {
-  constructor(private readonly path: string) {}
+/**
+ * Reads a hash-chained audit log from wherever its text comes from, and
+ * verifies it; never writes to it. `read` returns null when there is none.
+ */
+export class TextAuditTrail implements AuditTrailPort, DeliveryClosuresPort {
+  constructor(private readonly read: () => Promise<string | null>) {}
 
   /** Applied closes, only from a chain that verifies (ADR-0015). */
   async closures(): Promise<DeliveryClosures> {
@@ -94,14 +97,18 @@ export class FileAuditTrail implements AuditTrailPort, DeliveryClosuresPort {
         .filter((event): event is RecentAuditEvent => event !== null),
     };
   }
+}
 
-  /** Null when there is no log. */
-  private async read(): Promise<string | null> {
-    try {
-      return await readFile(this.path, "utf8");
-    } catch (error) {
-      if (!missing(error)) throw error;
-      return null;
-    }
+/** The audit log in a file, as the poller writes it. */
+export class FileAuditTrail extends TextAuditTrail {
+  constructor(path: string) {
+    super(async () => {
+      try {
+        return await readFile(path, "utf8");
+      } catch (error) {
+        if (!missing(error)) throw error;
+        return null;
+      }
+    });
   }
 }
