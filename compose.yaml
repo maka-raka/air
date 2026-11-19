@@ -4,6 +4,10 @@
 #   docker compose run -d --name air-agent-42 agent 42      # one agent run
 #   docker exec -it air-agent-42 tmux attach -t agent
 #
+# Automatic agent runs (ADR-0011): set AIR_AGENT_LAUNCH_PHASES in
+# .env.air.poller, `mkdir -p .air/launch`, and run `air-launcher` on the host
+# next to this file. The poller never gets the Docker socket.
+#
 # Secrets are split so each private key reaches only its own process:
 #   .env.air          shared, not secret: repository, logins, public keys
 #   .env.air.poller   operator token and signing key
@@ -28,8 +32,11 @@ services:
       - path: .env.air.poller
     environment:
       AIR_STATE_DIR: /var/lib/air
+      # Queue for air-launcher; enable with AIR_AGENT_LAUNCH_PHASES in .env.air.poller.
+      AIR_LAUNCH_DIR: /var/lib/air-launch
     volumes:
       - air-poller-state:/var/lib/air
+      - ./.air/launch:/var/lib/air-launch
 
   agent:
     <<: *hardening

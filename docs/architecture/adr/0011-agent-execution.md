@@ -1,6 +1,6 @@
 # ADR-0011 — Agent Execution: Containers First, Launch After Trusted Transitions
 
-- **Status:** Proposed for review (steps 1–2 implemented: poller image and agent image; steps 3–5 open)
+- **Status:** Proposed for review (steps 1–4 implemented; step 5 open)
 - **Date:** 2026-11-19
 - **Scope:** Where agent sessions run, how they are isolated, and how AIR may start them automatically
 - **Builds on:** [ADR-0004](0004-agent-identity-and-issue-records.md) (agent identity), [ADR-0007](0007-threat-model-and-trust-boundaries.md) (trust boundaries), [ADR-0009](0009-platform-neutral-core.md) (platform-neutral core), [ADR-0010](0010-zero-trust.md) (zero trust)
@@ -43,13 +43,13 @@ A **worktree + tmux** session on the host stays supported for development: cheap
 
 When automatic launch is added (step 3), the trigger is **not** "a label appeared" or "a comment was posted". It is: `ExecuteDeliveryCommand` applied a transition that ended in `<phase>:ready`, for a command `IngestHumanCommand` admitted, on a state `TrustPolicy.state` accepted. Anyone with triage access can add a label; only that path proves an approver asked for it.
 
-- New application port `AgentLauncher.launch({ issue, phase })`, called after the transition and its state anchor are written; a failed launch is logged and replied to, it never rolls back the transition.
+- `LaunchAgentOnReady` decorates the delivery executor and calls `AgentLaunchRequestPort.enqueue({ issue, phase })` after the transition and its state anchor are written; a failed request is audited, it never rolls back the transition or the reply.
 - Launch is opt-in per phase (`AIR_AGENT_LAUNCH_PHASES`, empty by default) and bounded (`AIR_AGENT_MAX` concurrent runs).
 - Duplicates are harmless but avoided: `air start` already rejects an issue that is `working`; the launcher also skips an issue whose runtime is still alive.
 
 ### 4. The launcher holds no AIR keys
 
-Starting a container needs the Docker API, which is root-equivalent on the host. The poller therefore **does not** get the Docker socket. The `DockerAgentLauncher` adapter writes a launch request (issue, phase) to a queue; a separate launcher process with no AIR credentials starts the agent image from a fixed template and cannot pass arbitrary arguments. Rootless Docker or Podman is preferred for that process.
+Starting a container needs the Docker API, which is root-equivalent on the host. The poller therefore **does not** get the Docker socket. It writes a launch request (issue, phase) to a queue directory; a separate `air-launcher` process starts the agent service with `docker compose run` and fixed arguments (only the issue number and phase vary). The launcher refuses to start with any AIR token or signing key in its environment; the agent's secrets reach the container only through compose's env file. Rootless Docker or Podman is preferred for that process.
 
 ## Roadmap
 
@@ -57,8 +57,8 @@ Starting a container needs the Docker API, which is root-equivalent on the host.
 | --- | --- | --- |
 | 1 | Poller image (`Dockerfile`) and `compose.yaml` with a state volume and split env files | **done** |
 | 2 | Agent image (`docker/agent/`), started by hand with `docker compose run … agent <issue>` | **done** |
-| 3 | `AgentLauncher` port, launch after trusted `ready` transitions, opt-in phases and limit | open |
-| 4 | Launcher process for containers (queue, fixed template, rootless) | open |
+| 3 | `LaunchAgentOnReady` after trusted `ready` transitions, opt-in phases (`AIR_AGENT_LAUNCH_PHASES`) | **done** |
+| 4 | `air-launcher`: file queue, `docker compose run` with fixed arguments, `AIR_AGENT_MAX`, one run per issue | **done** |
 | 5 | `TmuxWorktreeLauncher` for host development | open |
 
 Each step is a separate PR; this table is updated as they land.
