@@ -44,31 +44,29 @@ export type TemplateFile = Readonly<{
   optional: boolean;
 }>;
 
-const lensFile = (lens: string, optional: boolean): TemplateFile => ({
-  source: `templates/claude/agents/air-review-${lens}.md`,
-  target: `.claude/agents/air-review-${lens}.md`,
+/** Package folder whose provider subfolders mirror the project layout. */
+export const TEMPLATE_ROOT = "templates/";
+
+/**
+ * A provider template: `templates/<provider>/<path>` installs to
+ * `.<provider>/<path>` (e.g. `templates/claude/…` → `.claude/…`).
+ */
+const providerFile = (path: string, optional = false): TemplateFile => ({
+  source: `${TEMPLATE_ROOT}${path}`,
+  target: `.${path}`,
   optional,
 });
 
+const lensFile = (lens: string, optional: boolean): TemplateFile =>
+  providerFile(`claude/agents/air-review-${lens}.md`, optional);
+
 /** Every file AIR ships into a project, in install order. */
 export const TEMPLATES: readonly TemplateFile[] = [
-  {
-    source: "templates/claude/skills/air-delivery/SKILL.md",
-    target: ".claude/skills/air-delivery/SKILL.md",
-    optional: false,
-  },
-  {
-    source: "templates/claude/skills/air-delivery/lenses.md",
-    target: ".claude/skills/air-delivery/lenses.md",
-    optional: false,
-  },
+  providerFile("claude/skills/air-delivery/SKILL.md"),
+  providerFile("claude/skills/air-delivery/lenses.md"),
   ...STANDARD_LENSES.map((lens) => lensFile(lens, false)),
   ...OPTIONAL_LENSES.map((lens) => lensFile(lens, true)),
-  {
-    source: "templates/github/workflows/air-deploy.yml",
-    target: ".github/workflows/air-deploy.yml",
-    optional: false,
-  },
+  providerFile("github/workflows/air-deploy.yml"),
   { source: ".env.example", target: ".env.air.example", optional: false },
 ];
 
