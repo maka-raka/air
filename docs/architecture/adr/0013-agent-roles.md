@@ -51,7 +51,7 @@ In the review phase the agent writes the diff to `review.diff`, picks the lenses
 
 ### 4. Updating shipped files
 
-Every file `air init` writes ends with a marker line naming its template and the hash of what was installed (`<!-- air-template: templates/agents/air-review-code.md 3f1c… -->`, or `# air-template: …` in YAML and env files). `air templates` compares each project copy with the template shipped now:
+Every file `air init` writes ends with a marker line naming its template and the hash of what was installed (`<!-- air-template: templates/claude/agents/air-review-code.md 3f1c… -->`, or `# air-template: …` in YAML and env files). `air templates` compares each project copy with the template shipped now:
 
 | Project copy | Result |
 | --- | --- |

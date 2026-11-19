@@ -45,7 +45,7 @@ export type TemplateFile = Readonly<{
 }>;
 
 const lensFile = (lens: string, optional: boolean): TemplateFile => ({
-  source: `templates/agents/air-review-${lens}.md`,
+  source: `templates/claude/agents/air-review-${lens}.md`,
   target: `.claude/agents/air-review-${lens}.md`,
   optional,
 });
@@ -53,19 +53,19 @@ const lensFile = (lens: string, optional: boolean): TemplateFile => ({
 /** Every file AIR ships into a project, in install order. */
 export const TEMPLATES: readonly TemplateFile[] = [
   {
-    source: "templates/skill/SKILL.md",
+    source: "templates/claude/skills/air-delivery/SKILL.md",
     target: ".claude/skills/air-delivery/SKILL.md",
     optional: false,
   },
   {
-    source: "templates/skill/lenses.md",
+    source: "templates/claude/skills/air-delivery/lenses.md",
     target: ".claude/skills/air-delivery/lenses.md",
     optional: false,
   },
   ...STANDARD_LENSES.map((lens) => lensFile(lens, false)),
   ...OPTIONAL_LENSES.map((lens) => lensFile(lens, true)),
   {
-    source: "templates/workflows/air-deploy.yml",
+    source: "templates/github/workflows/air-deploy.yml",
     target: ".github/workflows/air-deploy.yml",
     optional: false,
   },
