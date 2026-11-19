@@ -103,6 +103,8 @@ Not yet decided: lease TTL for hosted use, the durable claim-store, evidence ada
 | `HumanCommandIngestion` (inbound) | `MemoryCommentIngress` |
 | `DeliveryClaimPort`, `AuditPort` | shared `InMemoryDeliveryClaims`, `HashChainedAuditLog` |
 
+The console reads the memory tracker through `MemoryOpenDeliveries` and `MemoryAuditTrail` (the same text reader as `FileAuditTrail`), and `MemoryComposition` takes an optional launch config. `composition/stack.test.ts` runs every layer at once: the operator queues runs after trusted ready transitions, the real launcher starts them through a fake `docker` CLI (checking the `docker compose run` arguments and the model per phase and risk), a scripted agent works through the agent commands, and the console's use cases read the queue, runs snapshot, signed history, records and audit chain. It also checks that a hand-set state launches nothing and shows as untrusted.
+
 Shared by every platform's adapters: `adapters/signature` (Ed25519 signing bound to project and issue) and `adapters/codec` (validation of stored records and anchors).
 
 Port contracts made explicit by the second adapter:
