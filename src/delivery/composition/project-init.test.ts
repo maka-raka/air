@@ -1,13 +1,23 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { after, describe, it } from "node:test";
 import {
   IGNORED,
   OPTIONAL_LENSES,
   PROJECT_FILES,
   STANDARD_LENSES,
+  TEMPLATE_ROOT,
+  TEMPLATES,
   TemplateStatus,
   parseLenses,
   renderTemplates,
@@ -131,15 +141,7 @@ describe("initProject", () => {
 /** A fake package with one template, to exercise updates. */
 async function fakePackage(content: string) {
   const dir = await project();
-  for (const file of [
-    "templates/claude/skills/air-delivery/SKILL.md",
-    "templates/claude/skills/air-delivery/lenses.md",
-    "templates/github/workflows/air-deploy.yml",
-    ".env.example",
-    ...[...STANDARD_LENSES, ...OPTIONAL_LENSES].map(
-      (lens) => `templates/claude/agents/air-review-${lens}.md`,
-    ),
-  ]) {
+  for (const { source: file } of TEMPLATES) {
     await mkdir(join(dir, dirname(file)), { recursive: true });
     await writeFile(join(dir, file), `${file}\n${content}\n`);
   }
@@ -281,6 +283,38 @@ describe("updateTemplates", () => {
     ]);
     assert.match(text, /^updated +a\nmodified +b\n/);
     assert.match(text, /--force/);
+  });
+});
+
+/** The real package root, as installed (`dist/` sits one level below it). */
+const PACKAGE = fileURLToPath(new URL("../../../../", import.meta.url));
+
+describe("TEMPLATES", () => {
+  it("ships every file under templates/", async () => {
+    const files = await readdir(join(PACKAGE, TEMPLATE_ROOT), {
+      recursive: true,
+      withFileTypes: true,
+    });
+    const shipped = files
+      .filter((entry) => entry.isFile())
+      .map((entry) =>
+        relative(PACKAGE, join(entry.parentPath, entry.name)).replaceAll(
+          "\\",
+          "/",
+        ),
+      )
+      .sort();
+    const listed = TEMPLATES.map(({ source }) => source)
+      .filter((source) => source.startsWith(TEMPLATE_ROOT))
+      .sort();
+
+    assert.deepEqual(shipped, listed);
+  });
+
+  it("installs each provider template at its mirrored path", () => {
+    for (const { source, target } of TEMPLATES)
+      if (source.startsWith(TEMPLATE_ROOT))
+        assert.equal(target, `.${source.slice(TEMPLATE_ROOT.length)}`);
   });
 });
 

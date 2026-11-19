@@ -2,6 +2,8 @@
 
 This guide connects a repository to AIR with the local poller. Read [Repository Hardening](security-hardening.md) first: its settings are required.
 
+Requires **Node.js 24 or later** (`engines` in `package.json`). npm only warns on an older Node; AIR is not tested there.
+
 ## 1. Install a pinned release
 
 ```bash
@@ -68,4 +70,6 @@ npx --no air templates --check   # what would change; exit code 2 if anything is
 npx --no air templates           # update untouched files, add new standard ones
 ```
 
-Files you changed are reported as `modified` and kept; compare them with the template under `node_modules/air/templates/`, or replace them with `--force`. Files written by an AIR version before template markers count as changed. Your own lenses (any other `.claude/agents/` file) are never touched.
+Files you changed are reported as `modified` and kept; compare them with the template under `node_modules/air/templates/<provider>/` (`claude/`, `github/`), or replace them with `--force`. Files written by an AIR version before template markers count as changed. Your own lenses (any other `.claude/agents/` file) are never touched.
+
+Read [CHANGELOG.md](../../CHANGELOG.md) before upgrading: it lists changes that need action in your project.
