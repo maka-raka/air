@@ -2,6 +2,8 @@
 
 AIR verifies who set delivery state and who wrote the evidence ([ADR-0007](../architecture/adr/0007-threat-model-and-trust-boundaries.md)). It cannot stop someone with write access from pushing code or editing workflows. Apply **every** item below to each repository before AIR runs on it.
 
+Demo mode (`air init --demo`, [ADR-0014](../architecture/adr/0014-demo-mode.md)) skips these items for one throwaway repository. It is never a substitute: `air doctor` fails while `AIR_DEMO` is set.
+
 ## Check it automatically
 
 ```bash

@@ -28,8 +28,8 @@ Quality scenarios and metrics remain to be defined in §10.
 - **Hexagonal Architecture** to isolate domain rules and use cases from infrastructure.
 - **LikeC4** is the architecture-as-code model and view source.
 - **ADRs** record significant decisions and alternatives.
-- GitHub Issues, comments and labels represent delivery state in the MVP; concurrent updates and recovery need explicit treatment.
-- Manual Claude Code sessions are the MVP execution mechanism. Autonomous CI execution is out of scope.
+- GitHub Issues, comments and labels represent delivery state in the MVP. Labels are not transactional: concurrent writes are detected, not prevented ([ADR-0002](adr/0002-github-labels-as-mvp-delivery-state.md)).
+- Claude Code runs on the agent's own account, started by a person or, opt-in, by `air-launcher` after an approved transition ([ADR-0011](adr/0011-agent-execution.md)). Autonomous CI execution is out of scope.
 - No agent performs merge, deploy, mitigation or issue closure.
 - Domain rules do not depend on LLM providers, GitHub APIs, MCP, or GCP SDKs.
 - Data read-only access must be enforced through permissions, not only tool prompts.
@@ -68,13 +68,13 @@ See [Strategic Domain Design](domain-model.md) and [candidate Context Map](likec
 
 **Boundaries:** domain services cannot import SDKs or protocol-specific packages. Application use cases call domain functions and outbound ports. Adapters own external I/O. Domain model concepts differ from persisted GitHub labels; concurrency and retries belong to application/infrastructure coordination.
 
-Tactical Delivery proposals: [domain model, aggregate and invariants](delivery-domain.md) and [application use cases, ports and adapters](delivery-application.md). Before implementation, resolve deployment-driven advancement from blocked states, concurrent label updates, stale evidence, and whether each issue maps to exactly one Delivery.
+Tactical Delivery proposals: [domain model, aggregate and invariants](delivery-domain.md) and [application use cases, ports and adapters](delivery-application.md). Deployment-driven advancement is decided in [ADR-0006](adr/0006-deployment-events.md), evidence freshness in [ADR-0005](adr/0005-phase-gate.md) and concurrent label updates in [ADR-0002](adr/0002-github-labels-as-mvp-delivery-state.md); remaining questions are in [Open questions](open-questions.md).
 
 ## 6. Runtime View — Delivery MVP (proposed)
-The [Delivery State Machine](delivery-state-machine.md) specifies phase transitions, actor authority, gate preconditions, deployment-driven advancement, errors and recovery for the manual MVP. The GitHub state-store tradeoff is captured in [ADR-0002](adr/0002-github-labels-as-mvp-delivery-state.md). Where agents run and how they may be launched is decided in [ADR-0011](adr/0011-agent-execution.md). The read-only console is [ADR-0012](adr/0012-read-only-console.md); intake verdict, model routing and review lenses are [ADR-0013](adr/0013-agent-roles.md). Runtime dynamic views remain to be completed.
+The [Delivery State Machine](delivery-state-machine.md) specifies phase transitions, actor authority, gate preconditions, deployment-driven advancement, errors and recovery for the manual MVP. The GitHub state-store tradeoff is captured in [ADR-0002](adr/0002-github-labels-as-mvp-delivery-state.md). Where agents run and how they may be launched is decided in [ADR-0011](adr/0011-agent-execution.md). The read-only console is [ADR-0012](adr/0012-read-only-console.md), and the flow metrics it shows are [ADR-0015](adr/0015-delivery-flow-metrics.md); intake verdict, model routing and review lenses are [ADR-0013](adr/0013-agent-roles.md); demo mode for a first try on a throwaway repository is [ADR-0014](adr/0014-demo-mode.md). Runtime dynamic views remain to be completed.
 
-## 7. Deployment View (planned)
-Local execution in MVP; isolated CI-based execution after MVP.
+## 7. Deployment View
+The poller and each agent run in separate containers (`compose.yaml`, `docker/agent/`), or the poller runs locally with `air-local`; `air-deploy` runs in the project's CI. See [Running AIR in Docker](../engineering/docker.md) and [ADR-0011](adr/0011-agent-execution.md).
 
 ## 8. Cross-cutting Concepts (planned)
 MCP as agent tool protocol, identity, evidence integrity, audit, cost, secret and PII safety.
@@ -87,7 +87,7 @@ Measurable scenarios and evaluation strategy to be defined.
 
 ## 11. Risks and Technical Debt
 - GitHub labels are not transactional aggregate storage.
-- Drift between runtime files copied into connected repositories and the published package.
+- Drift between runtime files copied into connected repositories and the published package. Detected by template markers and `air templates --check` ([ADR-0013](adr/0013-agent-roles.md) §4); a project still has to run it.
 - Security boundaries in a local agent session are weaker than isolated CI execution.
 - Variations between repository-specific review and deployment workflows.
 

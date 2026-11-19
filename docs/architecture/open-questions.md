@@ -2,11 +2,14 @@
 
 These are unresolved; do not treat proposals as approved decisions.
 
-1. Which conceptual areas are true DDD bounded contexts versus application capabilities?
-2. How are transitions made safe under concurrent GitHub label updates?
-3. How is review integrated in the MVP across repositories with differing existing setups?
-4. Should deployment-triggered transitions override blocked/waiting states? What evidence is required?
-5. What minimum data access is needed for accept and observe, and which capabilities are safe in production?
-6. How is evidence bound to a commit or deployment to avoid stale gate results?
-7. Which runtime artifacts are copied into client repositories, and how is drift detected?
-8. What limits should be enforced at the application layer before moving to autonomous CI?
+1. Which conceptual areas are true DDD bounded contexts versus application capabilities? Delivery is the only implemented context; Planning, Operations, Agent Execution, Evidence and Governance are still candidates ([arc42 §4–5](arc42.md#4-solution-strategy--strategic-domain-design-proposed)).
+2. What serializes state writers before unattended parallel agents? Today AIR only *detects* concurrent label changes: `GitHubDeliveryStateStore` compares the issue revision before and after each write and returns `state-conflict`, and signed state anchors make a hand-set label untrusted ([ADR-0002](adr/0002-github-labels-as-mvp-delivery-state.md), [ADR-0010](adr/0010-zero-trust.md) step 4). GitHub labels offer no compare-and-swap, so two writers can still both act; ADR-0002 defers serialized writers or an atomic store until autonomous execution.
+3. How does AIR's review phase fit repositories that already have their own review setup (required reviewers, CODEOWNERS, external review bots)? The review gate needs an open or merged PR with at least one check and all checks green ([ADR-0005](adr/0005-phase-gate.md)), and review lenses run inside the agent's run ([ADR-0013](adr/0013-agent-roles.md) §3); how they combine with a project's existing reviews is not decided.
+4. What minimum data access is needed for accept and observe, and which capabilities are safe in production? Both phases currently gate on a self-reported `verdict` only.
+5. What limits should be enforced at the application layer before moving to autonomous CI? Existing limits: automatic launch is opt-in per phase (`AIR_AGENT_LAUNCH_PHASES`) and bounded by `AIR_AGENT_MAX` ([ADR-0011](adr/0011-agent-execution.md) §3). Still open there: a tighter allow-list for headless runs and enforced container egress.
+
+## Resolved
+
+- **Should deployment-triggered transitions override blocked or waiting states, and what evidence is required?** No. `air-deploy` advances only `review:waiting` (stage) and `accept:waiting` (prod); any other state, blocked included, is preserved with a `deployment-state-mismatch` notice. The evidence is read live: a successful GitHub Deployment of the SHA, the PR's merge commit contained in that SHA, and (stage) a merged, approved PR. See [ADR-0006](adr/0006-deployment-events.md) and `RecordDeployment` in `src/delivery/application/record-deployment.ts`.
+- **How is evidence bound to a commit or deployment to avoid stale gate results?** Agent reports count only within the active run: `evidenceRevision`/`expectedRevision` are run IDs, not commit SHAs, by decision ([ADR-0005](adr/0005-phase-gate.md)). PR checks are never reported; they are read live for the PR's current head, both by `air gate` and when an approver runs `/air advance review` (`RecordedDeliveryEvidence` in `src/delivery/application/recorded-delivery-evidence.ts`). Deployments are bound to the deployed SHA and checked against the PR's merge commit ([ADR-0006](adr/0006-deployment-events.md)).
+- **Which runtime artifacts are copied into client repositories, and how is drift detected?** `air init` copies the `air-delivery` skill, the review lenses and `lenses.md`, the deploy workflow and `.env.air.example` ([ADR-0008](adr/0008-distribution-and-project-adoption.md), [ADR-0013](adr/0013-agent-roles.md) §3). Every copied file ends with an `air-template` marker holding the hash of what was installed; `air templates --check` reports drift and exits with code 2, and `air templates` updates untouched files ([ADR-0013](adr/0013-agent-roles.md) §4).

@@ -58,6 +58,20 @@ describe("readDoctorConfig", () => {
       /AIR_DOCTOR_TOKEN/,
     );
   });
+
+  it("reads demo mode only when it is bound to the audited repository", () => {
+    const demo = readDoctorConfig(
+      { ...env, AIR_DEMO: env.AIR_REPOSITORY },
+      [],
+    ).demo;
+
+    assert.equal(demo?.repository, env.AIR_REPOSITORY);
+    assert.equal(readDoctorConfig(env, []).demo, null);
+    assert.throws(
+      () => readDoctorConfig({ ...env, AIR_DEMO: "me/other" }, []),
+      /does not match AIR_REPOSITORY/,
+    );
+  });
 });
 
 describe("readLocalSettings", () => {
@@ -75,6 +89,16 @@ describe("readLocalSettings", () => {
       envFilePrivate: false,
       envFileIgnored: true,
     });
+  });
+});
+
+describe("readLocalSettings in demo mode", () => {
+  it("reports the repository demo mode is bound to", () => {
+    const { demo } = readDoctorConfig({ ...env, AIR_DEMO: "example/air" }, []);
+
+    const local = readLocalSettings(dir, demo);
+
+    assert.equal(local.demoProject, "example/air");
   });
 });
 

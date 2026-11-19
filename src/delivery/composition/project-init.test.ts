@@ -5,6 +5,7 @@ import {
   readFile,
   readdir,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -26,7 +27,12 @@ import {
   updateTemplates,
   initProject,
   renderInit,
+  DEMO_LENSES,
+  DEMO_TEMPLATES,
+  demoEnv,
+  demoRepository,
 } from "./project-init.js";
+import { DemoMode } from "./demo-mode.js";
 
 const base = await mkdtemp(join(tmpdir(), "air-init-"));
 after(() => rm(base, { recursive: true, force: true }));
@@ -135,6 +141,146 @@ describe("initProject", () => {
 
     assert.match(text, /^created  a\nkept     b \(already exists\)\n/);
     assert.match(text, /ignored  \.air\//);
+  });
+});
+
+const keys = (name: string) => ({
+  privateKey: `${name}-private`,
+  publicKey: `${name}-public`,
+});
+const demo = {
+  repository: "me/air-demo",
+  agentKeys: keys("agent"),
+  operatorKeys: keys("operator"),
+};
+/** `KEY=value` lines of an env file. */
+const variables = (text: string) =>
+  new Map(
+    text
+      .split("\n")
+      .filter((line) => /^[A-Z_]+=/.test(line))
+      .map((line) => [
+        line.slice(0, line.indexOf("=")),
+        line.slice(line.indexOf("=") + 1),
+      ]),
+  );
+
+describe("initProject --demo", () => {
+  it("installs only the skill, its lens rules and the demo lenses", async () => {
+    const root = await project();
+
+    const result = await initProject(root, { demo });
+
+    assert.deepEqual(result.created, [
+      ...DEMO_TEMPLATES.map(({ target }) => target),
+      ".env.air",
+    ]);
+    assert.deepEqual(
+      DEMO_TEMPLATES.filter(({ target }) => target.includes("air-review-")).map(
+        ({ target }) => target,
+      ),
+      DEMO_LENSES.map((lens) => `.claude/agents/air-review-${lens}.md`),
+    );
+    assert.deepEqual(result.ignored, [...IGNORED]);
+    await assert.rejects(
+      readFile(join(root, ".github/workflows/air-deploy.yml")),
+      /ENOENT/,
+    );
+    await assert.rejects(readFile(join(root, ".env.air.example")), /ENOENT/);
+  });
+
+  it("writes a private .env.air bound to the repository, with both key pairs", async () => {
+    const root = await project();
+
+    await initProject(root, { demo });
+
+    const path = join(root, ".env.air");
+    assert.equal((await stat(path)).mode & 0o777, 0o600);
+    const env = variables(await readFile(path, "utf8"));
+    assert.equal(env.get("AIR_DEMO"), "me/air-demo");
+    assert.equal(env.get("AIR_REPOSITORY"), "me/air-demo");
+    assert.equal(env.get("AIR_ALLOW_OPERATOR_APPROVER"), "true");
+    assert.equal(env.get("AIR_AGENT_SIGNING_KEY"), "agent-private");
+    assert.equal(env.get("AIR_AGENT_PUBLIC_KEY"), "agent-public");
+    assert.equal(env.get("AIR_OPERATOR_SIGNING_KEY"), "operator-private");
+    assert.equal(env.get("AIR_OPERATOR_PUBLIC_KEY"), "operator-public");
+    assert.equal(env.get("AIR_GITHUB_TOKEN"), "");
+    assert.equal(env.get("AIR_AGENT_TOKEN"), "");
+  });
+
+  it("writes an env file that the runtime reads as demo mode", () => {
+    const env = Object.fromEntries(variables(demoEnv(demo)));
+
+    assert.equal(DemoMode.fromEnv(env)?.repository, "me/air-demo");
+  });
+
+  it("never overwrites an existing .env.air", async () => {
+    const root = await project();
+    await writeFile(join(root, ".env.air"), "AIR_REPOSITORY=acme/prod\n");
+
+    const result = await initProject(root, { demo });
+
+    assert.ok(result.kept.includes(".env.air"));
+    assert.equal(
+      await readFile(join(root, ".env.air"), "utf8"),
+      "AIR_REPOSITORY=acme/prod\n",
+    );
+  });
+
+  it("adds requested lenses to the demo set", async () => {
+    const root = await project();
+
+    const result = await initProject(root, { demo, lenses: ["privacy"] });
+
+    assert.ok(result.created.includes(".claude/agents/air-review-privacy.md"));
+    assert.equal(
+      result.created.includes(".claude/agents/air-review-ux.md"),
+      false,
+    );
+  });
+
+  it("leaves the full set to air templates", async () => {
+    const root = await project();
+    await initProject(root, { demo });
+
+    const changes = await updateTemplates(root, { check: true });
+
+    assert.deepEqual(
+      changes
+        .filter(({ status }) => status === TemplateStatus.Missing)
+        .map(({ target }) => target),
+      Object.values(PROJECT_FILES).filter(
+        (target) => !DEMO_TEMPLATES.some((file) => file.target === target),
+      ),
+    );
+  });
+
+  it("renders the warning and the next steps", () => {
+    const text = renderInit(
+      { created: [".env.air"], kept: [], ignored: [] },
+      "me/air-demo",
+    );
+
+    assert.match(text, /AIR DEMO MODE for me\/air-demo: NOT PRODUCTION-SAFE/);
+    assert.match(text, /npx --no air-local/);
+    assert.match(text, /\/air initialize/);
+  });
+
+  it("says when an existing .env.air kept the demo from writing keys", () => {
+    const text = renderInit(
+      { created: [], kept: [".env.air"], ignored: [] },
+      "me/air-demo",
+    );
+
+    assert.match(text, /already exists and was kept: no keys were written/);
+  });
+});
+
+describe("demoRepository", () => {
+  it("accepts <owner>/<repo> only", () => {
+    assert.equal(demoRepository("me/air-demo.v2"), "me/air-demo.v2");
+    for (const value of [undefined, "", "air-demo", "me/a/b", "--lens"])
+      assert.throws(() => demoRepository(value), /<owner>\/<repo>/);
   });
 });
 

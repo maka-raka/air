@@ -17,6 +17,7 @@ import type { AuditedAccount } from "../adapters/github/repository-settings-http
 import { DEFAULT_ENV_FILE, repository } from "./config.js";
 import type { Env } from "./config.js";
 import { readApproverLogins, readServiceLogins } from "./trust.js";
+import { DemoMode } from "./demo-mode.js";
 
 export type DoctorConfig = Readonly<{
   owner: string;
@@ -26,6 +27,8 @@ export type DoctorConfig = Readonly<{
   environments: readonly string[];
   /** Unknown settings fail too. */
   strict: boolean;
+  /** Demo mode never passes the audit. */
+  demo: DemoMode | null;
 }>;
 
 export const DOCTOR_USAGE = `Usage: air doctor [--strict] [--env-file <path>]
@@ -67,6 +70,7 @@ export function readDoctorConfig(
     accounts,
     environments,
     strict: args.includes(STRICT),
+    demo: DemoMode.fromEnv(env),
   };
 }
 
@@ -79,8 +83,14 @@ const ENV_IGNORES = new Set(
   ]),
 );
 
-/** Facts about the working directory: the env file and .gitignore. */
-export function readLocalSettings(root = "."): LocalSettings {
+/**
+ * Facts about the working directory: the env file and .gitignore, and
+ * whether this setup runs in demo mode.
+ */
+export function readLocalSettings(
+  root = ".",
+  demo: DemoMode | null = null,
+): LocalSettings {
   const envPath = `${root}/${DEFAULT_ENV_FILE}`;
   const ignorePath = `${root}/.gitignore`;
   const ignore = existsSync(ignorePath) ? readFileSync(ignorePath, "utf8") : "";
@@ -90,6 +100,7 @@ export function readLocalSettings(root = "."): LocalSettings {
       ? (statSync(envPath).mode & OTHERS_CAN_ACCESS) === 0
       : null,
     envFileIgnored: [...lines].some((line) => ENV_IGNORES.has(line)),
+    ...(demo ? { demoProject: demo.repository } : {}),
   };
 }
 

@@ -158,6 +158,7 @@ export async function composeConsole(
     new GitHubIssueHttpAdapter(client),
   );
   const runs = new FileAgentRunsSnapshot(agentRunsFile(launchDir));
+  const auditTrail = new FileAuditTrail(resolve(config.auditLog));
   const overview = new ReadDeliveryOverview(
     deliveries,
     provenance,
@@ -166,7 +167,9 @@ export async function composeConsole(
     runs,
     queue,
     queue,
-    new FileAuditTrail(resolve(config.auditLog)),
+    auditTrail,
+    // Closes are Human commands, so the poller's log has every one.
+    auditTrail,
   );
   const details = new ReadDeliveryDetail(
     deliveries,

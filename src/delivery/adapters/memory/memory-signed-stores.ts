@@ -6,7 +6,7 @@ import type {
 import type {
   StateHistoryEntry,
   StateHistoryPort,
-} from "../../application/delivery-detail.js";
+} from "../../application/delivery-flow.js";
 import type { StateAnchorPort } from "../../application/execute-delivery-command.js";
 import type { Position } from "../../domain/state-machine.js";
 import type { AnchorEvidence } from "../../domain/trust-policy.js";

@@ -16,6 +16,7 @@ import { DeliveryPhase } from "../domain/state-machine.js";
 import { isEntryPoint, loadEnvFile, repository, required } from "./config.js";
 import type { StateAnchorMode } from "../domain/trust-policy.js";
 import {
+  demoRepository,
   initProject,
   parseLenses,
   renderInit,
@@ -59,6 +60,7 @@ import { GitHubRepositoryHttpAdapter } from "../adapters/github/repository-http-
 import type { ServiceLogins } from "./trust.js";
 import { generateRecordKeys } from "../adapters/signature/record-signature.js";
 import { verifyAuditChain } from "../adapters/local/hash-chained-audit-log.js";
+import { DemoMode } from "./demo-mode.js";
 
 export const AgentCliCommand = {
   /** Prints the issue's text, classified as instructions or data. */
@@ -107,6 +109,7 @@ export const USAGE = `Usage:
   air gate <issue>
   air keygen [agent|operator|deployer]
   air init [--lens <name,...|all>]
+  air init --demo <owner>/<repo>   (throwaway repository only; not production-safe)
   air templates [--check] [--force] [--lens <name,...|all>]
   air doctor [--strict]
   air audit verify <file>
@@ -258,6 +261,8 @@ export type AgentConfig = Readonly<{
   stateAnchors: StateAnchorMode;
   /** Hash-chained audit log file; one writer per file. */
   auditLog: string;
+  /** Set only in demo mode (ADR-0014); then every command warns. */
+  demo?: DemoMode;
 }>;
 
 export function readAgentConfig(
@@ -271,6 +276,7 @@ export function readAgentConfig(
     throw new Error("Invalid AIR_RUN_TTL_MS");
   const signingKey = env.AIR_AGENT_SIGNING_KEY ?? "";
   if (!signingKey.trim()) throw new Error("Set AIR_AGENT_SIGNING_KEY");
+  const demo = DemoMode.fromEnv(env);
   return {
     owner,
     repo,
@@ -291,6 +297,7 @@ export function readAgentConfig(
     auditLog:
       env.AIR_AUDIT_LOG ||
       join(env.AIR_STATE_DIR || ".air", "audit-agent.jsonl"),
+    ...(demo ? { demo } : {}),
   };
 }
 
@@ -494,10 +501,38 @@ export function keygen(
   ].join("\n");
 }
 
+const FLAG_DEMO = "--demo";
+
+export type InitArgs = Readonly<{
+  lenses: readonly string[];
+  /** `--demo <owner>/<repo>` (ADR-0014). */
+  demo?: string;
+}>;
+
+/** `air init [--demo <owner>/<repo>] [--lens <name,...|all>]`. */
+export function initArgs(args: readonly string[]): InitArgs {
+  const at = args.indexOf(FLAG_DEMO);
+  const rest = at === -1 ? args : [...args.slice(0, at), ...args.slice(at + 2)];
+  const { check, force, lenses } = templateArgs(rest);
+  if (check || force) throw new Error("init takes only --demo and --lens");
+  if (at === -1) return { lenses };
+  return { lenses, demo: demoRepository(args[at + 1]) };
+}
+
 async function init(args: readonly string[]): Promise<void> {
-  const { check, force, lenses } = templateArgs(args);
-  if (check || force) throw new Error("init takes only --lens");
-  console.log(renderInit(await initProject(process.cwd(), { lenses })));
+  const { lenses, demo } = initArgs(args);
+  const setup = demo
+    ? {
+        repository: demo,
+        agentKeys: generateRecordKeys(),
+        operatorKeys: generateRecordKeys(),
+      }
+    : undefined;
+  const result = await initProject(process.cwd(), {
+    lenses,
+    ...(setup ? { demo: setup } : {}),
+  });
+  console.log(renderInit(result, demo));
 }
 
 async function templates(args: readonly string[]): Promise<void> {
@@ -526,7 +561,7 @@ async function main(): Promise<void> {
   if (argv[0] === AgentCliCommand.Doctor) {
     const config = readDoctorConfig(process.env, loadEnvFile(argv.slice(1)));
     const { findings, failed } = await composeDoctor(config).run(
-      readLocalSettings(),
+      readLocalSettings(".", config.demo),
       config.strict,
     );
     console.log(renderDoctor(findings));
@@ -541,7 +576,9 @@ async function main(): Promise<void> {
     process.exitCode = ExitCode.Error;
     return;
   }
-  const services = await composeAgent(readAgentConfig(process.env));
+  const config = readAgentConfig(process.env);
+  if (config.demo) console.error(config.demo.banner());
+  const services = await composeAgent(config);
   if (invocation.command === AgentCliCommand.Context) {
     const context = await services.context.read(invocation.issue);
     console.log(new AgentContextRenderer().render(context));

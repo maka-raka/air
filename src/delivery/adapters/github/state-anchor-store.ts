@@ -2,7 +2,7 @@ import type { StateAnchorPort } from "../../application/execute-delivery-command
 import type {
   StateHistoryEntry,
   StateHistoryPort,
-} from "../../application/delivery-detail.js";
+} from "../../application/delivery-flow.js";
 import type { Position } from "../../domain/state-machine.js";
 import { StateAnchorCodec } from "../codec/state-anchor-codec.js";
 import type { AnchorEvidence } from "../../domain/trust-policy.js";
