@@ -3,10 +3,14 @@ import { describe, it } from "node:test";
 import {
   AgentLaunchOutcome,
   AgentLaunchPolicy,
+  AgentModelPolicy,
   DispatchAgentLaunches,
   DispatchOutcome,
   LaunchAgentOnReady,
+  RecordedRisk,
 } from "./agent-launch.js";
+import { DeliveryRecordKind, DeliveryRisk } from "./delivery-record.js";
+import type { DeliveryRecord } from "./delivery-record.js";
 import type {
   AgentLaunch,
   AgentLaunchRequestPort,
@@ -118,6 +122,7 @@ describe("LaunchAgentOnReady", () => {
         issue: 42,
         phase: DeliveryPhase.Build,
         requestedAt: NOW.toISOString(),
+        risk: DeliveryRisk.Low,
       },
     ]);
     assert.deepEqual(audit.events, [
@@ -126,7 +131,11 @@ describe("LaunchAgentOnReady", () => {
         issue: 42,
         allowed: true,
         reason: AgentLaunchOutcome.Requested,
-        details: { phase: DeliveryPhase.Build, detail: null },
+        details: {
+          phase: DeliveryPhase.Build,
+          risk: DeliveryRisk.Low,
+          detail: null,
+        },
       },
     ]);
   });
@@ -223,6 +232,7 @@ class MemoryQueue implements PendingAgentLaunchPort {
 
 class FakeRuntime implements AgentRuntimePort {
   readonly started: AgentLaunch[] = [];
+  readonly models: Array<string | null> = [];
   constructor(
     private readonly live: number[] = [],
     private readonly failing = new Set<number>(),
@@ -230,9 +240,10 @@ class FakeRuntime implements AgentRuntimePort {
   async running(): Promise<readonly number[]> {
     return this.live;
   }
-  async start(launch: AgentLaunch): Promise<void> {
+  async start(launch: AgentLaunch, model: string | null): Promise<void> {
     if (this.failing.has(launch.issue)) throw new Error("no such image");
     this.started.push(launch);
+    this.models.push(model);
   }
 }
 
@@ -336,5 +347,140 @@ describe("DispatchAgentLaunches", () => {
       { id: "a", reason: "Error: no such image" },
     ]);
     assert.deepEqual(queue.completed, ["b"]);
+  });
+});
+
+const requirements = (facts: object): DeliveryRecord => ({
+  kind: DeliveryRecordKind.Report,
+  phase: DeliveryPhase.Requirements,
+  at: NOW.toISOString(),
+  facts,
+});
+
+describe("RecordedRisk", () => {
+  it("reads the newest requirements report and defaults to low", async () => {
+    const risk = (records: DeliveryRecord[]) =>
+      new RecordedRisk({ list: async () => records }).risk(42);
+    assert.equal(await risk([]), DeliveryRisk.Low);
+    assert.equal(
+      await risk([requirements({ taskSize: "S" })]),
+      DeliveryRisk.Low,
+    );
+    assert.equal(
+      await risk([
+        requirements({ risk: "low" }),
+        requirements({ risk: "high" }),
+      ]),
+      DeliveryRisk.High,
+    );
+  });
+});
+
+describe("LaunchAgentOnReady with risk", () => {
+  it("adds the issue's risk to the launch", async () => {
+    const requests = new RecordingRequests();
+    const executor = new LaunchAgentOnReady(
+      new FixedExecutor(buildReady),
+      requests,
+      new AgentLaunchPolicy(new Set([DeliveryPhase.Build])),
+      new RecordingAudit(),
+      () => NOW,
+      { risk: async () => DeliveryRisk.High },
+    );
+    await executor.execute(command());
+    assert.equal(requests.launches[0]?.risk, DeliveryRisk.High);
+  });
+
+  it("launches as low risk when the risk cannot be read", async () => {
+    const requests = new RecordingRequests();
+    const executor = new LaunchAgentOnReady(
+      new FixedExecutor(buildReady),
+      requests,
+      new AgentLaunchPolicy(new Set([DeliveryPhase.Build])),
+      new RecordingAudit(),
+      () => NOW,
+      {
+        risk: async () => {
+          throw new Error("rate limited");
+        },
+      },
+    );
+    await executor.execute(command());
+    assert.equal(requests.launches[0]?.risk, DeliveryRisk.Low);
+  });
+});
+
+describe("AgentModelPolicy", () => {
+  const models = new AgentModelPolicy(
+    new Map([
+      ["default", "claude-sonnet-5-5"],
+      ["requirements", "claude-fable-5-2"],
+      ["high-risk", "claude-opus-5-5"],
+    ]),
+  );
+
+  it("prefers high-risk, then the phase, then the default", () => {
+    assert.equal(
+      models.modelFor({
+        ...launch(1, DeliveryPhase.Requirements),
+        risk: DeliveryRisk.High,
+      }),
+      "claude-opus-5-5",
+    );
+    assert.equal(
+      models.modelFor(launch(1, DeliveryPhase.Requirements)),
+      "claude-fable-5-2",
+    );
+    assert.equal(
+      models.modelFor(launch(1, DeliveryPhase.Build)),
+      "claude-sonnet-5-5",
+    );
+  });
+
+  it("falls back to the runtime's own model", () => {
+    assert.equal(new AgentModelPolicy().modelFor(launch(1)), null);
+    assert.equal(
+      new AgentModelPolicy(new Map([["build", "claude-opus-5-5"]])).modelFor({
+        ...launch(1, DeliveryPhase.Review),
+        risk: DeliveryRisk.High,
+      }),
+      null,
+    );
+  });
+
+  for (const [key, model, message] of [
+    ["deploy", "claude-opus-5-5", /Unknown model key/],
+    ["build", "claude opus", /Invalid model/],
+    ["build", "--help", /Invalid model/],
+    ["build", "", /Invalid model/],
+  ] as const)
+    it(`rejects ${key}=${model}`, () => {
+      assert.throws(
+        () => new AgentModelPolicy(new Map([[key, model]])),
+        message,
+      );
+    });
+});
+
+describe("DispatchAgentLaunches with models", () => {
+  it("starts each run with the model the policy chooses", async () => {
+    const queue = new MemoryQueue([
+      { id: "a", launch: { ...launch(1), risk: DeliveryRisk.High } },
+      { id: "b", launch: launch(2) },
+    ]);
+    const runtime = new FakeRuntime();
+    const results = await new DispatchAgentLaunches(
+      queue,
+      runtime,
+      2,
+      new AgentModelPolicy(
+        new Map([
+          ["high-risk", "claude-opus-5-5"],
+          ["default", "claude-sonnet-5-5"],
+        ]),
+      ),
+    ).dispatchOnce();
+    assert.deepEqual(runtime.models, ["claude-opus-5-5", "claude-sonnet-5-5"]);
+    assert.equal(results[0]?.detail, "model claude-opus-5-5");
   });
 });

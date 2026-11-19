@@ -3,7 +3,10 @@ import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { isEntryPoint, positiveInteger } from "./config.js";
 import type { Env } from "./config.js";
-import { DispatchAgentLaunches } from "../application/agent-launch.js";
+import {
+  AgentModelPolicy,
+  DispatchAgentLaunches,
+} from "../application/agent-launch.js";
 import type { DispatchResult } from "../application/agent-launch.js";
 import { FileAgentLaunchQueue } from "../adapters/local/file-agent-launch-queue.js";
 import { DockerAgentRuntime } from "../adapters/local/docker-agent-runtime.js";
@@ -23,7 +26,32 @@ export type LauncherConfig = Readonly<{
   docker: string;
   composeFile: string;
   service: string;
+  /** Model per phase, `default` and `high-risk` (ADR-0013). */
+  models: ReadonlyMap<string, string>;
 }>;
+
+const PAIR_SEPARATOR = ",";
+const KEY_SEPARATOR = "=";
+
+/** `AIR_AGENT_MODELS=default=claude-sonnet-5-5,build=claude-opus-5-5`. */
+export function readModels(
+  value: string | undefined,
+): ReadonlyMap<string, string> {
+  const models = new Map<string, string>();
+  for (const pair of (value ?? "").split(PAIR_SEPARATOR)) {
+    const entry = pair.trim();
+    if (entry === "") continue;
+    const split = entry.indexOf(KEY_SEPARATOR);
+    if (split < 1) throw new Error(`Invalid AIR_AGENT_MODELS entry: ${entry}`);
+    const key = entry.slice(0, split).trim();
+    if (models.has(key))
+      throw new Error(`Duplicate AIR_AGENT_MODELS key: ${key}`);
+    models.set(key, entry.slice(split + 1).trim());
+  }
+  // Validates keys and names now, so a typo stops the launcher at start.
+  new AgentModelPolicy(models);
+  return models;
+}
 
 /**
  * The launcher can start containers, which is root-equivalent on the host.
@@ -58,6 +86,7 @@ export function readLauncherConfig(env: Env): LauncherConfig {
     docker: env.AIR_DOCKER || "docker",
     composeFile: resolve(env.AIR_COMPOSE_FILE || "compose.yaml"),
     service: env.AIR_AGENT_SERVICE || "agent",
+    models: readModels(env.AIR_AGENT_MODELS),
   };
 }
 
@@ -84,6 +113,7 @@ export function composeLauncher(
     new FileAgentLaunchQueue(launchDir),
     runtime,
     config.maxRunning,
+    new AgentModelPolicy(config.models),
   );
   const publisher = new PublishAgentRuns(
     runtime,
@@ -146,6 +176,10 @@ async function main(): Promise<void> {
   console.log(
     `AIR launcher: ${config.launchDir} -> ${config.composeFile} (${config.service}), at most ${config.maxRunning} running (Ctrl+C to stop)`,
   );
+  if (config.models.size > 0)
+    console.log(
+      `AIR launcher: models ${[...config.models].map(([k, v]) => `${k}=${v}`).join(", ")}`,
+    );
   await runLauncher(
     dispatcher,
     config.intervalMs,

@@ -1,8 +1,14 @@
-import { DeliveryActor, DeliveryStatus } from "../domain/state-machine.js";
+import {
+  DeliveryActor,
+  DeliveryPhase,
+  DeliveryStatus,
+} from "../domain/state-machine.js";
 import type { Phase } from "../domain/state-machine.js";
 import { AuditKind } from "./audit.js";
 import type { AuditPort } from "./audit.js";
 import type { DeliveryCommandExecutor } from "./comment-command-handler.js";
+import { DeliveryRecordHistory, DeliveryRisk } from "./delivery-record.js";
+import type { DeliveryRecordPort } from "./delivery-record.js";
 import type {
   DeliveryCommand,
   DeliveryResult,
@@ -14,7 +20,66 @@ export type AgentLaunch = Readonly<{
   phase: Phase;
   /** ISO-8601; launches are dispatched oldest first. */
   requestedAt: string;
+  /** From the newest trusted requirements report; absent means low. */
+  risk?: DeliveryRisk;
 }>;
+
+/** The issue's risk as the agent reported it at intake (ADR-0013). */
+export interface AgentRiskPort {
+  risk(issue: number): Promise<DeliveryRisk>;
+}
+
+/** Reads the risk from the newest trusted requirements report. */
+export class RecordedRisk implements AgentRiskPort {
+  constructor(private readonly records: Pick<DeliveryRecordPort, "list">) {}
+
+  async risk(issue: number): Promise<DeliveryRisk> {
+    // Run expiry plays no part in finding the newest report.
+    const history = new DeliveryRecordHistory(
+      await this.records.list(issue),
+      new Date(0),
+      0,
+    );
+    const report = history.latestReport(DeliveryPhase.Requirements);
+    return report?.facts.risk ?? DeliveryRisk.Low;
+  }
+}
+
+/** Model keys besides phase names. */
+export const ModelKey = { Default: "default", HighRisk: "high-risk" } as const;
+
+const MODEL_NAME = /^[a-z0-9][a-z0-9.-]{0,63}$/;
+
+/**
+ * Chooses the model for a run (ADR-0013): `high-risk` wins for a high-risk
+ * issue, then the phase, then `default`; none means the runtime's own.
+ */
+export class AgentModelPolicy {
+  private readonly models: ReadonlyMap<string, string>;
+
+  constructor(models: ReadonlyMap<string, string> = new Map()) {
+    const keys = new Set<string>([
+      ...Object.values(DeliveryPhase),
+      ...Object.values(ModelKey),
+    ]);
+    for (const [key, model] of models) {
+      if (!keys.has(key)) throw new Error(`Unknown model key: ${key}`);
+      if (!MODEL_NAME.test(model)) throw new Error(`Invalid model: ${model}`);
+    }
+    this.models = models;
+  }
+
+  modelFor(launch: AgentLaunch): string | null {
+    const highRisk = launch.risk === DeliveryRisk.High;
+    const risky = highRisk ? this.models.get(ModelKey.HighRisk) : undefined;
+    return (
+      risky ??
+      this.models.get(launch.phase) ??
+      this.models.get(ModelKey.Default) ??
+      null
+    );
+  }
+}
 
 /** Hands a launch to whatever starts agent runtimes; never starts one. */
 export interface AgentLaunchRequestPort {
@@ -63,6 +128,7 @@ export class LaunchAgentOnReady implements DeliveryCommandExecutor {
     private readonly policy: AgentLaunchPolicy,
     private readonly audit: AuditPort,
     private readonly now: () => Date = () => new Date(),
+    private readonly risks?: AgentRiskPort,
   ) {}
 
   async execute(command: DeliveryCommand): Promise<DeliveryResult> {
@@ -73,13 +139,27 @@ export class LaunchAgentOnReady implements DeliveryCommandExecutor {
   }
 
   private async request(issue: number, phase: Phase): Promise<void> {
-    const launch = { issue, phase, requestedAt: this.now().toISOString() };
+    const launch = {
+      issue,
+      phase,
+      requestedAt: this.now().toISOString(),
+      risk: await this.riskOf(issue),
+    };
     try {
       await this.launches.enqueue(launch);
     } catch (error) {
       return this.record(launch, AgentLaunchOutcome.RequestFailed, error);
     }
     return this.record(launch, AgentLaunchOutcome.Requested);
+  }
+
+  /** Unknown risk is low: it only ever chooses a cheaper model. */
+  private async riskOf(issue: number): Promise<DeliveryRisk> {
+    try {
+      return (await this.risks?.risk(issue)) ?? DeliveryRisk.Low;
+    } catch {
+      return DeliveryRisk.Low;
+    }
   }
 
   private record(
@@ -94,6 +174,7 @@ export class LaunchAgentOnReady implements DeliveryCommandExecutor {
       reason,
       details: {
         phase: launch.phase,
+        risk: launch.risk ?? DeliveryRisk.Low,
         detail: error === undefined ? null : String(error),
       },
     });
@@ -115,7 +196,8 @@ export interface PendingAgentLaunchPort {
 export interface AgentRuntimePort {
   /** Issues that have a live agent runtime. */
   running(): Promise<readonly number[]>;
-  start(launch: AgentLaunch): Promise<void>;
+  /** `model`: the model the run uses; null for the runtime's own default. */
+  start(launch: AgentLaunch, model: string | null): Promise<void>;
 }
 
 export const DispatchOutcome = {
@@ -147,6 +229,7 @@ export class DispatchAgentLaunches {
     private readonly queue: PendingAgentLaunchPort,
     private readonly runtime: AgentRuntimePort,
     private readonly maxRunning: number,
+    private readonly models: AgentModelPolicy = new AgentModelPolicy(),
   ) {
     if (!Number.isSafeInteger(maxRunning) || maxRunning < 1)
       throw new Error("maxRunning must be a positive integer");
@@ -171,8 +254,9 @@ export class DispatchAgentLaunches {
       return { issue, phase, outcome: DispatchOutcome.Busy };
     if (running.size >= this.maxRunning)
       return { issue, phase, outcome: DispatchOutcome.AtCapacity };
+    const model = this.models.modelFor(launch);
     try {
-      await this.runtime.start(launch);
+      await this.runtime.start(launch, model);
     } catch (error) {
       await this.queue.fail(id, String(error));
       return {
@@ -184,6 +268,11 @@ export class DispatchAgentLaunches {
     }
     running.add(issue);
     await this.queue.complete(id);
-    return { issue, phase, outcome: DispatchOutcome.Started };
+    return {
+      issue,
+      phase,
+      outcome: DispatchOutcome.Started,
+      ...(model ? { detail: `model ${model}` } : {}),
+    };
   }
 }

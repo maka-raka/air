@@ -46,7 +46,9 @@ import type { Phase } from "../domain/state-machine.js";
 import {
   AgentLaunchPolicy,
   LaunchAgentOnReady,
+  RecordedRisk,
 } from "../application/agent-launch.js";
+import type { AgentRiskPort } from "../application/agent-launch.js";
 import { FileAgentLaunchQueue } from "../adapters/local/file-agent-launch-queue.js";
 
 export type LocalConfig = Readonly<{
@@ -205,21 +207,27 @@ export async function composeLocal(
     },
     signer,
   );
+  const records = new TrustedDeliveryRecords(
+    new GitHubDeliveryRecordStore(comments, {
+      repositoryId: identity.id,
+      verifier: agentKey,
+    }),
+    trust,
+    audit,
+  );
   const handler = new CommentCommandHandler(
     new RecordedDeliveryEvidence(
-      new TrustedDeliveryRecords(
-        new GitHubDeliveryRecordStore(comments, {
-          repositoryId: identity.id,
-          verifier: agentKey,
-        }),
-        trust,
-        audit,
-      ),
+      records,
       new GitHubPullRequestHttpAdapter(client),
       () => new Date(),
       config.runTtlMs,
     ),
-    launching(trustedExecutor(client, anchors, trust, audit), config, audit),
+    launching(
+      trustedExecutor(client, anchors, trust, audit),
+      config,
+      audit,
+      new RecordedRisk(records),
+    ),
     new GitHubCommandReplyAdapter(comments),
     // Replies are posted with this token, so only its markers are trusted.
     new GitHubProcessedCommands(comments),
@@ -245,6 +253,7 @@ function launching(
   executor: DeliveryCommandExecutor,
   config: Pick<LocalConfig, "launchPhases" | "launchDir">,
   audit: AuditPort,
+  risks: AgentRiskPort,
 ): DeliveryCommandExecutor {
   const policy = new AgentLaunchPolicy(new Set(config.launchPhases));
   if (!policy.enabled) return executor;
@@ -253,6 +262,8 @@ function launching(
     new FileAgentLaunchQueue(resolve(config.launchDir)),
     policy,
     audit,
+    () => new Date(),
+    risks,
   );
 }
 

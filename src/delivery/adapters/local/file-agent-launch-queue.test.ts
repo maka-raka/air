@@ -65,6 +65,22 @@ describe("FileAgentLaunchQueue", () => {
     );
   });
 
+  it("keeps the risk and skips an unknown one", async () => {
+    const dir = await queueDir();
+    const queue = new FileAgentLaunchQueue(dir);
+    await queue.enqueue({ ...launch(1, "2026-11-19T10:00:00Z"), risk: "high" });
+    await writeFile(
+      join(dir, "2-build.json"),
+      JSON.stringify({ ...launch(2, "2026-11-19T10:00:00Z"), risk: "extreme" }),
+    );
+    assert.deepEqual(await queue.pending(), [
+      {
+        id: "1-build.json",
+        launch: { ...launch(1, "2026-11-19T10:00:00Z"), risk: "high" },
+      },
+    ]);
+  });
+
   it("skips malformed entries", async () => {
     const dir = await queueDir();
     const queue = new FileAgentLaunchQueue(dir);

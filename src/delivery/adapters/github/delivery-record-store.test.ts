@@ -139,6 +139,30 @@ describe("GitHubDeliveryRecordStore behind TrustPolicy", () => {
     assert.equal(marker.indexOf("-->"), marker.length - 3);
   });
 
+  it("keeps intake and review facts", async () => {
+    const { store } = fixture();
+    const facts = {
+      recommendation: "reject",
+      risk: "high",
+      lenses: ["code", "security", "ux"],
+    } as const;
+    await store.append(
+      42,
+      {
+        kind: DeliveryRecordKind.Report,
+        phase: DeliveryPhase.Requirements,
+        at: "2026-11-11T12:00:00Z",
+        facts,
+      },
+      "Not worth building.",
+    );
+    const [record] = await store.list(42);
+    assert.deepEqual(
+      record?.kind === DeliveryRecordKind.Report && record.facts,
+      facts,
+    );
+  });
+
   it("lets a process without the signing key read but not write", async () => {
     const { reader, store } = fixture();
     await store.append(42, report, "Done.");
@@ -182,6 +206,23 @@ describe("GitHubDeliveryRecordStore behind TrustPolicy", () => {
         '{"kind":"report","phase":"build","at":"2026-11-11T12:00:00Z","facts":{"taskSize":"XL"}}',
       ),
     ],
+    ...(
+      [
+        '"recommendation":"maybe"',
+        '"risk":"medium"',
+        '"lenses":"code"',
+        '"lenses":["code","perf"]',
+        '"lenses":["code","code"]',
+      ] as const
+    ).map(
+      (fact) =>
+        [
+          `an invalid fact ${fact}`,
+          signed(
+            `{"kind":"report","phase":"review","at":"2026-11-11T12:00:00Z","facts":{${fact}}}`,
+          ),
+        ] as const,
+    ),
     ["a marker that is not at the end", `${signed(block)}\nmore`],
   ] as const) {
     it(`skips ${name}`, async () => {

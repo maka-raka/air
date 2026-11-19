@@ -27,6 +27,7 @@ describe("readLauncherConfig", () => {
       docker: "docker",
       composeFile: resolve("compose.yaml"),
       service: "agent",
+      models: new Map(),
     });
   });
 
@@ -38,6 +39,8 @@ describe("readLauncherConfig", () => {
       AIR_DOCKER: "podman",
       AIR_COMPOSE_FILE: "/srv/air/compose.yaml",
       AIR_AGENT_SERVICE: "worker",
+      AIR_AGENT_MODELS:
+        " default=claude-sonnet-5-5, high-risk = claude-opus-5-5 ,",
     });
     assert.deepEqual(config, {
       launchDir: "/srv/launch",
@@ -46,6 +49,10 @@ describe("readLauncherConfig", () => {
       docker: "podman",
       composeFile: "/srv/air/compose.yaml",
       service: "worker",
+      models: new Map([
+        ["default", "claude-sonnet-5-5"],
+        ["high-risk", "claude-opus-5-5"],
+      ]),
     });
   });
 
@@ -54,6 +61,20 @@ describe("readLauncherConfig", () => {
       assert.throws(
         () => readLauncherConfig({ [name]: "secret" }),
         new RegExp(`holds no AIR credentials; unset ${name}`),
+      );
+    });
+
+  for (const [value, message] of [
+    ["build", /Invalid AIR_AGENT_MODELS entry/],
+    ["=x", /Invalid AIR_AGENT_MODELS entry/],
+    ["build=a,build=b", /Duplicate/],
+    ["deploy=claude-opus-5-5", /Unknown model key/],
+    ["build=Claude Opus", /Invalid model/],
+  ] as const)
+    it(`rejects AIR_AGENT_MODELS=${value}`, () => {
+      assert.throws(
+        () => readLauncherConfig({ AIR_AGENT_MODELS: value }),
+        message,
       );
     });
 

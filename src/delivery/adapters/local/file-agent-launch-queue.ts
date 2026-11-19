@@ -8,6 +8,7 @@ import {
 } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { DeliveryPhase } from "../../domain/state-machine.js";
+import { DeliveryRisk } from "../../application/delivery-record.js";
 import type { Phase } from "../../domain/state-machine.js";
 import type {
   AgentLaunch,
@@ -25,6 +26,11 @@ const FAILED_SUFFIX = ".failed";
 const HIDDEN_PREFIX = ".";
 const FILE_NOT_FOUND = "ENOENT";
 const PHASES: ReadonlySet<string> = new Set(Object.values(DeliveryPhase));
+const RISKS: ReadonlySet<string> = new Set(Object.values(DeliveryRisk));
+
+function isRisk(value: unknown): value is DeliveryRisk {
+  return typeof value === "string" && RISKS.has(value);
+}
 
 function missing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException)?.code === FILE_NOT_FOUND;
@@ -50,11 +56,12 @@ function parseLaunch(text: string): AgentLaunch | null {
     return null;
   }
   if (value === null || typeof value !== "object") return null;
-  const { issue, phase, requestedAt } = value as Record<string, unknown>;
+  const { issue, phase, requestedAt, risk } = value as Record<string, unknown>;
   if (!isIssue(issue)) return null;
   if (!isPhase(phase)) return null;
   if (!isTimestamp(requestedAt)) return null;
-  return { issue, phase, requestedAt };
+  if (risk === undefined) return { issue, phase, requestedAt };
+  return isRisk(risk) ? { issue, phase, requestedAt, risk } : null;
 }
 
 function parseFailure(id: string, text: string): FailedAgentLaunch {

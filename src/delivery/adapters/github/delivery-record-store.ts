@@ -1,5 +1,8 @@
 import {
   DeliveryRecordKind,
+  DeliveryRisk,
+  IntakeRecommendation,
+  ReviewLens,
   RunOutcome,
 } from "../../application/delivery-record.js";
 import type {
@@ -53,6 +56,24 @@ function encode(record: DeliveryRecord): string {
   return JSON.stringify(record).replaceAll("--", "-\\u002d");
 }
 
+const oneOf =
+  (allowed: readonly string[]) =>
+  (value: unknown): boolean =>
+    value === undefined || allowed.includes(String(value));
+const knownRecommendation = oneOf(Object.values(IntakeRecommendation));
+const knownRisk = oneOf(Object.values(DeliveryRisk));
+const lensNames: readonly string[] = Object.values(ReviewLens);
+
+function knownLenses(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value)) return false;
+  const unique = new Set(value.map(String));
+  return (
+    unique.size === value.length &&
+    value.every((lens) => lensNames.includes(String(lens)))
+  );
+}
+
 function reportFacts(value: unknown): ReportFacts | null {
   if (!isObject(value)) return null;
   const { taskSize, miniDesign, verdict, pullRequest, artifact } = value;
@@ -62,6 +83,9 @@ function reportFacts(value: unknown): ReportFacts | null {
   if (pullRequest !== undefined && !Number.isSafeInteger(pullRequest))
     return null;
   if (artifact !== undefined && !text(artifact)) return null;
+  if (!knownRecommendation(value.recommendation)) return null;
+  if (!knownRisk(value.risk)) return null;
+  if (!knownLenses(value.lenses)) return null;
   return value as ReportFacts;
 }
 
