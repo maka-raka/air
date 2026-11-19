@@ -104,7 +104,7 @@ describe("initProject", () => {
     );
     assert.match(
       skill,
-      /\n<!-- air-template: templates\/skill\/SKILL\.md [0-9a-f]{16} -->\n$/,
+      /\n<!-- air-template: templates\/claude\/skills\/air-delivery\/SKILL\.md [0-9a-f]{16} -->\n$/,
     );
     const workflow = await readFile(
       join(root, ".github/workflows/air-deploy.yml"),
@@ -112,7 +112,7 @@ describe("initProject", () => {
     );
     assert.match(
       workflow,
-      /\n# air-template: templates\/workflows\/air-deploy\.yml [0-9a-f]{16}\n$/,
+      /\n# air-template: templates\/github\/workflows\/air-deploy\.yml [0-9a-f]{16}\n$/,
     );
   });
 
@@ -132,12 +132,12 @@ describe("initProject", () => {
 async function fakePackage(content: string) {
   const dir = await project();
   for (const file of [
-    "templates/skill/SKILL.md",
-    "templates/skill/lenses.md",
-    "templates/workflows/air-deploy.yml",
+    "templates/claude/skills/air-delivery/SKILL.md",
+    "templates/claude/skills/air-delivery/lenses.md",
+    "templates/github/workflows/air-deploy.yml",
     ".env.example",
     ...[...STANDARD_LENSES, ...OPTIONAL_LENSES].map(
-      (lens) => `templates/agents/air-review-${lens}.md`,
+      (lens) => `templates/claude/agents/air-review-${lens}.md`,
     ),
   ]) {
     await mkdir(join(dir, dirname(file)), { recursive: true });
@@ -200,7 +200,7 @@ describe("updateTemplates", () => {
     assert.equal(status(changes, SKILL), TemplateStatus.Forced);
     assert.match(
       await readFile(join(root, SKILL), "utf8"),
-      /^templates\/skill\/SKILL.md\nv1\n/,
+      /^templates\/claude\/skills\/air-delivery\/SKILL.md\nv1\n/,
     );
   });
 
@@ -208,7 +208,10 @@ describe("updateTemplates", () => {
     const v1 = await fakePackage("v1");
     const root = await project();
     await mkdir(join(root, dirname(SKILL)), { recursive: true });
-    await writeFile(join(root, SKILL), "templates/skill/SKILL.md\nv1\n");
+    await writeFile(
+      join(root, SKILL),
+      "templates/claude/skills/air-delivery/SKILL.md\nv1\n",
+    );
     const workflow = join(root, ".github/workflows/air-deploy.yml");
     await mkdir(dirname(workflow), { recursive: true });
     await writeFile(workflow, "old unmarked\n");

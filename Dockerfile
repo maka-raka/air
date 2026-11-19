@@ -4,7 +4,7 @@
 #   docker build -t air .
 #   docker compose up -d poller
 
-ARG NODE_IMAGE=node:22-bookworm-slim
+ARG NODE_IMAGE=node:24-bookworm-slim
 
 FROM ${NODE_IMAGE} AS build
 WORKDIR /src

@@ -5,7 +5,7 @@
 #   docker build -t air-agent docker/agent
 #   docker compose run -d --name air-agent-42 agent 42
 
-ARG NODE_IMAGE=node:22-bookworm-slim
+ARG NODE_IMAGE=node:24-bookworm-slim
 FROM ${NODE_IMAGE}
 
 # Pin a Claude Code version for reproducible runs, e.g. --build-arg CLAUDE_CODE_VERSION=2.1.0
