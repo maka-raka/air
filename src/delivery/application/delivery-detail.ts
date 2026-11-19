@@ -120,7 +120,7 @@ function attentionOf(
  * history, the agent's trusted records and its agent runs. Reads only: a
  * record that does not count is left out and counted, never audited from
  * here, because the console writes nothing. Its flow is measured from the
- * same anchors, so it costs no extra read (ADR-0014).
+ * same anchors, so it costs no extra read (ADR-0015).
  */
 export class ReadDeliveryDetail {
   constructor(

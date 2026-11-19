@@ -55,7 +55,7 @@ const time = (iso: string | null): number | null => {
 };
 
 /**
- * Turns signed state history into delivery flows (ADR-0014). Only anchors
+ * Turns signed state history into delivery flows (ADR-0015). Only anchors
  * the trust policy counts and that carry a signed time are used: a forged
  * or edited anchor never shifts where time went.
  */

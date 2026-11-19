@@ -1,5 +1,5 @@
 /**
- * Delivery flow (ADR-0014): where an issue's time went, derived from the
+ * Delivery flow (ADR-0015): where an issue's time went, derived from the
  * positions it entered and when. Pure: callers pass the entries and the
  * moment the flow is measured at; nothing here reads a clock or stores.
  */

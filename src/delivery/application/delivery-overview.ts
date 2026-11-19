@@ -130,7 +130,7 @@ export type HumanWait = Readonly<{
   waitedMs: number;
 }>;
 
-/** Where delivery time goes (ADR-0014). */
+/** Where delivery time goes (ADR-0015). */
 export type DeliveryFlowMetrics = Readonly<{
   /** ISO-8601: the moment open flows are measured at. */
   measuredAt: string;
@@ -343,7 +343,7 @@ type ReadCard = Readonly<{ card: DeliveryCard; flow: DeliveryFlow }>;
 /**
  * The console's use case (ADR-0012): what is in delivery, whether each state
  * can be trusted, what waits for a person, and where delivery time goes
- * (ADR-0014). Reads only; trust is judged freshly by the same policy every
+ * (ADR-0015). Reads only; trust is judged freshly by the same policy every
  * command goes through, from the same signed history the flow is measured
  * from, so flow metrics cost no extra read per open issue.
  */

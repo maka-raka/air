@@ -1,4 +1,4 @@
-# ADR-0014 — Delivery Flow Metrics
+# ADR-0015 — Delivery Flow Metrics
 
 - **Status:** Proposed for review (implemented: console overview and issue page)
 - **Date:** 2026-11-19

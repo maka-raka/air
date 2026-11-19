@@ -28,7 +28,7 @@ The UI must not become a second authority. An approval is a `/air` comment by an
 | Launch queue and failed launches | the launch directory, read-only |
 | Audit | the poller's hash-chained log, read-only, verified on each refresh |
 | Issue page: history, reports | signed state anchors (time from the signed payload) and agent records, each judged by `TrustPolicy`; records that do not count are counted, not audited, because the console writes nothing |
-| Where the time goes: time per phase and status, human-wait queue, throughput ([ADR-0014](0014-delivery-flow-metrics.md)) | the same signed state anchors, and applied closes from the verified audit log |
+| Where the time goes: time per phase and status, human-wait queue, throughput ([ADR-0015](0015-delivery-flow-metrics.md)) | the same signed state anchors, and applied closes from the verified audit log |
 
 Trust is evaluated freshly for every card on each refresh (ADR-0010): a cached "trusted" never outlives the refresh interval.
 

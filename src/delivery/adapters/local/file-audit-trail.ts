@@ -53,7 +53,7 @@ const lines = (text: string) =>
 export class FileAuditTrail implements AuditTrailPort, DeliveryClosuresPort {
   constructor(private readonly path: string) {}
 
-  /** Applied closes, only from a chain that verifies (ADR-0014). */
+  /** Applied closes, only from a chain that verifies (ADR-0015). */
   async closures(): Promise<DeliveryClosures> {
     const text = await this.read();
     if (text === null)

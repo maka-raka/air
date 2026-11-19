@@ -532,7 +532,7 @@ ${broken}<div class="scroll"><div class="board">${columns}</div></div></section>
       : '<span class="note">no data yet</span>';
   }
 
-  /** Where delivery time goes, across issues (ADR-0014). */
+  /** Where delivery time goes, across issues (ADR-0015). */
   private flowMetrics(flow: DeliveryFlowMetrics): string {
     const stat = (label: string, value: string, note: string) =>
       `<div class="card stat"><span class="muted">${label}</span><b>${value}</b><span class="note">${note}</span></div>`;
