@@ -4,6 +4,25 @@ This guide connects a repository to AIR with the local poller. Read [Repository 
 
 Requires **Node.js 24 or later** (`engines` in `package.json`). npm only warns on an older Node; AIR is not tested there.
 
+## Try it (demo mode, throwaway repository only)
+
+To see AIR work before setting it up properly, use demo mode on a new, empty, preferably private repository you can throw away. It skips the repository hardening, makes you both operator and approver, and puts every key and token in one local file. It is **not production-safe** ([ADR-0014](../architecture/adr/0014-demo-mode.md)).
+
+You need your own GitHub account and a second account for the agent with write access to the repository. In a clone of that repository, with AIR installed (step 1 below):
+
+```bash
+npx --no air init --demo <owner>/<repo>
+```
+
+This adds the agent skill and four review lenses, and writes a private `.env.air` with both key pairs already generated. Fill in:
+
+- `AIR_OPERATOR_LOGIN` and `AIR_APPROVER_LOGINS`: your login; `AIR_GITHUB_TOKEN`: your fine-grained token for this repository only;
+- `AIR_AGENT_LOGIN` and `AIR_AGENT_TOKEN`: the agent account and its token for this repository only.
+
+The permissions each token needs are in the file. Then run `npx --no air-local`, open an issue, comment `/air initialize`, and ask Claude Code to deliver the issue.
+
+Every AIR process prints a demo warning, and `air doctor` fails while `AIR_DEMO` is set. Demo mode is bound to the repository named in `AIR_DEMO` and refuses any other. The agent can read `.env.air`, which holds your token, so add a Claude Code deny rule `Read(./.env.air)` and use short-lived tokens. For a real repository, delete the demo `.env.air` and follow the steps below; never reuse the demo keys.
+
 ## 1. Install a pinned release
 
 ```bash

@@ -15,6 +15,7 @@ import {
   render,
   runAgent,
   templateArgs,
+  initArgs,
 } from "./agent-cli.js";
 import type { AgentConfig } from "./agent-cli.js";
 import type { HttpRequest } from "../adapters/github/github-rest-client.js";
@@ -518,6 +519,49 @@ describe("readAgentConfig", () => {
       () => readAgentConfig({ ...full, AIR_STATE_ANCHORS: "off" }),
       /AIR_STATE_ANCHORS/,
     );
+  });
+});
+
+describe("readAgentConfig in demo mode", () => {
+  const full = {
+    AIR_REPOSITORY: "me/air-demo",
+    AIR_AGENT_TOKEN: "t",
+    AIR_AGENT_SIGNING_KEY: "c2VjcmV0",
+    AIR_OPERATOR_LOGIN: "me",
+    AIR_AGENT_LOGIN: "my-agent",
+    AIR_APPROVER_LOGINS: "me",
+    AIR_OPERATOR_PUBLIC_KEY: "b3A=",
+  };
+
+  it("carries demo mode only when the marker is set", () => {
+    assert.equal(
+      readAgentConfig({ ...full, AIR_DEMO: "me/air-demo" }).demo?.repository,
+      "me/air-demo",
+    );
+    assert.equal("demo" in readAgentConfig(full), false);
+  });
+
+  it("refuses a demo marker for another repository", () => {
+    assert.throws(
+      () => readAgentConfig({ ...full, AIR_DEMO: "me/other" }),
+      /does not match AIR_REPOSITORY/,
+    );
+  });
+});
+
+describe("initArgs", () => {
+  it("reads lenses and the demo repository", () => {
+    assert.deepEqual(initArgs([]), { lenses: [] });
+    assert.deepEqual(initArgs(["--demo", "me/air-demo", "--lens", "ux"]), {
+      lenses: ["ux"],
+      demo: "me/air-demo",
+    });
+  });
+
+  it("rejects a demo without a repository and template-only flags", () => {
+    assert.throws(() => initArgs(["--demo"]), /<owner>\/<repo>/);
+    assert.throws(() => initArgs(["--demo", "air-demo"]), /<owner>\/<repo>/);
+    assert.throws(() => initArgs(["--check"]), /init takes only/);
   });
 });
 
