@@ -10,6 +10,17 @@ import type {
   DeliveryOverview,
   NextCommand,
 } from "../../application/delivery-overview.js";
+import { PhaseStep } from "../../application/delivery-detail.js";
+import type {
+  DeliveryDetail,
+  HistoryItem,
+} from "../../application/delivery-detail.js";
+import { DeliveryRecordKind } from "../../application/delivery-record.js";
+import type {
+  DeliveryRecord,
+  ReportRecord,
+} from "../../application/delivery-record.js";
+import type { AgentRun } from "../../application/agent-runs.js";
 
 const HTML_ESCAPES: Readonly<Record<string, string>> = {
   "&": "&amp;",
@@ -102,6 +113,20 @@ th{text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.05em;
 td{padding:10px;border-bottom:1px solid #EEF0F3;vertical-align:top}
 .empty{color:#5B6472;font-size:14px;padding:8px 0}
 .error{background:#FDECEA;color:#A3261B;border:1px solid #F3C4BE;border-radius:12px;padding:16px}
+.split{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
+.split>.wide{flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:20px}
+.split>.side{flex:1 1 320px;min-width:0;display:flex;flex-direction:column;gap:20px}
+.steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+.steps li{display:flex;flex-direction:column;gap:2px;padding:10px;border-radius:8px;font-size:12px}
+.steps b{font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+.done{background:#E6F4EC;color:#17603A}.skipped{background:#FFF;color:#5B6472;border:1px solid #E3E6EB}
+.current{background:#FFF3DF;color:#8A4B00;border:2px solid #E0A23A}.next{background:#F6F7F9;color:#5B6472;border:1px dashed #C9CED6}
+.next-step{border:2px solid #2350C8}
+.facts{margin:0;display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;font-size:14px}
+.facts dt{color:#5B6472}.facts dd{margin:0}
+.timeline{list-style:none;margin:0;padding:0}
+.timeline li{display:grid;grid-template-columns:150px 1fr;gap:10px;padding:9px 0;border-top:1px solid #EEF0F3;font-size:14px}
+@media (max-width:640px){.steps{grid-template-columns:repeat(2,minmax(0,1fr))}.timeline li{grid-template-columns:1fr}}
 `;
 
 export type ConsolePageOptions = Readonly<{
@@ -109,6 +134,8 @@ export type ConsolePageOptions = Readonly<{
   repository: string;
   /** Where a person reads and comments on an issue. */
   issueUrl: (issue: number) => string;
+  /** Where a person reviews a pull request. */
+  pullRequestUrl: (pullRequest: number) => string;
   /** Seconds between automatic reloads. */
   refreshSeconds: number;
 }>;
@@ -116,7 +143,32 @@ export type ConsolePageOptions = Readonly<{
 export const ConsoleView = { Board: "board", Agents: "agents" } as const;
 export type ConsoleView = (typeof ConsoleView)[keyof typeof ConsoleView];
 
-export const ConsolePath = { Board: "/", Agents: "/agents" } as const;
+export const ConsolePath = {
+  Board: "/",
+  Agents: "/agents",
+  IssuePrefix: "/issues/",
+} as const;
+
+/** The console page of one issue. */
+export const issuePath = (issue: number) =>
+  `${ConsolePath.IssuePrefix}${issue}`;
+
+const STEP_TEXT: Readonly<Record<PhaseStep, string>> = {
+  [PhaseStep.Done]: "Done",
+  [PhaseStep.Skipped]: "Skipped",
+  [PhaseStep.Current]: "Current",
+  [PhaseStep.Next]: "Next",
+};
+
+const RECORD_TEXT: Readonly<Record<DeliveryRecord["kind"], string>> = {
+  [DeliveryRecordKind.RunStart]: "started a run",
+  [DeliveryRecordKind.RunEnd]: "ended a run",
+  [DeliveryRecordKind.Report]: "recorded a report",
+  [DeliveryRecordKind.Block]: "asked a question",
+};
+
+const time = (at: string | null) =>
+  at ? escapeHtml(at.slice(0, 16).replace("T", " ")) : "—";
 
 /**
  * Server-rendered pages of the read-only console (ADR-0012). No scripts and
@@ -145,6 +197,129 @@ export class ConsolePage {
         this.launches(overview) +
         this.auditLog(overview),
     );
+  }
+
+  issue(
+    detail: DeliveryDetail,
+    overview: DeliveryOverview,
+    readAt: Date,
+  ): string {
+    const card = detail.card;
+    const github = escapeHtml(this.options.issueUrl(card.issue));
+    const detailLine = card.trustDetail
+      ? `<p class="warn">${escapeHtml(card.trustDetail)}</p>`
+      : '<p class="note ok">State written and signed by AIR.</p>';
+    const head = `<section aria-labelledby="issue-title" class="head" style="flex-direction:column;align-items:flex-start;gap:8px">
+<a href="${ConsolePath.Board}">← Board</a>
+<div class="row"><span class="num">#${card.issue}</span><h1 id="issue-title">${escapeHtml(card.title)}</h1>${this.stateChip(card)}${this.trustChip(card)}</div>
+${detailLine}
+<a href="${github}" rel="noreferrer">Open in GitHub ↗</a></section>`;
+    const steps = detail.progress
+      .map(
+        ({ phase, step }) =>
+          `<li class="${step}"><b>${PHASE_NAMES[phase]}</b>${STEP_TEXT[step]}</li>`,
+      )
+      .join("");
+    const progress = `<section aria-labelledby="phases" class="card"><h2 id="phases">Phases</h2><ol class="steps">${steps}</ol></section>`;
+    const wide = `<div class="wide">${progress}${this.reports(detail.reports)}${this.timeline(detail.history, detail.records)}</div>`;
+    const side = `<div class="side">${this.nextStep(card)}${this.issueRuns(detail.runs)}${this.ignored(detail.ignoredRecords)}</div>`;
+    return this.layout(
+      ConsoleView.Board,
+      overview,
+      readAt,
+      `${head}<div class="split">${wide}${side}</div>`,
+    );
+  }
+
+  /** An issue that is not open or carries no AIR state. */
+  notFound(issue: string, overview: DeliveryOverview, readAt: Date): string {
+    return this.layout(
+      ConsoleView.Board,
+      overview,
+      readAt,
+      `<section class="card"><h1>Not in delivery</h1><p class="muted">Issue ${escapeHtml(issue)} is not open or has no AIR state.</p><a href="${ConsolePath.Board}">← Board</a></section>`,
+    );
+  }
+
+  private reports(reports: readonly ReportRecord[]): string {
+    if (reports.length === 0)
+      return '<section aria-labelledby="reports" class="card"><h2 id="reports">Phase reports</h2><p class="empty">No trusted report yet.</p></section>';
+    const items = reports
+      .map((report) => {
+        const facts = report.facts;
+        const rows = [
+          facts.taskSize ? ["Task size", escapeHtml(facts.taskSize)] : null,
+          facts.miniDesign === undefined
+            ? null
+            : ["Mini-design", facts.miniDesign ? "recorded" : "no"],
+          facts.verdict ? ["Verdict", escapeHtml(facts.verdict)] : null,
+          facts.pullRequest
+            ? [
+                "Pull request",
+                `<a href="${escapeHtml(this.options.pullRequestUrl(facts.pullRequest))}" rel="noreferrer">#${escapeHtml(facts.pullRequest)}</a>`,
+              ]
+            : null,
+          facts.artifact
+            ? ["Artifact", `<code>${escapeHtml(facts.artifact)}</code>`]
+            : null,
+        ]
+          .filter((row): row is string[] => row !== null)
+          .map(([name, value]) => `<dt>${name}</dt><dd>${value}</dd>`)
+          .join("");
+        return `<div class="card"><div class="row"><h3>${PHASE_NAMES[report.phase]}</h3><span class="note">signed by the agent · ${time(report.at)} UTC</span></div>${rows ? `<dl class="facts">${rows}</dl>` : '<p class="empty">No facts recorded.</p>'}</div>`;
+      })
+      .join("");
+    return `<section aria-labelledby="reports" style="display:flex;flex-direction:column;gap:12px"><h2 id="reports">Phase reports</h2>${items}<p class="note">The report text is in the issue on GitHub.</p></section>`;
+  }
+
+  private timeline(
+    history: readonly HistoryItem[],
+    records: readonly DeliveryRecord[],
+  ): string {
+    const states = history.map((item) => ({
+      at: item.at,
+      html: `<span><b>${escapeHtml(item.by)}</b> set <code>${escapeHtml(`${item.position.phase}:${item.position.status}`)}</code>${item.counts ? "" : ' <span class="chip untrusted">does not count</span>'}</span>`,
+    }));
+    const agent = records.map((record) => ({
+      at: record.at,
+      html: `<span><b>agent</b> ${RECORD_TEXT[record.kind]}${record.kind === DeliveryRecordKind.Report ? ` for ${escapeHtml(record.phase)}` : ""}</span>`,
+    }));
+    const items = [...states, ...agent]
+      .sort((a, b) => (b.at ?? "").localeCompare(a.at ?? ""))
+      .map(
+        (item) =>
+          `<li><span class="mono note">${time(item.at)} UTC</span>${item.html}</li>`,
+      )
+      .join("");
+    return `<section aria-labelledby="timeline" class="card"><h2 id="timeline">Timeline</h2>${items ? `<ol class="timeline">${items}</ol>` : '<p class="empty">No signed history.</p>'}</section>`;
+  }
+
+  private nextStep(card: DeliveryCard): string {
+    const attention = card.attention;
+    if (!attention)
+      return `<section aria-labelledby="next" class="card"><h2 id="next">Next step</h2><p class="muted">${card.agentRunning ? "The agent is working." : "Nothing waits for an approver."}</p></section>`;
+    const commands = attention.commands
+      .map((command, index) => this.commandField(card.issue, command, index))
+      .join("");
+    return `<section aria-labelledby="next" class="card next-step"><h2 id="next">Your next step</h2>
+<p class="muted">${escapeHtml(ATTENTION_TEXT[attention.reason])}</p>${commands}
+<a class="button" href="${escapeHtml(this.options.issueUrl(card.issue))}" rel="noreferrer">Post in GitHub as you ↗</a>
+<p class="note">The console never posts. Your own account does, so the approval counts.</p></section>`;
+  }
+
+  private issueRuns(runs: readonly AgentRun[]): string {
+    const items = runs
+      .map(
+        (run) =>
+          `<li><code>${escapeHtml(run.name)}</code> <span class="note">${escapeHtml(run.status)}</span>${run.running ? `<br><code>docker exec -it ${escapeHtml(run.name)} tmux attach -t agent</code>` : ""}</li>`,
+      )
+      .join("");
+    return `<section aria-labelledby="issue-runs" class="card"><h2 id="issue-runs">Agent runs</h2>${items ? `<ul>${items}</ul>` : '<p class="empty">No agent containers for this issue.</p>'}<a href="${ConsolePath.Agents}">All runs →</a></section>`;
+  }
+
+  private ignored(count: number): string {
+    if (count === 0) return "";
+    return `<section class="card"><p class="warn">${count} record${count === 1 ? "" : "s"} on this issue do not count: not written by the agent, edited, or badly signed.</p></section>`;
   }
 
   /** Shown when the overview could not be read at all. */
@@ -218,6 +393,7 @@ ${list}</section>`;
 ${card.trustDetail ? `<div class="note">${escapeHtml(card.trustDetail)}</div>` : ""}
 ${commands}
 <a class="button" href="${escapeHtml(this.options.issueUrl(card.issue))}" rel="noreferrer">Open issue #${card.issue} ↗</a>
+<a href="${issuePath(card.issue)}">Details</a>
 </article>`;
   }
 
@@ -254,7 +430,7 @@ ${broken}<div class="scroll"><div class="board">${columns}</div></div></section>
       card.agentRunning ? '<span class="note ok">Agent running</span>' : "",
       card.launchQueued ? '<span class="note">Agent launch queued</span>' : "",
     ].join("");
-    return `<a class="card" href="${escapeHtml(this.options.issueUrl(card.issue))}" rel="noreferrer">
+    return `<a class="card" href="${issuePath(card.issue)}">
 <span class="row"><span class="num">#${card.issue}</span>${this.stateChip(card)}${this.trustChip(card)}</span>
 <span class="title">${escapeHtml(card.title)}</span>${extras}</a>`;
   }

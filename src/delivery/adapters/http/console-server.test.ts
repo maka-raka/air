@@ -3,6 +3,7 @@ import { request } from "node:http";
 import type { AddressInfo } from "node:net";
 import { describe, it } from "node:test";
 import {
+  CachedDetails,
   CachedOverview,
   ConsoleRequestHandler,
   HttpStatus,
@@ -10,7 +11,9 @@ import {
   consoleServer,
 } from "./console-server.js";
 import { ConsolePage } from "./console-page.js";
+import { CardTrust } from "../../application/delivery-overview.js";
 import type { DeliveryOverview } from "../../application/delivery-overview.js";
+import type { DeliveryDetail } from "../../application/delivery-detail.js";
 
 const EMPTY: DeliveryOverview = {
   cards: [],
@@ -30,15 +33,43 @@ const EMPTY: DeliveryOverview = {
 const page = new ConsolePage({
   repository: "example/app",
   issueUrl: (issue) => `https://github.com/example/app/issues/${issue}`,
+  pullRequestUrl: (pull) => `https://github.com/example/app/pull/${pull}`,
   refreshSeconds: 30,
 });
 
 const PORT = 7420;
 
-function handler(read: () => Promise<DeliveryOverview> = async () => EMPTY) {
-  return new ConsoleRequestHandler(new CachedOverview(read, 1000), page, PORT, [
-    "air.internal",
-  ]);
+const DETAIL: DeliveryDetail = {
+  card: {
+    issue: 41,
+    title: "Rate limit",
+    position: null,
+    trust: CardTrust.Invalid,
+    trustDetail: "The stored state is malformed.",
+    attention: null,
+    agentRunning: false,
+    launchQueued: false,
+  },
+  progress: [],
+  history: [],
+  records: [],
+  ignoredRecords: 0,
+  reports: [],
+  runs: [],
+};
+
+function handler(
+  read: () => Promise<DeliveryOverview> = async () => EMPTY,
+  detail: (issue: number) => Promise<DeliveryDetail | null> = async (n) =>
+    n === 41 ? DETAIL : null,
+) {
+  return new ConsoleRequestHandler(
+    new CachedOverview(read, 1000),
+    page,
+    PORT,
+    ["air.internal"],
+    { detail },
+  );
 }
 
 const get = (url: string, host = `localhost:${PORT}`, method = "GET") => ({
@@ -83,6 +114,34 @@ describe("ConsoleRequestHandler", () => {
       const result = await handler().handle(get("/", host));
       assert.equal(result.status, HttpStatus.Ok, host);
     }
+  });
+
+  it("serves an issue page and 404 for issues not in delivery", async () => {
+    const found = await handler().handle(get("/issues/41"));
+    assert.equal(found.status, HttpStatus.Ok);
+    assert.match(found.body, /Rate limit/);
+    const missing = await handler().handle(get("/issues/7"));
+    assert.equal(missing.status, HttpStatus.NotFound);
+    assert.match(missing.body, /Not in delivery/);
+    for (const bad of [
+      "/issues/0",
+      "/issues/abc",
+      "/issues/41/x",
+      "/issues/",
+      "/issues/1234567890",
+    ]) {
+      const result = await handler().handle(get(bad));
+      assert.equal(result.status, HttpStatus.NotFound, bad);
+      assert.equal(result.body, "Not found", bad);
+    }
+  });
+
+  it("shows a failure page when an issue cannot be read", async () => {
+    const result = await handler(undefined, async () => {
+      throw new Error("rate limited");
+    }).handle(get("/issues/41"));
+    assert.equal(result.status, HttpStatus.ServiceUnavailable);
+    assert.match(result.body, /rate limited/);
   });
 
   it("answers unknown paths with 404", async () => {
@@ -130,6 +189,34 @@ describe("CachedOverview", () => {
     await assert.rejects(cache.current(), /down/);
     fail = false;
     assert.deepEqual((await cache.current()).overview, EMPTY);
+  });
+});
+
+describe("CachedDetails", () => {
+  it("reads each issue once per interval and evicts the oldest", async () => {
+    const reads: number[] = [];
+    let now = new Date("2026-11-19T10:00:00Z");
+    const cache = new CachedDetails(
+      async (issue) => {
+        reads.push(issue);
+        return null;
+      },
+      30_000,
+      2,
+      () => now,
+    );
+    await cache.detail(1);
+    await cache.detail(1);
+    await cache.detail(2);
+    assert.deepEqual(reads, [1, 2]);
+    await cache.detail(3);
+    await cache.detail(2);
+    assert.deepEqual(reads, [1, 2, 3]);
+    await cache.detail(1);
+    assert.deepEqual(reads, [1, 2, 3, 1]);
+    now = new Date("2026-11-19T10:00:31Z");
+    await cache.detail(1);
+    assert.deepEqual(reads, [1, 2, 3, 1, 1]);
   });
 });
 

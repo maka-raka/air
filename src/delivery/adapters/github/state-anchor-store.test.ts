@@ -148,6 +148,27 @@ describe("GitHubStateAnchorStore", () => {
       assert.deepEqual(await store(comments).candidates(42), []);
     });
 
+  it("reads the history with the signed time and the poster's login", async () => {
+    const comments = new FakeComments();
+    await store(comments).append(42, working);
+    comments.comments.push({
+      ...comments.comments[0]!,
+      id: 2,
+      body: comments.comments[0]!.body.replace(/"at":"[^"]+"/, '"at":"soon"'),
+      authorLogin: "air-bot",
+    });
+
+    const history = await store(comments).history(42);
+
+    assert.equal(history.length, 2);
+    assert.equal(history[0]?.position.phase, DeliveryPhase.Build);
+    assert.ok(!Number.isNaN(Date.parse(String(history[0]?.at))));
+    assert.equal(history[0]?.signatureValid, true);
+    assert.equal(history[1]?.at, null);
+    assert.equal(history[1]?.authorLogin, "air-bot");
+    assert.equal(history[1]?.signatureValid, false);
+  });
+
   it("cannot write without a signing key", () => {
     const reader = new GitHubStateAnchorStore(new FakeComments(), {
       repositoryId: REPOSITORY,

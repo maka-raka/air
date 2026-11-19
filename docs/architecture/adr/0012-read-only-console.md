@@ -1,6 +1,6 @@
 # ADR-0012 — Read-Only Console
 
-- **Status:** Proposed for review (MVP implemented: board, needs-you, agent runs, launch queue, audit)
+- **Status:** Proposed for review (implemented: board, needs-you, issue page, agent runs, launch queue, audit)
 - **Date:** 2026-11-19
 - **Scope:** A local web page that shows the state of AIR delivery and points people to the next step
 - **Builds on:** [ADR-0003](0003-github-comment-commands.md) (commands are comments), [ADR-0010](0010-zero-trust.md) (zero trust), [ADR-0011](0011-agent-execution.md) (agent runs)
@@ -27,6 +27,7 @@ The UI must not become a second authority. An approval is a `/air` comment by an
 | Agent runs | a snapshot `air-launcher` writes to the launch directory after each round; the console never touches Docker |
 | Launch queue and failed launches | the launch directory, read-only |
 | Audit | the poller's hash-chained log, read-only, verified on each refresh |
+| Issue page: history, reports | signed state anchors (time from the signed payload) and agent records, each judged by `TrustPolicy`; records that do not count are counted, not audited, because the console writes nothing |
 
 Trust is evaluated freshly for every card on each refresh (ADR-0010): a cached "trusted" never outlives the refresh interval.
 

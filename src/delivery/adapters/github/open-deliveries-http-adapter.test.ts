@@ -81,6 +81,46 @@ describe("GitHubOpenDeliveries", () => {
     assert.equal(urls.length, 2);
   });
 
+  it("finds one open issue with AIR state", async () => {
+    const request: HttpRequest = async (url) => {
+      const path = new URL(url).pathname.replace("/repos/example/air", "");
+      const respond = (body: unknown, status = 200) => ({
+        ok: status < 400,
+        status,
+        json: async () => body,
+      });
+      if (path === "/issues/41")
+        return respond({ ...issue(41, ["air:build:waiting"]), state: "open" });
+      if (path === "/issues/42")
+        return respond({
+          ...issue(42, ["air:build:waiting"]),
+          state: "closed",
+        });
+      if (path === "/issues/43")
+        return respond({ ...issue(43, ["bug"]), state: "open" });
+      if (path === "/issues/44") return respond({}, 500);
+      return respond({ message: "Not Found" }, 404);
+    };
+    const deliveries = new GitHubOpenDeliveries(
+      new GitHubRestClient({
+        owner: "example",
+        repo: "air",
+        token: "t",
+        request,
+      }),
+    );
+    assert.deepEqual(await deliveries.find(41), {
+      issue: 41,
+      title: "Issue 41",
+      position: { phase: DeliveryPhase.Build, status: DeliveryStatus.Waiting },
+    });
+    assert.equal(await deliveries.find(42), null);
+    assert.equal(await deliveries.find(43), null);
+    assert.equal(await deliveries.find(404), null);
+    assert.equal(await deliveries.find(0), null);
+    await assert.rejects(deliveries.find(44), /500/);
+  });
+
   it("rejects a malformed response", async () => {
     const { deliveries } = adapter([[{ number: "x" }]]);
     await assert.rejects(deliveries.list(), /Invalid issue payload/);

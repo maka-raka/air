@@ -27,6 +27,8 @@ export type OpenDelivery = Readonly<{
 /** Lists open issues with AIR state; reads only. */
 export interface OpenDeliveriesPort {
   list(): Promise<readonly OpenDelivery[]>;
+  /** One open issue with AIR state; null when it has none or is closed. */
+  find(issue: number): Promise<OpenDelivery | null>;
 }
 
 /** A launch the launcher could not start, kept aside with its error. */
@@ -201,53 +203,24 @@ async function mapLimited<T, R>(
   return results;
 }
 
+export type JudgedDelivery = Omit<
+  DeliveryCard,
+  "agentRunning" | "launchQueued"
+>;
+
 /**
- * The console's use case (ADR-0012): what is in delivery, whether each state
- * can be trusted, and what waits for a person. Reads only; trust is judged
- * freshly by the same policy every command goes through.
+ * Judges one stored delivery state for people: whether it can be trusted,
+ * by the same policy every command goes through, and what a person should
+ * do next. A failed check counts as untrusted, never as trusted.
  */
-export class ReadDeliveryOverview {
+export class DeliveryJudge {
   constructor(
-    private readonly deliveries: OpenDeliveriesPort,
     private readonly provenance: StateProvenancePort,
     private readonly anchors: Pick<StateAnchorPort, "candidates">,
     private readonly trust: TrustPolicy,
-    private readonly runs: AgentRunsPort,
-    private readonly queue: Pick<PendingAgentLaunchPort, "pending">,
-    private readonly failures: FailedAgentLaunchesPort,
-    private readonly audit: AuditTrailPort,
   ) {}
 
-  async overview(): Promise<DeliveryOverview> {
-    const [deliveries, runs, queued, failed, audit] = await Promise.all([
-      this.deliveries.list(),
-      this.runs.snapshot(),
-      this.queue.pending(),
-      this.failures.failed(),
-      this.audit.summary(RECENT_AUDIT_EVENTS),
-    ]);
-    const running = new Set(
-      runs.runs.filter((run) => run.running).map((run) => run.issue),
-    );
-    const waiting = new Set(queued.map(({ launch }) => launch.issue));
-    const cards = await mapLimited(
-      deliveries,
-      MAX_PARALLEL_CHECKS,
-      async (delivery) => ({
-        ...(await this.judge(delivery)),
-        agentRunning: running.has(delivery.issue),
-        launchQueued: waiting.has(delivery.issue),
-      }),
-    );
-    const needsYou = cards
-      .filter((card) => card.attention !== null)
-      .sort((a, b) => urgency(a) - urgency(b) || a.issue - b.issue);
-    return { cards, needsYou, runs, queued, failed, audit };
-  }
-
-  private async judge(
-    delivery: OpenDelivery,
-  ): Promise<Omit<DeliveryCard, "agentRunning" | "launchQueued">> {
+  async judge(delivery: OpenDelivery): Promise<JudgedDelivery> {
     const { issue, title, position } = delivery;
     if (!position)
       return {
@@ -287,5 +260,54 @@ export class ReadDeliveryOverview {
         trustDetail: `Could not verify: ${String(error)}`,
       };
     }
+  }
+}
+
+/**
+ * The console's use case (ADR-0012): what is in delivery, whether each state
+ * can be trusted, and what waits for a person. Reads only; trust is judged
+ * freshly by the same policy every command goes through.
+ */
+export class ReadDeliveryOverview {
+  private readonly judge: DeliveryJudge;
+
+  constructor(
+    private readonly deliveries: OpenDeliveriesPort,
+    provenance: StateProvenancePort,
+    anchors: Pick<StateAnchorPort, "candidates">,
+    trust: TrustPolicy,
+    private readonly runs: AgentRunsPort,
+    private readonly queue: Pick<PendingAgentLaunchPort, "pending">,
+    private readonly failures: FailedAgentLaunchesPort,
+    private readonly audit: AuditTrailPort,
+  ) {
+    this.judge = new DeliveryJudge(provenance, anchors, trust);
+  }
+
+  async overview(): Promise<DeliveryOverview> {
+    const [deliveries, runs, queued, failed, audit] = await Promise.all([
+      this.deliveries.list(),
+      this.runs.snapshot(),
+      this.queue.pending(),
+      this.failures.failed(),
+      this.audit.summary(RECENT_AUDIT_EVENTS),
+    ]);
+    const running = new Set(
+      runs.runs.filter((run) => run.running).map((run) => run.issue),
+    );
+    const waiting = new Set(queued.map(({ launch }) => launch.issue));
+    const cards = await mapLimited(
+      deliveries,
+      MAX_PARALLEL_CHECKS,
+      async (delivery) => ({
+        ...(await this.judge.judge(delivery)),
+        agentRunning: running.has(delivery.issue),
+        launchQueued: waiting.has(delivery.issue),
+      }),
+    );
+    const needsYou = cards
+      .filter((card) => card.attention !== null)
+      .sort((a, b) => urgency(a) - urgency(b) || a.issue - b.issue);
+    return { cards, needsYou, runs, queued, failed, audit };
   }
 }

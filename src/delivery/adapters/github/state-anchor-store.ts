@@ -1,4 +1,8 @@
 import type { StateAnchorPort } from "../../application/execute-delivery-command.js";
+import type {
+  StateHistoryEntry,
+  StateHistoryPort,
+} from "../../application/delivery-detail.js";
 import { DeliveryPhase, DeliveryStatus } from "../../domain/state-machine.js";
 import type { Phase, Position, Status } from "../../domain/state-machine.js";
 import type { AnchorEvidence } from "../../domain/trust-policy.js";
@@ -25,6 +29,19 @@ const MARKER = /<!-- air:state (\{[^\n]*\}) sig=([A-Za-z0-9+/]+={0,2}) -->\s*$/;
 const phases: readonly string[] = Object.values(DeliveryPhase);
 const statuses: readonly string[] = Object.values(DeliveryStatus);
 
+type Anchored = Readonly<{ position: Position; at: string | null }>;
+
+function anchored(value: unknown): Anchored | null {
+  const at = position(value);
+  if (!at) return null;
+  const time = (value as Record<string, unknown>).at;
+  return {
+    position: at,
+    at:
+      typeof time === "string" && !Number.isNaN(Date.parse(time)) ? time : null,
+  };
+}
+
 function position(value: unknown): Position | null {
   if (value === null || typeof value !== "object") return null;
   const { phase, status } = value as Record<string, unknown>;
@@ -40,7 +57,9 @@ function position(value: unknown): Position | null {
  * reports every well-formed anchor from any author with its evidence; the
  * trust policy decides which count.
  */
-export class GitHubStateAnchorStore implements StateAnchorPort {
+export class GitHubStateAnchorStore
+  implements StateAnchorPort, StateHistoryPort
+{
   private readonly signer?: Ed25519RecordSigner;
   private readonly verifiers: ReadonlyMap<number, Ed25519RecordVerifier>;
 
@@ -72,23 +91,34 @@ export class GitHubStateAnchorStore implements StateAnchorPort {
   }
 
   async candidates(issue: number): Promise<readonly AnchorEvidence[]> {
+    const history = await this.history(issue);
+    return history.map(({ authorId, edited, signatureValid, position }) => ({
+      authorId,
+      edited,
+      signatureValid,
+      position,
+    }));
+  }
+
+  /** Every well-formed anchor, oldest first, with its signed time. */
+  async history(issue: number): Promise<readonly StateHistoryEntry[]> {
     const comments = await this.comments.list(issue);
-    return comments.flatMap(({ body, authorId, edited }) => {
+    return comments.flatMap(({ body, authorId, authorLogin, edited }) => {
       const marker = MARKER.exec(body);
       if (!marker) return [];
       const [, encoded, signature] = marker;
-      const anchored = this.decode(encoded!);
-      if (!anchored) return [];
+      const decoded = this.decode(encoded!);
+      if (!decoded) return [];
       const verifier = this.verifiers.get(authorId);
       const signatureValid =
         verifier?.verify(this.scope(issue), encoded!, signature!) ?? false;
-      return [{ authorId, edited, signatureValid, position: anchored }];
+      return [{ authorId, authorLogin, edited, signatureValid, ...decoded }];
     });
   }
 
-  private decode(encoded: string): Position | null {
+  private decode(encoded: string): Anchored | null {
     try {
-      return position(JSON.parse(encoded));
+      return anchored(JSON.parse(encoded));
     } catch {
       return null;
     }

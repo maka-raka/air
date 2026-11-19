@@ -21,6 +21,8 @@ import {
 import type { ServiceLogins } from "./trust.js";
 import type { StateAnchorMode } from "../domain/trust-policy.js";
 import { ReadDeliveryOverview } from "../application/delivery-overview.js";
+import { ReadDeliveryDetail } from "../application/delivery-detail.js";
+import { GitHubDeliveryRecordStore } from "../adapters/github/delivery-record-store.js";
 import { GitHubRestClient } from "../adapters/github/github-rest-client.js";
 import type { HttpRequest } from "../adapters/github/github-rest-client.js";
 import { GitHubIssueCommentHttpAdapter } from "../adapters/github/issue-comment-http-adapter.js";
@@ -37,6 +39,7 @@ import {
 import { FileAuditTrail } from "../adapters/local/file-audit-trail.js";
 import { ConsolePage } from "../adapters/http/console-page.js";
 import {
+  CachedDetails,
   CachedOverview,
   ConsoleRequestHandler,
   consoleServer,
@@ -136,32 +139,47 @@ export async function composeConsole(
   const trust = trustPolicy(identity.id, accounts, {
     stateAnchors: config.stateAnchors,
   });
-  const anchors = stateAnchorStore(
-    new GitHubIssueCommentHttpAdapter(client),
-    identity.id,
-    accounts,
-    {
-      operator: recordVerifier(
-        config.operatorPublicKey,
-        "AIR_OPERATOR_PUBLIC_KEY",
-      ),
-      agent: recordVerifier(config.agentPublicKey),
-      deployer: config.deployPublicKey
-        ? recordVerifier(config.deployPublicKey, "AIR_DEPLOY_PUBLIC_KEY")
-        : null,
-    },
-  );
+  const comments = new GitHubIssueCommentHttpAdapter(client);
+  const agentKey = recordVerifier(config.agentPublicKey);
+  const anchors = stateAnchorStore(comments, identity.id, accounts, {
+    operator: recordVerifier(
+      config.operatorPublicKey,
+      "AIR_OPERATOR_PUBLIC_KEY",
+    ),
+    agent: agentKey,
+    deployer: config.deployPublicKey
+      ? recordVerifier(config.deployPublicKey, "AIR_DEPLOY_PUBLIC_KEY")
+      : null,
+  });
   const launchDir = resolve(config.launchDir);
   const queue = new FileAgentLaunchQueue(launchDir);
+  const deliveries = new GitHubOpenDeliveries(client);
+  const provenance = new GitHubLabelProvenance(
+    new GitHubIssueHttpAdapter(client),
+  );
+  const runs = new FileAgentRunsSnapshot(agentRunsFile(launchDir));
   const overview = new ReadDeliveryOverview(
-    new GitHubOpenDeliveries(client),
-    new GitHubLabelProvenance(new GitHubIssueHttpAdapter(client)),
+    deliveries,
+    provenance,
     anchors,
     trust,
-    new FileAgentRunsSnapshot(agentRunsFile(launchDir)),
+    runs,
     queue,
     queue,
     new FileAuditTrail(resolve(config.auditLog)),
+  );
+  const details = new ReadDeliveryDetail(
+    deliveries,
+    provenance,
+    anchors,
+    // No signer: the console can read records, never write them.
+    new GitHubDeliveryRecordStore(comments, {
+      repositoryId: identity.id,
+      verifier: agentKey,
+    }),
+    trust,
+    runs,
+    queue,
   );
   const fullName = `${config.owner}/${config.repo}`;
   return new ConsoleRequestHandler(
@@ -169,10 +187,12 @@ export async function composeConsole(
     new ConsolePage({
       repository: fullName,
       issueUrl: (issue) => `https://github.com/${fullName}/issues/${issue}`,
+      pullRequestUrl: (pull) => `https://github.com/${fullName}/pull/${pull}`,
       refreshSeconds: Math.round(config.refreshMs / MS_PER_SECOND),
     }),
     config.port,
     config.allowedHosts,
+    new CachedDetails((issue) => details.detail(issue), config.refreshMs),
   );
 }
 

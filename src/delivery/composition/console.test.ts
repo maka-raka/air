@@ -97,6 +97,14 @@ function fakeGitHub(viewer = READER, anchor = ""): HttpRequest {
     if (path === "/issues/42/comments")
       return respond(anchor ? [comment(42, anchor)] : []);
     if (path === "/issues/43/comments") return respond([]);
+    if (path === "/issues/42")
+      return respond({
+        number: 42,
+        title: "Rate limit",
+        state: "open",
+        labels: [{ name: "air:build:waiting" }],
+      });
+    if (path === "/issues/7") return respond({ message: "Not Found" }, 404);
     return respond({ message: `unexpected ${path}` }, 500);
   };
 }
@@ -189,6 +197,20 @@ describe("composeConsole", () => {
     assert.match(board.body, /Set by hand/);
     assert.match(board.body, /set by mallory, not by AIR/);
     assert.equal(board.body.match(/chip untrusted/g)?.length, 2);
+  });
+
+  it("serves the issue page with the signed history", async () => {
+    const handler = await composeConsole(
+      await config(),
+      fakeGitHub(READER, await anchorBody(42)),
+    );
+    const page = await handler.handle(get("/issues/42"));
+    assert.equal(page.status, HttpStatus.Ok);
+    assert.match(page.body, /State written and signed by AIR/);
+    assert.match(page.body, /<b>air-bot<\/b> set <code>build:waiting<\/code>/);
+    assert.match(page.body, /No trusted report yet/);
+    const missing = await handler.handle(get("/issues/7"));
+    assert.equal(missing.status, HttpStatus.NotFound);
   });
 
   it("treats a state without its signed anchor as untrusted", async () => {

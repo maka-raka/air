@@ -111,6 +111,7 @@ A read-only page on `http://localhost:7420/` ([ADR-0012](../architecture/adr/001
 
 - **Board**: every open issue with AIR state, by phase, with a warning on any state AIR did not write or cannot verify.
 - **Needs you**: what waits for an approver, most urgent first (repairs, then agent questions, then approvals), each with the exact `/air` command to post and a link to the issue.
+- **Issue** (`/issues/<n>`): the state and why it is or is not trusted, phase progress, the newest signed report of each phase, a timeline of signed state changes and agent records (entries that do not count are marked), this issue's agent runs, and the next command.
 - **Agents & audit**: agent containers with their attach command, the launch queue, failed launches, and the poller's audit log with its hash chain checked.
 
 ```bash
