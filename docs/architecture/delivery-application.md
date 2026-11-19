@@ -29,6 +29,9 @@ CLI / Skill / CI Trigger
 | `AdvancePhase` | Human-authorized next phase | State |
 | `ApplyDeployment` | Check deployment facts and allowed automatic progression | State |
 | `RecoverPhaseRun` | Handle interrupted session and conflicting run tokens | State and audit |
+| `LaunchAgentOnReady` | Decorates the delivery executor: after a Human command AIR applied ends in an opted-in `ready` phase, requests an agent run with the issue's risk from the newest trusted requirements report (`RecordedRisk`); a failed request is audited, never thrown ([ADR-0011](adr/0011-agent-execution.md) §3, [ADR-0013](adr/0013-agent-roles.md)) | Launch request and audit |
+| `DispatchAgentLaunches` | Launcher side: start queued runs, one live runtime per issue and at most N in total, with the model `AgentModelPolicy` picks (`high-risk` > phase > default); busy or at-capacity requests wait, failed starts are set aside | Queue entries |
+| `PublishAgentRuns` | Launcher side: publish what runs, so readers without runtime access (the console) can show it | Runs snapshot |
 | `ReadDeliveryOverview` / `ReadDeliveryDetail` | Console views ([ADR-0012](adr/0012-read-only-console.md)), including delivery flow metrics: time per phase and status, human wait versus agent work, throughput ([ADR-0015](adr/0015-delivery-flow-metrics.md)) | No |
 
 The exact order of posting comment and updating labels must be chosen for crash consistency; do not assume distributed transactions across GitHub APIs.
@@ -47,6 +50,13 @@ The exact order of posting comment and updating labels must be chosen for crash 
 | `PolicyProvider` | Effective non-weakenable policy combining defaults and repo-specific configuration | JSON configuration |
 | `StateHistoryPort` | Every well-formed signed state anchor on an issue with its signed time, oldest first; decides nothing | GitHub issue comments (`GitHubStateAnchorStore`) |
 | `DeliveryClosuresPort` | Applied close transitions, only from an audit chain that verifies ([ADR-0015](adr/0015-delivery-flow-metrics.md)) | Poller audit log (`FileAuditTrail`) |
+| `AgentLaunchRequestPort` | Accept one launch request per issue and phase; a repeat replaces it. Never starts anything | Shared directory of JSON files (`FileAgentLaunchQueue`) |
+| `PendingAgentLaunchPort`, `FailedAgentLaunchesPort` | The launcher reads, completes and sets aside requests; the console lists pending and failed ones | `FileAgentLaunchQueue` |
+| `AgentRiskPort` | The issue's risk as the agent reported it at intake; unknown is low | `RecordedRisk` over trusted records (application) |
+| `AgentRuntimePort`, `AgentRunsSourcePort` | Start a run for one issue with a given model; list runs by issue. Knows nothing about delivery state | `docker compose run` with fixed arguments (`DockerAgentRuntime`) |
+| `AgentRunsPort`, `AgentRunsSinkPort` | The latest runs snapshot, written by the launcher, read by the console | One JSON file (`FileAgentRunsSnapshot`) |
+| `OpenDeliveriesPort` | Open issues with AIR state, and one by number; malformed state shown as such | GitHub issues (`GitHubOpenDeliveries`) |
+| `AuditTrailPort` | Recent audit events and whether the chain verifies; reads only | Poller audit log (`FileAuditTrail`) |
 | `AuditSink` | Record transitions, failures and actor identity | MVP: issue activity and structured logs; future dedicated sink |
 
 Ports should be scoped to the consuming use case rather than forcing a universal `Tracker` or `DataAccess` interface. GitHub integrations may share internal infrastructure clients while exposing separate application ports.

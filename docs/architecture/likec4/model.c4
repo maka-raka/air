@@ -21,7 +21,7 @@ model {
   }
 
   runtime = system 'Claude Code' {
-    description 'Manual agent execution for MVP'
+    description 'Agent sessions, started by hand or in a container per issue run'
   }
 
   cicd = system 'CI/CD' {

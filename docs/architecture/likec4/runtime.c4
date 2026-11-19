@@ -1,0 +1,84 @@
+// Runtime processes (ADR-0011, ADR-0012). Each process holds only its own
+// credentials; the console and the launcher hold no AIR signing key.
+specification {
+  element process {
+    style {
+      color slate
+    }
+  }
+  element store {
+    style {
+      shape storage
+      color muted
+    }
+  }
+}
+
+model {
+  extend air {
+    poller = process 'Poller (air-local)' {
+      description 'Reads /air comments and applies transitions as the operator; queues agent runs after trusted ready transitions'
+    }
+    agentCli = process 'Agent CLI (air)' {
+      description 'context, start, report, gate and block as the agent account'
+    }
+    deployReporter = process 'Deploy reporter (air-deploy)' {
+      description 'Reports successful stage and prod deployments as the deployer'
+    }
+    launcher = process 'Launcher (air-launcher)' {
+      description 'Starts one agent container per run, at most N at once; holds no AIR key'
+    }
+    agentContainer = process 'Agent container' {
+      description 'One per issue run: a fresh checkout, Claude Code and the agent CLI'
+    }
+    console = process 'Console (air-ui)' {
+      description 'Read-only board, issue pages, agent runs and audit on localhost'
+    }
+    launchDir = store 'Launch directory' {
+      description 'Launch requests, failed launches and the runs snapshot'
+    }
+    auditLog = store 'Audit log' {
+      description 'Hash-chained trust decisions, one writer per file'
+    }
+  }
+
+  engineer -> github 'Posts /air commands, merges, releases'
+  engineer -> air.console 'Sees what waits for them'
+
+  air.poller -> github 'Polls comments; writes labels, signed anchors and replies'
+  air.poller -> air.launchDir 'Queues agent runs'
+  air.poller -> air.auditLog 'Records trust decisions'
+
+  air.launcher -> air.launchDir 'Reads requests, publishes runs'
+  air.launcher -> air.agentContainer 'docker compose run'
+  air.agentContainer -> runtime 'Runs Claude Code'
+  air.agentContainer -> air.agentCli 'Runs'
+  air.agentCli -> github 'Signed records and transitions as the agent'
+
+  cicd -> air.deployReporter 'Runs after each deploy job'
+  air.deployReporter -> github 'Signed deployment transitions as the deployer'
+
+  air.console -> github 'Reads with a read-only token'
+  air.console -> air.launchDir 'Reads'
+  air.console -> air.auditLog 'Reads and verifies'
+}
+
+views {
+  view air_runtime {
+    title 'AI Relay — Runtime processes'
+    include
+      engineer,
+      github,
+      runtime,
+      cicd,
+      air.poller,
+      air.agentCli,
+      air.deployReporter,
+      air.launcher,
+      air.agentContainer,
+      air.console,
+      air.launchDir,
+      air.auditLog
+    autoLayout TopBottom
+  }
+}

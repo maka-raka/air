@@ -117,9 +117,9 @@ The launcher needs the Docker API, which is root-equivalent on the host: prefer 
 
 A read-only page on `http://localhost:7420/` ([ADR-0012](../architecture/adr/0012-read-only-console.md)):
 
-- **Board**: every open issue with AIR state, by phase, with a warning on any state AIR did not write or cannot verify.
+- **Board**: every open issue with AIR state, by phase, with a warning on any state AIR did not write or cannot verify, and *where the time goes*: waiting on people versus agent work, time per phase, lead time and throughput ([ADR-0015](../architecture/adr/0015-delivery-flow-metrics.md)).
 - **Needs you**: what waits for an approver, most urgent first (repairs, then agent questions, then approvals), each with the exact `/air` command to post and a link to the issue.
-- **Issue** (`/issues/<n>`): the state and why it is or is not trusted, phase progress, the newest signed report of each phase, a timeline of signed state changes and agent records (entries that do not count are marked), this issue's agent runs, and the next command.
+- **Issue** (`/issues/<n>`): the state and why it is or is not trusted, phase progress, the newest signed report of each phase (with risk, recommendation and review lenses), a timeline of signed state changes and agent records (entries that do not count are marked), where its time went, this issue's agent runs, and the next command.
 - **Agents & audit**: agent containers with their attach command, the launch queue, failed launches, and the poller's audit log with its hash chain checked.
 
 ```bash
@@ -129,7 +129,7 @@ docker compose --profile ui up -d ui
 
 The console holds one read-only token (Issues: Read, Metadata: Read) of a person or a reader account. It refuses a token of `air-bot`, `air-agent` or the deployer, and refuses to start with any AIR signing key or service token in its environment. It never posts: copy the command and post it in the issue as yourself, so the approval is yours.
 
-It listens on `127.0.0.1` only, answers only `GET`/`HEAD`, rejects requests for other host names, and serves no scripts. It reads the audit log and the launch directory through read-only mounts; agent runs come from a snapshot `air-launcher` writes after each round, so the console has no Docker access. Trust is checked again on every refresh (`AIR_UI_REFRESH_MS`, 30 s): two GitHub API calls per open AIR issue.
+It listens on `127.0.0.1` only, answers only `GET`/`HEAD`, rejects requests for other host names, and serves no scripts. It reads the audit log and the launch directory through read-only mounts; agent runs come from a snapshot `air-launcher` writes after each round, so the console has no Docker access and shows a stopped container as stopped after the launcher's next round (`AIR_LAUNCH_INTERVAL_MS`, 5 s). Trust is checked again on every refresh (`AIR_UI_REFRESH_MS`, 30 s): two GitHub API calls per open AIR issue, plus one per recently closed issue in the flow sample (at most 20).
 
 Without Docker: `npm run build && node dist/src/delivery/composition/console.js --env-file .env.air.ui` with the repository, logins, `AIR_OPERATOR_PUBLIC_KEY`, `AIR_AGENT_PUBLIC_KEY` and `AIR_UI_TOKEN` in that file only.
 
@@ -139,5 +139,6 @@ The host workflow in [Local runtime](local-runtime.md) still works and suits dev
 
 ## Limits (see ADR-0011)
 
+- The agent runs interactively in tmux: an automatically launched agent waits at Claude Code's first permission prompt until someone attaches. A headless mode with an allow-list is not built yet.
 - Network egress is not restricted. Restrict it in your Docker network or firewall to `github.com`, `api.github.com`, `registry.npmjs.org` and `api.anthropic.com` if you can.
 - Never mount `/var/run/docker.sock` into either container.

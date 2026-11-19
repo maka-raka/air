@@ -83,9 +83,27 @@ Every AIR process records its trust decisions in a hash-chained audit log ([ADR-
 
 ## 7. Running AIR
 
-- [ ] Set `AIR_OPERATOR_LOGIN`, `AIR_AGENT_LOGIN`, `AIR_APPROVER_LOGINS` and, if you deploy, `AIR_DEPLOY_LOGIN` in **every** AIR process (poller, agent CLI, deploy workflow). They must match, or legitimate state is rejected as `untrusted-state`.
+- [ ] Set `AIR_OPERATOR_LOGIN`, `AIR_AGENT_LOGIN`, `AIR_APPROVER_LOGINS` and, if you deploy, `AIR_DEPLOY_LOGIN` in **every** AIR process (poller, agent CLI, deploy workflow, console). They must match, or legitimate state is rejected as `untrusted-state`.
 - [ ] Do not set `AIR_ALLOW_OPERATOR_APPROVER` outside a throwaway test repository.
 - [ ] Install AIR only from a release tarball, verify it with `gh attestation verify` and commit the lockfile ([Adopting AIR](install.md)). Run it as `npx --no air …` / `npm exec --no -- air-deploy …`, so npm never downloads an unrelated package of the same name.
+
+## 8. Agent launcher and console
+
+Both are optional ([ADR-0011](../architecture/adr/0011-agent-execution.md), [ADR-0012](../architecture/adr/0012-read-only-console.md)).
+
+**`air-launcher`** starts agent containers. The Docker API it needs is root-equivalent on the host.
+
+- [ ] Never mount `/var/run/docker.sock` into the poller, the agent or the console. Only the launcher talks to Docker.
+- [ ] Run the launcher with no AIR token or signing key in its environment; it refuses to start otherwise. The agent's secrets reach the container only through `.env.air.agent`, which `docker compose` reads.
+- [ ] Prefer rootless Docker or Podman (`AIR_DOCKER=podman`) for the launcher's host.
+- [ ] Bound it: `AIR_AGENT_LAUNCH_PHASES` lists only the phases you want launched, `AIR_AGENT_MAX` stays small.
+- [ ] Restrict the agent container's network to GitHub, npm and the model API if you can; AIR does not enforce it yet.
+
+**`air-ui`** shows delivery state and never writes.
+
+- [ ] Give it a fine-grained token of a **person or a reader account** with Issues: Read and Metadata: Read only. It refuses a token of the operator, agent or deployer account, and any AIR signing key or service token in its environment.
+- [ ] Keep it on `127.0.0.1` (the default; `compose.yaml` publishes `127.0.0.1:7420` only). If you put it behind a proxy, add that host name to `AIR_UI_ALLOWED_HOSTS` and protect the proxy; the console has no login.
+- [ ] Mount the audit log and the launch directory read-only, as `compose.yaml` does.
 
 ## When AIR says `untrusted-state`
 
