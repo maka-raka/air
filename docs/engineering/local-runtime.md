@@ -92,6 +92,18 @@ After a deployment, a workflow reports it with the **deployer** account ([ADR-00
 | a command edited before AIR read it | ❌ ignored; post a new comment |
 | any command after someone set the state label by hand | ❌ `untrusted-state`, the reply names who added the label |
 
+## Beyond the poller and a hand-started agent
+
+The same pieces can run as more processes, each with only its own credentials:
+
+| Process | What it adds | Where |
+| --- | --- | --- |
+| `air-launcher` | starts an agent container when an approver's command makes an opted-in phase ready (`AIR_AGENT_LAUNCH_PHASES`), at most `AIR_AGENT_MAX` at once, model per phase and risk (`AIR_AGENT_MODELS`) | [Docker §4](docker.md#4-automatic-agent-runs) |
+| `air-ui` | read-only console on `localhost:7420`: board, *Needs you* with the next command, issue pages, agent runs, launch queue, audit | [Docker §5](docker.md#5-console) |
+| poller and agent in containers | one container per agent run, split env files, no host credentials in the agent | [Running AIR in Docker](docker.md) |
+
+Hardening rules for the launcher and the console: [Repository Hardening §8](security-hardening.md#8-agent-launcher-and-console).
+
 ## Limitations
 
 - **Replies are posted as the operator account.** They can never trigger a command, because a reply's first line is never `/air`. Because the operator is not you, GitHub notifies you about them.
