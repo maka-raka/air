@@ -31,6 +31,8 @@ The recommended runtime is a **container per issue run**:
 | It receives only agent credentials: `AIR_AGENT_TOKEN` (also as `GH_TOKEN`), `AIR_AGENT_SIGNING_KEY`, the Anthropic API key and the public configuration | each private key only in the process that signs with it (hardening §5) |
 | The entrypoint refuses to start when the token does not belong to `AIR_AGENT_LOGIN` | the same check the agent CLI does, made before any code is cloned |
 | Dependencies are installed with `npm ci --ignore-scripts` | a dependency's install script must not run next to the agent's secrets |
+| An existing `air/issue-<n>` is continued only if its own changes leave Claude Code configuration, instruction files (`CLAUDE.md`, `AGENTS.md`), `.mcp.json`, `.github/` and the AIR entry in `package-lock.json` untouched | any writer can push that branch; these files act before the model's first step |
+| Managed settings ignore project hooks, MCP servers and permission rules | trusting the checkout must not let it run commands or widen permissions |
 | Non-root user, all capabilities dropped, `no-new-privileges` | a compromised session cannot escalate inside the host kernel's reach |
 | Claude Code managed settings deny reading unclassified issue text (`gh issue view`, `gh api …comments`), merging, releasing, running workflows and force-pushing | backs the skill's rules with enforcement the agent cannot edit (hardening §4) |
 | The session runs in tmux inside the container (`docker exec -it … tmux attach`) | a person can watch and answer permission prompts |

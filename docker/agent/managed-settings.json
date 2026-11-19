@@ -1,4 +1,10 @@
 {
+  "allowManagedHooksOnly": true,
+  "allowManagedPermissionRulesOnly": true,
+  "allowManagedMcpServersOnly": true,
+  "allowedMcpServers": [],
+  "enableAllProjectMcpServers": false,
+  "disableBypassPermissionsMode": "disable",
   "permissions": {
     "deny": [
       "Bash(gh issue view:*)",
@@ -18,6 +24,10 @@
       "Bash(printenv:*)",
       "Read(/proc/*/environ)",
       "Edit(.github/**)",
+      "Edit(.claude/**)",
+      "Edit(CLAUDE.md)",
+      "Edit(AGENTS.md)",
+      "Edit(.mcp.json)",
       "Edit(CODEOWNERS)",
       "Edit(.env*)"
     ]

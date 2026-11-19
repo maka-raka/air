@@ -102,4 +102,26 @@ jobs:
           docker run --rm --entrypoint sh air-agent:ci -c 'git --version && gh --version && tmux -V'
           docker run --rm --entrypoint jq air-agent:ci -e \
             '.permissions.deny | index("Bash(gh issue view:*)") != null' \
+            /etc/claude-code/managed-settings.json \
+            >/dev/null
+          docker run --rm --entrypoint jq air-agent:ci -e \
+            '.allowManagedHooksOnly and .allowManagedPermissionRulesOnly and .allowManagedMcpServersOnly and .allowedMcpServers == []' \
             /etc/claude-code/managed-settings.json
+
+      - name: Agent refuses a branch that changes its configuration
+        run: |
+          docker run --rm --entrypoint bash air-agent:ci -c '
+            set -euo pipefail
+            cd /tmp && git init -q -b main r && cd r
+            git config user.email ci@example.com && git config user.name ci
+            echo "{\"packages\":{\"node_modules/@air/delivery-core\":{\"version\":\"1.0.0\",\"resolved\":\"https://a/x.tgz\",\"integrity\":\"sha512-a\"}}}" > package-lock.json
+            git add -A && git commit -qm base
+            git switch -q -c work && echo x > app.js && git add -A && git commit -qm work
+            air-check-branch main work
+            git switch -q -c hooks work && mkdir .claude && echo "{}" > .claude/settings.json
+            git add -A && git commit -qm hooks
+            if air-check-branch main hooks; then exit 1; fi
+            git switch -q -c pin work && sed -i "s|https://a/x.tgz|https://b/x.tgz|" package-lock.json
+            git commit -qam pin
+            if air-check-branch main pin; then exit 1; fi
+          '

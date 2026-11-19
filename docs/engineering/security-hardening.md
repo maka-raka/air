@@ -46,7 +46,8 @@ If a token cannot read check runs, `advance review` fails closed with `precondit
 ## 3. Branch and workflow protection
 
 - [ ] Protect the default branch with a ruleset: pull request required, at least one approving review, review from **Code Owners** required, stale approvals dismissed, status checks required, force pushes and deletion blocked, **no bypass** for the agent, operator or deployer.
-- [ ] `CODEOWNERS` assigns a human approver to `.github/**`, `CODEOWNERS` itself, and any deploy scripts.
+- [ ] `CODEOWNERS` assigns a human approver to `.github/**`, `CODEOWNERS` itself, any deploy scripts, and the files that configure or instruct Claude Code: `.claude/**`, `CLAUDE.md`, `AGENTS.md`, `.mcp.json`.
+- [ ] Add a second ruleset for the agent's branches `air/**`: force pushes and deletion blocked. Where your plan allows it, restrict updates so that only the agent account can push (for example through a team that holds only it). A writer who pushes to `air/issue-<n>` otherwise decides what the next agent run starts from; the Docker agent refuses a branch that changes Claude Code configuration, instruction files, workflows or the AIR package ([Running AIR in Docker](docker.md#3-agent-runs)), but ordinary code on the branch still runs when the agent runs tests.
 - [ ] In *Settings → Actions*: workflow permissions **read-only** by default; "Allow GitHub Actions to create and approve pull requests" **off**.
 - [ ] Every workflow sets an explicit minimal `permissions:` block. Third-party actions are pinned to a full commit SHA.
 - [ ] Deployment secrets (`AIR_DEPLOY_TOKEN` and your cloud credentials) live in **environments** (`staging`, `production`) with required reviewers and a deployment branch rule that allows only the default branch.
