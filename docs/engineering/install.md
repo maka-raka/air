@@ -26,7 +26,7 @@ Every AIR process prints a demo warning, and `air doctor` fails while `AIR_DEMO`
 ## 1. Install a pinned release
 
 ```bash
-VERSION=v0.2.0
+VERSION=v0.3.0
 FILE=air-delivery-core-${VERSION#v}.tgz
 gh release download "$VERSION" --repo maka-raka/air --pattern "$FILE"
 gh attestation verify "$FILE" --repo maka-raka/air   # built by AIR's release workflow
