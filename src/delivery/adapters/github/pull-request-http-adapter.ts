@@ -48,6 +48,23 @@ function head(data: unknown): HeadState {
 const UNATTRIBUTED = "unattributed";
 
 /**
+ * A commit status that must be present and passing, counted only from one
+ * account. In lite mode it is `air/check` from the operator (ADR-0016), so
+ * nobody else, the repository owner's credentials included, can set it.
+ */
+export type RequiredStatus = Readonly<{ context: string; creator: number }>;
+
+/** True when a status in the required context comes from someone else. */
+function impostor(
+  required: RequiredStatus | null,
+  context: string,
+  creator: number,
+): boolean {
+  if (required === null || context !== required.context) return false;
+  return creator !== required.creator;
+}
+
+/**
  * The state of each status context, from its newest status by a creator
  * that may report checks. `/statuses` lists newest first and, unlike the
  * combined `/status`, names each creator.
@@ -55,7 +72,8 @@ const UNATTRIBUTED = "unattributed";
 function latestStates(
   statuses: readonly unknown[],
   excluded: readonly number[],
-): readonly string[] {
+  required: RequiredStatus | null,
+): ReadonlyMap<string, string> {
   const latest = new Map<string, string>();
   for (const status of statuses) {
     if (!object(status)) {
@@ -65,12 +83,13 @@ function latestStates(
     const creator = object(status.creator) ? Number(status.creator.id) : NaN;
     const context = String(status.context);
     if (excluded.includes(creator) || latest.has(context)) continue;
+    if (impostor(required, context, creator)) continue;
     latest.set(
       context,
       Number.isSafeInteger(creator) ? String(status.state) : UNATTRIBUTED,
     );
   }
-  return [...latest.values()];
+  return latest;
 }
 
 /**
@@ -78,13 +97,15 @@ function latestStates(
  * green only if at least one check run or commit status exists and every
  * one has finished successfully; zero checks is not green. Statuses set by
  * an account that may not vouch for its own work (the agent) are ignored,
- * so the agent can't turn its pull request green.
+ * so the agent can't turn its pull request green. With a required status,
+ * the gate also stays closed until that status is set and passing.
  */
 export class GitHubPullRequestHttpAdapter implements PullRequestStatusPort {
   constructor(
     private readonly client: GitHubRestClient,
     /** Immutable IDs of accounts whose commit statuses don't count. */
     private readonly untrustedStatusCreators: readonly number[],
+    private readonly required: RequiredStatus | null = null,
   ) {}
 
   async status(pullRequest: number): Promise<PullRequestStatus> {
@@ -126,8 +147,13 @@ export class GitHubPullRequestHttpAdapter implements PullRequestStatusPort {
         ? String(run.conclusion)
         : "",
     );
-    const states = latestStates(statuses, this.untrustedStatusCreators);
-    const all = [...conclusions, ...states];
+    const states = latestStates(
+      statuses,
+      this.untrustedStatusCreators,
+      this.required,
+    );
+    if (this.required && !states.has(this.required.context)) return false;
+    const all = [...conclusions, ...states.values()];
     return all.length > 0 && all.every((value) => PASSING.includes(value));
   }
 

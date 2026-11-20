@@ -1,3 +1,4 @@
+import { DeliveryMode } from "../domain/delivery-mode.js";
 import { StateAnchorMode } from "../domain/trust-policy.js";
 import assert from "node:assert/strict";
 import { after, describe, it } from "node:test";
@@ -162,6 +163,7 @@ const config: AgentConfig = {
   allowOperatorApprover: false,
   operatorPublicKey: OPERATOR_KEYS.publicKey,
   stateAnchors: StateAnchorMode.Bootstrap,
+  mode: DeliveryMode.Standard,
   auditLog: join(AUDIT_DIR, "audit-agent.jsonl"),
 };
 
@@ -572,6 +574,7 @@ describe("readAgentConfig", () => {
       allowOperatorApprover: false,
       operatorPublicKey: "b3A=",
       stateAnchors: StateAnchorMode.Require,
+      mode: DeliveryMode.Standard,
       auditLog: join(".air", "audit-agent.jsonl"),
     });
     assert.throws(

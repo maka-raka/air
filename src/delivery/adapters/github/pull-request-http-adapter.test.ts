@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { GitHubPullRequestHttpAdapter } from "./pull-request-http-adapter.js";
+import type { RequiredStatus } from "./pull-request-http-adapter.js";
 import { GitHubRestClient } from "./github-rest-client.js";
 import type { HttpRequest } from "./github-rest-client.js";
 
@@ -21,7 +22,11 @@ const status = (
     ? { state, context }
     : { state, context, creator: { id: creator } };
 
-function adapter(fixture: Fixture) {
+const OPERATOR_ID = 3;
+const OWNER_ID = 11;
+const REQUIRED = { context: "air/check", creator: OPERATOR_ID };
+
+function adapter(fixture: Fixture, required: RequiredStatus | null = null) {
   const paths: string[] = [];
   const request: HttpRequest = async (url) => {
     const parsed = new URL(url);
@@ -52,7 +57,10 @@ function adapter(fixture: Fixture) {
     token: "t",
     request,
   });
-  return { paths, prs: new GitHubPullRequestHttpAdapter(client, [AGENT_ID]) };
+  return {
+    paths,
+    prs: new GitHubPullRequestHttpAdapter(client, [AGENT_ID], required),
+  };
 }
 
 const passed = { status: "completed", conclusion: "success" };
@@ -177,6 +185,71 @@ describe("GitHubPullRequestHttpAdapter", () => {
     });
 
     assert.equal((await prs.status(57)).checksGreen, true);
+  });
+
+  describe("with a required status", () => {
+    it("is green once the required creator's status passes", async () => {
+      const { prs } = adapter(
+        {
+          pull: { state: "open" },
+          statuses: [status("success", "air/check", OPERATOR_ID)],
+        },
+        REQUIRED,
+      );
+
+      assert.equal((await prs.status(57)).checksGreen, true);
+    });
+
+    for (const [name, fixture] of [
+      [
+        "only other checks passing",
+        {
+          pull: { state: "open" },
+          runs: [passed],
+          statuses: [status("success")],
+        },
+      ],
+      [
+        "the required context set by the repository owner",
+        {
+          pull: { state: "open" },
+          statuses: [status("success", "air/check", OWNER_ID)],
+        },
+      ],
+      [
+        "the owner's success over the operator's failure",
+        {
+          pull: { state: "open" },
+          statuses: [
+            status("success", "air/check", OWNER_ID),
+            status("failure", "air/check", OPERATOR_ID),
+          ],
+        },
+      ],
+      [
+        "the operator's check still pending",
+        {
+          pull: { state: "open" },
+          statuses: [status("pending", "air/check", OPERATOR_ID)],
+        },
+      ],
+      [
+        "the operator's success but another check failing",
+        {
+          pull: { state: "open" },
+          statuses: [
+            status("success", "air/check", OPERATOR_ID),
+            status("failure"),
+          ],
+        },
+      ],
+    ] as const) {
+      it(`is not green with ${name}`, async () => {
+        const { prs } = adapter(fixture, REQUIRED);
+
+        assert.equal((await prs.status(57)).checksGreen, false);
+      });
+    }
   });
 
   it("counts only the newest status of each context", async () => {

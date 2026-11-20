@@ -1,3 +1,4 @@
+import { DeliveryMode } from "../domain/delivery-mode.js";
 import { StateAnchorMode } from "../domain/trust-policy.js";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -58,6 +59,7 @@ class FakeGitHub {
   readonly comments: unknown[] = [];
   permission = "write";
   checks = "success";
+  statuses: unknown[] = [];
 
   /** An agent-authored record comment (author 77). */
   addRecord(id: number, record: unknown) {
@@ -126,7 +128,7 @@ class FakeGitHub {
       return respond({
         check_runs: [{ status: "completed", conclusion: this.checks }],
       });
-    if (path === "/commits/abc123/statuses") return respond([]);
+    if (path === "/commits/abc123/statuses") return respond(this.statuses);
     if (path === "/issues/42/comments" && init.method === "POST") {
       this.posted.push(body.body);
       this.addComment(100_000 + this.posted.length, body.body, this.viewer.id);
@@ -149,6 +151,7 @@ const config = (dir: string): LocalConfig => ({
   recordPublicKey: KEYS.publicKey,
   operatorSigningKey: OPERATOR_KEYS.privateKey,
   stateAnchors: StateAnchorMode.Bootstrap,
+  mode: DeliveryMode.Standard,
   approverLogins: ["octocat"],
   allowOperatorApprover: false,
   launchPhases: [],
@@ -353,6 +356,45 @@ describe("local composition", () => {
     });
   }
 
+  for (const [name, statuses, expected] of [
+    ["green CI but no air/check", [], "air:build:waiting"],
+    [
+      "air/check set by someone else",
+      [{ state: "success", context: "air/check", creator: APPROVER }],
+      "air:build:waiting",
+    ],
+    [
+      "the operator's air/check",
+      [{ state: "success", context: "air/check", creator: OPERATOR }],
+      "air:review:ready",
+    ],
+  ] as const) {
+    it(`in lite mode, gates review on the operator's check (${name})`, async () => {
+      const github = new FakeGitHub();
+      github.setState("air:build:waiting");
+      github.statuses = [...statuses];
+      const poller = await composeLocal(
+        {
+          ...config(join(stateDir, `lite-${expected}-${statuses.length}`)),
+          mode: DeliveryMode.Lite,
+        },
+        github.request,
+      );
+      await poller.pollOnce();
+      github.addRecord(6000, {
+        kind: "report",
+        phase: "build",
+        at: "2026-11-10T12:00:00Z",
+        facts: { pullRequest: 57 },
+      });
+      github.addComment(6001, "/air advance review");
+
+      await poller.pollOnce();
+
+      assert.deepEqual(github.labels, [expected]);
+    });
+  }
+
   it("fails closed when the agent recorded no report", async () => {
     const github = new FakeGitHub();
     github.setState("air:requirements:waiting");
@@ -530,6 +572,7 @@ describe("readLocalConfig", () => {
       allowOperatorApprover: false,
       operatorSigningKey: "c2VjcmV0",
       stateAnchors: StateAnchorMode.Require,
+      mode: DeliveryMode.Standard,
       auditLog: join(".air", "audit-poller.jsonl"),
       launchPhases: [],
       launchDir: join(".air", "launch"),

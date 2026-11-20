@@ -7,6 +7,8 @@ import type { DeliveryCommandExecutor } from "../application/comment-command-han
 import type { AuditPort } from "../application/audit.js";
 import { IngestHumanCommand } from "../application/ingest-human-command.js";
 import { GitHubCollaboratorAccess } from "../adapters/github/collaborator-authorization.js";
+import { DeliveryModes } from "../domain/delivery-mode.js";
+import type { DeliveryMode } from "../domain/delivery-mode.js";
 import {
   GitHubCommandReplyAdapter,
   GitHubProcessedCommands,
@@ -23,7 +25,6 @@ import { InMemoryDeliveryClaims } from "../adapters/local/in-memory-delivery-cla
 import { RecordedDeliveryEvidence } from "../application/recorded-delivery-evidence.js";
 import { GitHubDeliveryRecordStore } from "../adapters/github/delivery-record-store.js";
 import { TrustedDeliveryRecords } from "../application/delivery-record.js";
-import { GitHubPullRequestHttpAdapter } from "../adapters/github/pull-request-http-adapter.js";
 import { GitHubUserHttpAdapter } from "../adapters/github/user-http-adapter.js";
 import {
   assertTokenOwner,
@@ -38,6 +39,7 @@ import {
   stateAnchorStore,
   trustPolicy,
   trustedExecutor,
+  pullRequestStatus,
 } from "./trust.js";
 import type { ServiceLogins } from "./trust.js";
 import type { StateAnchorMode } from "../domain/trust-policy.js";
@@ -79,6 +81,8 @@ export type LocalConfig = Readonly<{
   /** Deployer public key; required when a deployer is configured. */
   deployPublicKey?: string;
   stateAnchors: StateAnchorMode;
+  /** AIR_MODE: in lite the review gate requires the operator's `air/check`. */
+  mode: DeliveryMode;
   /** Hash-chained audit log file; one writer per file. */
   auditLog: string;
   /**
@@ -157,6 +161,7 @@ export function readLocalConfig(
       ? { deployPublicKey: env.AIR_DEPLOY_PUBLIC_KEY }
       : {}),
     stateAnchors: readAnchorMode(env),
+    mode: DeliveryModes.parse(env.AIR_MODE),
     auditLog:
       env.AIR_AUDIT_LOG ||
       join(env.AIR_STATE_DIR || ".air", "audit-poller.jsonl"),
@@ -223,7 +228,7 @@ export async function composeLocal(
   const handler = new CommentCommandHandler(
     new RecordedDeliveryEvidence(
       records,
-      new GitHubPullRequestHttpAdapter(client, [accounts.agent.id]),
+      pullRequestStatus(client, accounts, config.mode),
       () => new Date(),
       config.runTtlMs,
     ),

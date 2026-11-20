@@ -24,6 +24,10 @@ import {
   Ed25519RecordSigner,
   Ed25519RecordVerifier,
 } from "../adapters/signature/record-signature.js";
+import { GitHubPullRequestHttpAdapter } from "../adapters/github/pull-request-http-adapter.js";
+import { PROJECT_CHECK_CONTEXT } from "../application/project-check.js";
+import type { PullRequestStatusPort } from "../application/recorded-delivery-evidence.js";
+import { DeliveryMode } from "../domain/delivery-mode.js";
 import { required } from "./config.js";
 import type { Env } from "./config.js";
 
@@ -274,4 +278,25 @@ export function trustedExecutor(
 /** The process's hash-chained audit log file (ADR-0010 step 6). */
 export function fileAuditLog(path: string): AuditPort {
   return new HashChainedAuditLog(new FileAuditLines(path));
+}
+
+/**
+ * The review gate's view of a pull request. The agent's statuses never
+ * count. In lite mode no CI runs, so `air/check` is required and counts only
+ * from the operator, who runs `air-check` (ADR-0016).
+ */
+export function pullRequestStatus(
+  client: GitHubRestClient,
+  accounts: ServiceAccounts,
+  mode: DeliveryMode,
+): PullRequestStatusPort {
+  const required =
+    mode === DeliveryMode.Lite
+      ? { context: PROJECT_CHECK_CONTEXT, creator: accounts.operator.id }
+      : null;
+  return new GitHubPullRequestHttpAdapter(
+    client,
+    [accounts.agent.id],
+    required,
+  );
 }

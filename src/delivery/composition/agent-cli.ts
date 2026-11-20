@@ -8,13 +8,14 @@ import { ReadAgentContext } from "../application/agent-context.js";
 import { AgentContextRenderer } from "./agent-context-render.js";
 import { GitHubIssueTextAdapter } from "../adapters/github/issue-text-adapter.js";
 import { GitHubCollaboratorAccess } from "../adapters/github/collaborator-authorization.js";
-import { GitHubPullRequestHttpAdapter } from "../adapters/github/pull-request-http-adapter.js";
 import type { RecordResult } from "../application/agent-commands.js";
 import type { ReportFacts } from "../application/delivery-record.js";
 import type { DeliveryResult } from "../application/execute-delivery-command.js";
 import { DeliveryPhase } from "../domain/state-machine.js";
 import { isEntryPoint, loadEnvFile, repository, required } from "./config.js";
 import type { StateAnchorMode } from "../domain/trust-policy.js";
+import { DeliveryModes } from "../domain/delivery-mode.js";
+import type { DeliveryMode } from "../domain/delivery-mode.js";
 import {
   demoRepository,
   initProject,
@@ -55,6 +56,7 @@ import {
   labelStateStore,
   trustPolicy,
   trustedExecutor,
+  pullRequestStatus,
 } from "./trust.js";
 import { GitHubRepositoryHttpAdapter } from "../adapters/github/repository-http-adapter.js";
 import type { ServiceLogins } from "./trust.js";
@@ -259,6 +261,8 @@ export type AgentConfig = Readonly<{
   /** Deployer public key; required when a deployer is configured. */
   deployPublicKey?: string;
   stateAnchors: StateAnchorMode;
+  /** AIR_MODE: in lite the review gate requires the operator's `air/check`. */
+  mode: DeliveryMode;
   /** Hash-chained audit log file; one writer per file. */
   auditLog: string;
   /** Set only in demo mode (ADR-0014); then every command warns. */
@@ -294,6 +298,7 @@ export function readAgentConfig(
       ? { deployPublicKey: env.AIR_DEPLOY_PUBLIC_KEY }
       : {}),
     stateAnchors: readAnchorMode(env),
+    mode: DeliveryModes.parse(env.AIR_MODE),
     auditLog:
       env.AIR_AUDIT_LOG ||
       join(env.AIR_STATE_DIR || ".air", "audit-agent.jsonl"),
@@ -376,7 +381,7 @@ export async function composeAgent(
       state,
       executor,
       records,
-      new GitHubPullRequestHttpAdapter(client, [accounts.agent.id]),
+      pullRequestStatus(client, accounts, config.mode),
       preflight,
       { now, runTtlMs: config.runTtlMs },
     ),
