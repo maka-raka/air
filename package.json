@@ -43,6 +43,7 @@
   "bin": {
     "air": "dist/src/delivery/composition/agent-cli.js",
     "air-deploy": "dist/src/delivery/composition/deploy-cli.js",
+    "air-check": "dist/src/delivery/composition/check-cli.js",
     "air-local": "dist/src/delivery/composition/local.js",
     "air-launcher": "dist/src/delivery/composition/launcher.js",
     "air-ui": "dist/src/delivery/composition/console.js"

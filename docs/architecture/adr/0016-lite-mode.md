@@ -1,6 +1,6 @@
 # ADR-0016 — Lite Mode for Repositories Without Branch Rules
 
-- **Status:** Proposed for review (step 1 implemented: `air doctor`)
+- **Status:** Proposed for review (implemented: `air doctor`, `air-check`)
 - **Date:** 2026-11-20
 - **Scope:** A second operating mode, `AIR_MODE=lite`, for repositories whose plan offers no branch rules, and what AIR does instead of relying on them
 - **Builds on:** [ADR-0007](0007-threat-model-and-trust-boundaries.md) (threat model), [ADR-0010](0010-zero-trust.md) (zero trust), [ADR-0014](0014-demo-mode.md) (demo mode)
@@ -15,7 +15,7 @@ Demo mode (ADR-0014) is not the answer. It is meant for a throwaway repository, 
 | | `standard` (default) | `lite` |
 | --- | --- | --- |
 | Default-branch rules | required | not checked; `air doctor` warns that the branch is unprotected |
-| Checks behind the review gate | CI | `air check` runs the project's check locally; the operator posts the commit status *(planned)* |
+| Checks behind the review gate | CI | `air-check` runs the project's check locally; the operator sets the `air/check` commit status |
 | Agent's access to code | write | read only; `air push` (operator) pushes `air/<issue>-…` branches only *(planned)* |
 | Changes that bypass AIR | blocked by the platform | detected: the operator moves them off the default branch and opens an issue *(planned)* |
 | Releases and deploys | from the default branch | only commits with a signed gate record *(planned)* |
@@ -34,9 +34,23 @@ Demo mode (ADR-0014) is not the answer. It is meant for a throwaway repository, 
 - In `standard`, they are required as before. If any is missing or unreadable, `air doctor` adds a `warn` that points to `AIR_MODE=lite`.
 - In `lite`, they are not checked. `air doctor` adds one `warn` (`mode.lite`) that says the platform doesn't protect the default branch.
 
+### `air-check <issue>`
+
+A separate command that uses the operator's token (`AIR_GITHUB_TOKEN`, checked against `AIR_OPERATOR_LOGIN`), like `air-deploy` uses the deployer's. It:
+
+1. takes the pull request from the delivery's latest trusted Build report, the same one the review gate reads;
+2. refuses a missing or closed pull request, or one whose head is in another repository;
+3. sets `air/check` to `pending`, fetches the head commit, and runs `AIR_CHECK_COMMAND` with `/bin/sh` on a detached `git worktree` in a temporary directory, never in the project's own checkout;
+4. strips `AIR_*`, `GH_TOKEN`, `GITHUB_TOKEN` and `GH_ENTERPRISE_TOKEN` from the command's environment, and stops its whole process group after `AIR_CHECK_TIMEOUT_MS` (30 minutes by default);
+5. writes the output to `.air/checks/<sha>.log`, sets `air/check` to `success` or `failure` (or `error` if the check couldn't run), and records the outcome in `.air/audit-check.jsonl`.
+
+The review gate needs no change. It already ignores statuses set by the agent (#94), so in `lite` an `air/check` from the operator is what turns a pull request green. Any other status or check run on the commit must pass too, so in `lite` disable workflows that can't run: a run that fails to start (for example on a billing block) keeps the gate closed. The operator's token needs **Commit statuses: read and write**.
+
+The agent must never run `air-check`. The command uses a token the agent doesn't hold, but on one machine it can reach the same `.env.air`, so the installed skill forbids it. Step 2 adds a Claude Code deny rule.
+
 ### Planned steps (separate changes)
 
-1. `air check`, and a review gate that accepts the operator-posted status in `lite`.
+1. Run `air-check` from the operator's poller when a delivery's pull request has a new head, so nobody has to start it.
 2. Agent without write access to code, `air push` for issue branches only, and `air init --mode lite` with Claude Code deny rules for plain `git push`, `--force`, `--no-verify` and the operator's key.
 3. A watchdog on the default branch, and releases and deploys only from commits with a signed gate record.
 4. GitHub Apps instead of service accounts, with private keys kept outside the repository (#91).

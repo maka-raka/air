@@ -11,6 +11,7 @@ Changes that affect projects using AIR. Versions follow semver; before 1.0 a min
 ### Added
 
 - **Lite mode for repositories without branch rules** ([ADR-0016](docs/architecture/adr/0016-lite-mode.md)), step 1. `AIR_MODE=lite` tells `air doctor` not to require default-branch rules, which a private repository on GitHub Free can't have. Instead, it warns that the branch is unprotected. In the default `standard` mode, missing or unreadable branch rules now come with a hint to use lite. `air doctor` has a new `warn` status that never fails the audit, even with `--strict`.
+- **`air-check <issue>` for lite mode** ([ADR-0016](docs/architecture/adr/0016-lite-mode.md)), step 2. Where no CI runs, the operator runs `AIR_CHECK_COMMAND` on a clean worktree of the delivery's pull request head, without AIR's tokens in its environment, and sets the `air/check` commit status that the review gate counts. The operator's token needs Commit statuses: read and write. `air templates` updates an untouched `air-delivery` skill, which now forbids the agent to run it.
 
 ## 0.4.0 (2026-11-20)
 
