@@ -86,6 +86,8 @@ type Transition = Readonly<{
   actor: Actor;
   from?: Status;
   phases?: readonly Phase[];
+  /** The phases `request.target` may name; only for transitions that read it. */
+  targets?: (current: Position) => readonly Phase[];
   guard?: (current: Position, request: Request) => boolean;
   rejected?: FailureReason;
   next: (current: Position, request: Request) => Position | null;
@@ -100,10 +102,20 @@ const denied = (reason: FailureReason): Decision => ({
   reason,
 });
 const allowed = (next: Position | null): Decision => ({ allowed: true, next });
+const samePosition = (a: Position, b: Position): boolean =>
+  a.phase === b.phase && a.status === b.status;
 
 const { Requirements, Design, Build, Review, Accept, Observe } = DeliveryPhase;
 const { Ready, Working, Blocked, Waiting } = DeliveryStatus;
 const { Human, Agent, Gate, DeploymentWorkflow } = DeliveryActor;
+
+/** Where `advance` may lead from each phase, before any facts are known. */
+const ADVANCE_TARGETS: Readonly<Partial<Record<Phase, readonly Phase[]>>> = {
+  [Requirements]: [Design, Build],
+  [Design]: [Build],
+  [Build]: [Review],
+};
+const INITIAL = position(Requirements, Ready);
 const {
   Start,
   Complete,
@@ -176,6 +188,7 @@ export class DeliveryStateMachine {
       actor: Human,
       from: Waiting,
       phases: [Requirements, Design, Build],
+      targets: (current) => ADVANCE_TARGETS[current.phase] ?? [],
       guard: (current, request) => {
         const to = request.target;
         const facts = request.facts;
@@ -253,6 +266,46 @@ export class DeliveryStateMachine {
       return denied(transition.rejected ?? DecisionReason.PreconditionFailed);
     }
     return allowed(transition.next(current, request));
+  }
+
+  /**
+   * Whether some action of `actor` can move a delivery from `from` to `to`
+   * when its facts allow it. Facts are not checked: this answers whether a
+   * recorded move had the right shape and author, not whether it was earned.
+   * `initialize` leads to the first position from anywhere, because a closed
+   * delivery keeps its last position.
+   */
+  leads(from: Position | null, to: Position, actor: Actor): boolean {
+    if (actor === Human && samePosition(to, INITIAL)) return true;
+    if (!from) return false;
+    return Object.entries(this.transitions).some(([action, transition]) =>
+      this.shapes(action as Action, transition, from, to, actor),
+    );
+  }
+
+  private shapes(
+    action: Action,
+    transition: Transition,
+    from: Position,
+    to: Position,
+    actor: Actor,
+  ): boolean {
+    if (transition.actor !== actor || transition.from !== from.status)
+      return false;
+    if (transition.phases && !transition.phases.includes(from.phase))
+      return false;
+    return this.targets(transition, from).some((target) => {
+      const next = transition.next(from, { action, actor, target });
+      return next !== null && samePosition(next, to);
+    });
+  }
+
+  /** `undefined` stands for "no target", the only choice when none is read. */
+  private targets(
+    transition: Transition,
+    current: Position,
+  ): readonly (Phase | undefined)[] {
+    return transition.targets ? transition.targets(current) : [undefined];
   }
 
   actions(): readonly Action[] {

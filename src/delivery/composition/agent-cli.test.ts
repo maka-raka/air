@@ -24,6 +24,9 @@ import {
   Ed25519RecordSigner,
   generateRecordKeys,
 } from "../adapters/signature/record-signature.js";
+import { GitHubStateAnchorStore } from "../adapters/github/state-anchor-store.js";
+import { DeliveryPhase, DeliveryStatus } from "../domain/state-machine.js";
+import type { Phase, Status } from "../domain/state-machine.js";
 
 const KEYS = generateRecordKeys();
 const AUDIT_DIR = await mkdtemp(join(tmpdir(), "air-agent-"));
@@ -118,6 +121,35 @@ class FakeGitHub {
     return respond({ message: path }, 500);
   };
 }
+
+/** A signed state anchor comment body, as an AIR process posts it. */
+async function anchorBody(
+  privateKey: string,
+  phase: Phase,
+  status: Status,
+): Promise<string> {
+  let body = "";
+  await new GitHubStateAnchorStore(
+    {
+      post: async (_issue, text) => {
+        body = text;
+      },
+      list: async () => [],
+    },
+    {
+      repositoryId: 123,
+      verifiers: new Map(),
+      signer: Ed25519RecordSigner.fromBase64(privateKey),
+    },
+  ).append(42, { phase, status });
+  return body;
+}
+const initializedAnchor = () =>
+  anchorBody(
+    OPERATOR_KEYS.privateKey,
+    DeliveryPhase.Requirements,
+    DeliveryStatus.Ready,
+  );
 
 const config: AgentConfig = {
   owner: "example",
@@ -330,19 +362,50 @@ describe("agent CLI composition", () => {
 
   it("trusts its own anchored state in require mode", async () => {
     const github = new FakeGitHub();
-    const bootstrap = await composeAgent(config, github.request);
-    await bootstrap.commands.start(42);
+    github.comments.push({ body: await initializedAnchor(), user: OPERATOR });
     const strict = await composeAgent(
       { ...config, stateAnchors: StateAnchorMode.Require },
       github.request,
     );
+    assert.equal((await strict.commands.start(42)).ok, true);
+    const fresh = await composeAgent(
+      { ...config, stateAnchors: StateAnchorMode.Require },
+      github.request,
+    );
 
-    const second = await strict.commands.start(42);
+    const second = await fresh.commands.start(42);
 
     // Trusted state, refused only by the delivery rules (run already active).
     assert.equal(
       !second.ok && second.reason,
       DeliveryFailure.InvalidTransition,
+    );
+  });
+
+  it("refuses a state the agent signed but could never reach", async () => {
+    const github = new FakeGitHub();
+    github.comments.push({ body: await initializedAnchor(), user: OPERATOR });
+    // A compromised agent sets a later phase itself and signs it.
+    github.setState("air:accept:ready", AGENT);
+    github.comments.push({
+      body: await anchorBody(
+        KEYS.privateKey,
+        DeliveryPhase.Accept,
+        DeliveryStatus.Ready,
+      ),
+      user: AGENT,
+    });
+    const strict = await composeAgent(
+      { ...config, stateAnchors: StateAnchorMode.Require },
+      github.request,
+    );
+
+    const refused = await strict.commands.start(42);
+
+    assert.equal(!refused.ok && refused.reason, DeliveryFailure.UntrustedState);
+    assert.match(
+      (!refused.ok && refused.detail) || "",
+      /cannot move a delivery from requirements:ready to accept:ready/,
     );
   });
 

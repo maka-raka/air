@@ -7,7 +7,15 @@ import {
   DeliveryStatus,
   DecisionReason,
 } from "./state-machine.js";
-import type { Action, Actor, Facts, Gate, Request } from "./state-machine.js";
+import type {
+  Action,
+  Actor,
+  Facts,
+  Gate,
+  Phase,
+  Position,
+  Request,
+} from "./state-machine.js";
 
 const machine = new DeliveryStateMachine();
 const phases = Object.values(DeliveryPhase);
@@ -113,6 +121,89 @@ fc.assert(
     },
   ),
   { numRuns: 1000, seed: 20261110 },
+);
+
+// `leads` answers for recorded moves (state anchors) what `decide` answers
+// for requested ones, without facts: every allowed move leads, and every move
+// that leads is allowed for some facts.
+fc.assert(
+  fc.property(positionArb, requestArb, (current, request) => {
+    const decision = machine.decide(current, request);
+    if (!decision.allowed || decision.next === null) return;
+    assert(
+      machine.leads(current, decision.next, request.actor),
+      `An allowed ${request.action} does not lead to its next position`,
+    );
+  }),
+  { numRuns: 2000, seed: 20261120 },
+);
+
+const positions: readonly Position[] = phases.flatMap((phase) =>
+  statuses.map((status) => ({ phase, status })),
+);
+const passedGate: Gate = {
+  passed: true,
+  problems: [],
+  evidenceRevision: "r1",
+  expectedRevision: "r1",
+  verdict: "go",
+};
+const earnedFacts = (taskSize: "S" | "L"): Facts => ({
+  preflightPassed: true,
+  activeRun: false,
+  reportRecorded: true,
+  feedbackRecorded: true,
+  recoveryConfirmed: true,
+  taskSize,
+  miniDesignRecorded: true,
+  designApproved: true,
+  prExists: true,
+  checksGreen: true,
+  approvedMergedPr: true,
+  deploymentVerified: true,
+  changeIncluded: true,
+  observeGo: true,
+});
+const targets: readonly (Phase | undefined)[] = [undefined, ...phases];
+function earnable(from: Position | null, to: Position, actor: Actor): boolean {
+  return actions.some((action) =>
+    targets.some((target) =>
+      (["S", "L"] as const).some((size) => {
+        const decision = machine.decide(from, {
+          action,
+          actor,
+          target,
+          facts: earnedFacts(size),
+          gate: passedGate,
+        });
+        return decision.allowed && same(decision.next, to);
+      }),
+    ),
+  );
+}
+for (const actor of actors)
+  for (const to of positions) {
+    assert(
+      machine.leads(null, to, actor) === earnable(null, to, actor),
+      `leads from no state to ${to.phase}:${to.status} for ${actor}`,
+    );
+    for (const from of positions) {
+      if (!machine.leads(from, to, actor)) continue;
+      // Initialization restarts a closed delivery, which keeps its position.
+      const viaInitialize = earnable(null, to, actor);
+      assert(
+        viaInitialize || earnable(from, to, actor),
+        `${actor} leads ${from.phase}:${from.status} to ${to.phase}:${to.status} but no facts allow it`,
+      );
+    }
+  }
+assert(
+  !machine.leads(
+    { phase: DeliveryPhase.Requirements, status: DeliveryStatus.Waiting },
+    { phase: DeliveryPhase.Observe, status: DeliveryStatus.Ready },
+    DeliveryActor.Human,
+  ),
+  "advance leads only to the phases it may name",
 );
 
 assert(
