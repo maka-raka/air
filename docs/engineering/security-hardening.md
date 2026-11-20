@@ -39,7 +39,7 @@ Give every account two-factor authentication. Grant **Triage** to nobody you do 
 
 | Token | Repository permissions |
 | --- | --- |
-| `AIR_GITHUB_TOKEN` (operator) | Issues: read and write · Pull requests: read · Commit statuses: read · Checks: read · Metadata: read |
+| `AIR_GITHUB_TOKEN` (operator) | Issues: read and write · Pull requests: read · Commit statuses: read (**read and write** in lite mode, for `air-check`) · Checks: read · Metadata: read |
 | `AIR_AGENT_TOKEN` | Issues: read and write · Pull requests: read and write · Contents: read and write · Commit statuses: read · Checks: read · Metadata: read · **no Workflows, no Administration** |
 | `AIR_DEPLOY_TOKEN` | Issues: read and write · Pull requests: read · Contents: read · Deployments: read · Metadata: read |
 

@@ -15,6 +15,8 @@ export const AuditKind = {
   AgentContext: "agent-context",
   /** An agent run was requested after a trusted ready transition. */
   AgentLaunch: "agent-launch",
+  /** The operator ran the project check on a pull request (ADR-0016). */
+  Check: "check",
 } as const;
 export type AuditKind = (typeof AuditKind)[keyof typeof AuditKind];
 
