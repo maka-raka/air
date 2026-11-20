@@ -4,6 +4,8 @@
  * hosting platform's hardening checklist is supplied by its adapter.
  */
 
+import { DeliveryMode } from "../domain/delivery-mode.js";
+
 /** A setting AIR could read, or why it could not. */
 export type Known<T> =
   | Readonly<{ known: true; value: T }>
@@ -47,6 +49,8 @@ export const AuditStatus = {
   Pass: "pass",
   Fail: "fail",
   Unknown: "unknown",
+  /** Worth knowing, never blocking, even in strict mode. */
+  Warn: "warn",
 } as const;
 export type AuditStatus = (typeof AuditStatus)[keyof typeof AuditStatus];
 
@@ -60,6 +64,11 @@ export type AuditFinding = Readonly<{
 export type PlatformAudit = Readonly<{
   /** The platform's hardening checklist, already evaluated by its adapter. */
   findings: readonly AuditFinding[];
+  /**
+   * The default-branch rules, apart from the rest: only standard mode
+   * requires them (ADR-0016).
+   */
+  branchRules: readonly AuditFinding[];
   accounts: readonly AccountSetting[];
 }>;
 
@@ -75,6 +84,10 @@ export class AuditFindings {
 
   static fail(id: string, message: string): AuditFinding {
     return { id, status: AuditStatus.Fail, message };
+  }
+
+  static warn(id: string, message: string): AuditFinding {
+    return { id, status: AuditStatus.Warn, message };
   }
 
   static check(
@@ -116,11 +129,39 @@ export class RepositoryAudit {
   evaluate(
     platform: PlatformAudit,
     local: LocalSettings,
+    mode: DeliveryMode = DeliveryMode.Standard,
   ): readonly AuditFinding[] {
     return [
       ...platform.findings,
+      ...this.branchRules(platform.branchRules, mode),
       ...this.accounts(platform.accounts),
       ...this.local(local),
+    ];
+  }
+
+  /**
+   * Standard requires the rules and points to lite when they are missing;
+   * lite does not check them and says once that the branch is unprotected.
+   */
+  private branchRules(
+    rules: readonly AuditFinding[],
+    mode: DeliveryMode,
+  ): readonly AuditFinding[] {
+    if (mode === DeliveryMode.Lite)
+      return [
+        AuditFindings.warn(
+          "mode.lite",
+          "lite mode: the platform does not protect the default branch; AIR only detects changes that bypass it (ADR-0016)",
+        ),
+      ];
+    const missing = rules.some(({ status }) => status !== AuditStatus.Pass);
+    if (!missing) return rules;
+    return [
+      ...rules,
+      AuditFindings.warn(
+        "mode.suggest-lite",
+        "Branch rules are missing or unreadable. If your plan offers none, set AIR_MODE=lite (ADR-0016)",
+      ),
     ];
   }
 
@@ -181,8 +222,16 @@ export class AuditRepository {
     private readonly audit = new RepositoryAudit(),
   ) {}
 
-  async run(local: LocalSettings, strict: boolean) {
-    const findings = this.audit.evaluate(await this.platform.read(), local);
+  async run(
+    local: LocalSettings,
+    strict: boolean,
+    mode: DeliveryMode = DeliveryMode.Standard,
+  ) {
+    const findings = this.audit.evaluate(
+      await this.platform.read(),
+      local,
+      mode,
+    );
     const blocking: readonly AuditStatus[] = strict
       ? [AuditStatus.Fail, AuditStatus.Unknown]
       : [AuditStatus.Fail];

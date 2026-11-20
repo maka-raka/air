@@ -2,6 +2,12 @@
 
 Changes that affect projects using AIR. Versions follow semver; before 1.0 a minor version may break.
 
+## Unreleased
+
+### Added
+
+- **Lite mode for repositories without branch rules** ([ADR-0016](docs/architecture/adr/0016-lite-mode.md)), step 1. `AIR_MODE=lite` tells `air doctor` not to require default-branch rules, which a private repository on GitHub Free can't have. Instead, it warns that the branch is unprotected. In the default `standard` mode, missing or unreadable branch rules now come with a hint to use lite. `air doctor` has a new `warn` status that never fails the audit, even with `--strict`.
+
 ## 0.4.0 (2026-11-20)
 
 ### Security

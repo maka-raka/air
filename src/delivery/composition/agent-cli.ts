@@ -563,6 +563,7 @@ async function main(): Promise<void> {
     const { findings, failed } = await composeDoctor(config).run(
       readLocalSettings(".", config.demo),
       config.strict,
+      config.mode,
     );
     console.log(renderDoctor(findings));
     process.exitCode = failed ? ExitCode.Error : ExitCode.Ok;

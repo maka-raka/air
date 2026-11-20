@@ -18,6 +18,8 @@ import { DEFAULT_ENV_FILE, repository } from "./config.js";
 import type { Env } from "./config.js";
 import { readApproverLogins, readServiceLogins } from "./trust.js";
 import { DemoMode } from "./demo-mode.js";
+import { DeliveryModes } from "../domain/delivery-mode.js";
+import type { DeliveryMode } from "../domain/delivery-mode.js";
 
 export type DoctorConfig = Readonly<{
   owner: string;
@@ -29,11 +31,14 @@ export type DoctorConfig = Readonly<{
   strict: boolean;
   /** Demo mode never passes the audit. */
   demo: DemoMode | null;
+  /** AIR_MODE: lite does not require branch rules (ADR-0016). */
+  mode: DeliveryMode;
 }>;
 
 export const DOCTOR_USAGE = `Usage: air doctor [--strict] [--env-file <path>]
 
 Checks the repository against docs/engineering/security-hardening.md.
+AIR_MODE=lite skips the branch rules for plans that have none (ADR-0016).
 Token: AIR_DOCTOR_TOKEN, else GH_TOKEN, else AIR_GITHUB_TOKEN. Some
 settings are visible only to repository admins, for example:
   AIR_DOCTOR_TOKEN=$(gh auth token) npx --no air doctor`;
@@ -71,6 +76,7 @@ export function readDoctorConfig(
     environments,
     strict: args.includes(STRICT),
     demo: DemoMode.fromEnv(env),
+    mode: DeliveryModes.parse(env.AIR_MODE),
   };
 }
 
@@ -129,6 +135,7 @@ const marks: Readonly<Record<AuditStatus, string>> = {
   [AuditStatus.Pass]: "ok  ",
   [AuditStatus.Fail]: "FAIL",
   [AuditStatus.Unknown]: "??  ",
+  [AuditStatus.Warn]: "warn",
 };
 
 export function renderDoctor(findings: readonly AuditFinding[]): string {
@@ -137,6 +144,11 @@ export function renderDoctor(findings: readonly AuditFinding[]): string {
   return [
     ...findings.map(({ status, message }) => `${marks[status]}  ${message}`),
     "",
-    `${count(AuditStatus.Pass)} ok, ${count(AuditStatus.Fail)} failed, ${count(AuditStatus.Unknown)} unknown`,
+    [
+      `${count(AuditStatus.Pass)} ok, ${count(AuditStatus.Fail)} failed, ${count(AuditStatus.Unknown)} unknown`,
+      ...(count(AuditStatus.Warn) > 0
+        ? [`${count(AuditStatus.Warn)} warning(s)`]
+        : []),
+    ].join(", "),
   ].join("\n");
 }
