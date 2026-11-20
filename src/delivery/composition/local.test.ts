@@ -126,7 +126,7 @@ class FakeGitHub {
       return respond({
         check_runs: [{ status: "completed", conclusion: this.checks }],
       });
-    if (path === "/commits/abc123/status") return respond({ statuses: [] });
+    if (path === "/commits/abc123/statuses") return respond([]);
     if (path === "/issues/42/comments" && init.method === "POST") {
       this.posted.push(body.body);
       this.addComment(100_000 + this.posted.length, body.body, this.viewer.id);

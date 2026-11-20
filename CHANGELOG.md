@@ -4,6 +4,10 @@ Changes that affect projects using AIR. Versions follow semver; before 1.0 a min
 
 ## Unreleased
 
+### Security
+
+- **The agent can no longer turn its own pull request green.** The review gate counted every commit status on the head commit, whoever set it, and a token that can push can also set statuses (a classic `repo` token does). Now AIR reads each status with its creator and ignores the ones set by the agent account (matched by immutable ID). For each context, the newest remaining status counts. A status whose creator can't be read never counts as passing. Nothing changes for checks that CI reports.
+
 ### Added
 
 - **Lite mode for repositories without branch rules** ([ADR-0016](docs/architecture/adr/0016-lite-mode.md)), step 1. `AIR_MODE=lite` tells `air doctor` not to require default-branch rules, which a private repository on GitHub Free can't have. Instead, it warns that the branch is unprotected. In the default `standard` mode, missing or unreadable branch rules now come with a hint to use lite. `air doctor` has a new `warn` status that never fails the audit, even with `--strict`.

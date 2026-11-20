@@ -40,13 +40,48 @@ function head(data: unknown): HeadState {
   };
 }
 
+/** A status whose creator AIR can't tell never counts as passing. */
+const UNATTRIBUTED = "unattributed";
+
+/**
+ * The state of each status context, from its newest status by a creator
+ * that may report checks. `/statuses` lists newest first and, unlike the
+ * combined `/status`, names each creator.
+ */
+function latestStates(
+  statuses: readonly unknown[],
+  excluded: readonly number[],
+): readonly string[] {
+  const latest = new Map<string, string>();
+  for (const status of statuses) {
+    if (!object(status)) {
+      latest.set(`${UNATTRIBUTED}:${latest.size}`, UNATTRIBUTED);
+      continue;
+    }
+    const creator = object(status.creator) ? Number(status.creator.id) : NaN;
+    const context = String(status.context);
+    if (excluded.includes(creator) || latest.has(context)) continue;
+    latest.set(
+      context,
+      Number.isSafeInteger(creator) ? String(status.state) : UNATTRIBUTED,
+    );
+  }
+  return [...latest.values()];
+}
+
 /**
  * Reads pull request liveness and CI result for its head commit. Checks are
  * green only if at least one check run or commit status exists and every
- * one has finished successfully; zero checks is not green.
+ * one has finished successfully; zero checks is not green. Statuses set by
+ * an account that may not vouch for its own work (the agent) are ignored,
+ * so the agent can't turn its pull request green.
  */
 export class GitHubPullRequestHttpAdapter implements PullRequestStatusPort {
-  constructor(private readonly client: GitHubRestClient) {}
+  constructor(
+    private readonly client: GitHubRestClient,
+    /** Immutable IDs of accounts whose commit statuses don't count. */
+    private readonly untrustedStatusCreators: readonly number[],
+  ) {}
 
   async status(pullRequest: number): Promise<PullRequestStatus> {
     if (!Number.isSafeInteger(pullRequest) || pullRequest < 1)
@@ -74,20 +109,18 @@ export class GitHubPullRequestHttpAdapter implements PullRequestStatusPort {
         HttpMethod.Get,
         `/commits/${sha}/check-runs?per_page=100`,
       ),
-      this.client.call(HttpMethod.Get, `/commits/${sha}/status`),
+      this.client.call(HttpMethod.Get, `/commits/${sha}/statuses?per_page=100`),
     ]);
     if (!object(runs) || !Array.isArray(runs.check_runs))
       throw invalidResponse("Invalid check runs payload");
-    if (!object(statuses) || !Array.isArray(statuses.statuses))
+    if (!Array.isArray(statuses))
       throw invalidResponse("Invalid commit status payload");
     const conclusions = runs.check_runs.map((run: unknown) =>
       object(run) && run.status === GitHubCheckRunStatus.Completed
         ? String(run.conclusion)
         : "",
     );
-    const states = statuses.statuses.map((status: unknown) =>
-      object(status) ? String(status.state) : "",
-    );
+    const states = latestStates(statuses, this.untrustedStatusCreators);
     const all = [...conclusions, ...states];
     return all.length > 0 && all.every((value) => PASSING.includes(value));
   }

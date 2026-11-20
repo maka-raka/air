@@ -7,8 +7,19 @@ import type { HttpRequest } from "./github-rest-client.js";
 type Fixture = Readonly<{
   pull?: Readonly<{ state: string; merged?: boolean }> | null;
   runs?: readonly Readonly<{ status: string; conclusion: string | null }>[];
-  statuses?: readonly Readonly<{ state: string }>[];
+  statuses?: readonly unknown[];
 }>;
+
+const AGENT_ID = 7;
+const CI_ID = 9;
+const status = (
+  state: string,
+  context = "ci",
+  creator: number | null = CI_ID,
+) =>
+  creator === null
+    ? { state, context }
+    : { state, context, creator: { id: creator } };
 
 function adapter(fixture: Fixture) {
   const paths: string[] = [];
@@ -26,8 +37,8 @@ function adapter(fixture: Fixture) {
         : respond({ ...fixture.pull, head: { sha: "abc123" } });
     if (path === "/commits/abc123/check-runs")
       return respond({ check_runs: fixture.runs ?? [] });
-    if (path === "/commits/abc123/status")
-      return respond({ statuses: fixture.statuses ?? [] });
+    if (path === "/commits/abc123/statuses")
+      return respond(fixture.statuses ?? []);
     return respond({}, 500);
   };
   const client = new GitHubRestClient({
@@ -36,7 +47,7 @@ function adapter(fixture: Fixture) {
     token: "t",
     request,
   });
-  return { paths, prs: new GitHubPullRequestHttpAdapter(client) };
+  return { paths, prs: new GitHubPullRequestHttpAdapter(client, [AGENT_ID]) };
 }
 
 const passed = { status: "completed", conclusion: "success" };
@@ -46,7 +57,7 @@ describe("GitHubPullRequestHttpAdapter", () => {
     const { prs } = adapter({
       pull: { state: "open" },
       runs: [passed, { status: "completed", conclusion: "skipped" }],
-      statuses: [{ state: "success" }],
+      statuses: [status("success")],
     });
 
     assert.deepEqual(await prs.status(57), {
@@ -77,8 +88,35 @@ describe("GitHubPullRequestHttpAdapter", () => {
       {
         pull: { state: "open" },
         runs: [passed],
-        statuses: [{ state: "pending" }],
+        statuses: [status("pending")],
       },
+    ],
+    [
+      "only the agent's own success",
+      {
+        pull: { state: "open" },
+        statuses: [status("success", "ci", AGENT_ID)],
+      },
+    ],
+    [
+      "the agent's success over a failure",
+      {
+        pull: { state: "open" },
+        runs: [passed],
+        statuses: [status("success", "ci", AGENT_ID), status("failure")],
+      },
+    ],
+    [
+      "a status without a creator",
+      {
+        pull: { state: "open" },
+        runs: [passed],
+        statuses: [status("success", "ci", null)],
+      },
+    ],
+    [
+      "an unreadable status",
+      { pull: { state: "open" }, runs: [passed], statuses: [null] },
     ],
   ] as const) {
     it(`is not green with ${name}`, async () => {
@@ -87,6 +125,19 @@ describe("GitHubPullRequestHttpAdapter", () => {
       assert.equal((await prs.status(57)).checksGreen, false);
     });
   }
+
+  it("counts only the newest status of each context", async () => {
+    const { prs } = adapter({
+      pull: { state: "open" },
+      statuses: [
+        status("success"),
+        status("failure"),
+        status("success", "lint"),
+      ],
+    });
+
+    assert.equal((await prs.status(57)).checksGreen, true);
+  });
 
   it("treats merged PRs as active and closed-unmerged ones as inactive", async () => {
     const merged = adapter({

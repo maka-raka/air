@@ -223,7 +223,7 @@ export async function composeLocal(
   const handler = new CommentCommandHandler(
     new RecordedDeliveryEvidence(
       records,
-      new GitHubPullRequestHttpAdapter(client),
+      new GitHubPullRequestHttpAdapter(client, [accounts.agent.id]),
       () => new Date(),
       config.runTtlMs,
     ),
