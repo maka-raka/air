@@ -376,7 +376,7 @@ export async function composeAgent(
       state,
       executor,
       records,
-      new GitHubPullRequestHttpAdapter(client),
+      new GitHubPullRequestHttpAdapter(client, [accounts.agent.id]),
       preflight,
       { now, runTtlMs: config.runTtlMs },
     ),
