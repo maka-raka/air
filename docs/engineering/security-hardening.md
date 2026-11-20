@@ -4,6 +4,8 @@ AIR verifies who set delivery state and who wrote the evidence ([ADR-0007](../ar
 
 Demo mode (`air init --demo`, [ADR-0014](../architecture/adr/0014-demo-mode.md)) skips these items for one throwaway repository. It is never a substitute: `air doctor` fails while `AIR_DEMO` is set.
 
+Lite mode (`AIR_MODE=lite`, [ADR-0016](../architecture/adr/0016-lite-mode.md)) is for repositories whose plan offers no branch rules, such as a private repository on GitHub Free. `air doctor` then skips the default-branch rules in §3 and warns that the branch isn't protected. Every other item still applies.
+
 ## Check it automatically
 
 ```bash

@@ -8,6 +8,7 @@ import {
   AuditStatus,
   RepositoryAudit,
 } from "./repository-audit.js";
+import { DeliveryMode } from "../domain/delivery-mode.js";
 import type {
   AccountSetting,
   LocalSettings,
@@ -25,6 +26,7 @@ const accounts: readonly AccountSetting[] = [
 ];
 const hardened: PlatformAudit = {
   findings: [AuditFindings.pass("platform.rule", "Platform rule holds")],
+  branchRules: [AuditFindings.pass("branch.rule", "Branch rule holds")],
   accounts,
 };
 const tidy: LocalSettings = { envFilePrivate: true, envFileIgnored: true };
@@ -46,6 +48,7 @@ describe("RepositoryAudit", () => {
   it("lists the platform's findings first, unchanged", () => {
     const platform: PlatformAudit = {
       findings: [AuditFindings.fail("platform.rule", "Platform rule broken")],
+      branchRules: [],
       accounts: [],
     };
 
@@ -148,6 +151,7 @@ describe("AuditRepository", () => {
     findings: [
       { id: "platform.rule", status: AuditStatus.Unknown, message: "?" },
     ],
+    branchRules: [],
     accounts,
   };
   const port = { read: async () => unknown };
@@ -168,5 +172,59 @@ describe("AuditRepository", () => {
     );
 
     assert.equal(result.failed, true);
+  });
+});
+
+describe("RepositoryAudit branch rules by mode (ADR-0016)", () => {
+  const unprotected: PlatformAudit = {
+    ...hardened,
+    branchRules: [
+      AuditFindings.fail("branch.pull-request", "main accepts direct pushes"),
+      { id: "branch.bypass", status: AuditStatus.Unknown, message: "?" },
+    ],
+  };
+  const ids = (platform: PlatformAudit, mode: DeliveryMode) =>
+    audit.evaluate(platform, tidy, mode).map(({ id }) => id);
+
+  it("standard requires the rules and suggests lite when they are missing", () => {
+    assert.deepEqual(
+      ids(unprotected, DeliveryMode.Standard).filter((id) =>
+        /^(branch|mode)\./.test(id),
+      ),
+      ["branch.pull-request", "branch.bypass", "mode.suggest-lite"],
+    );
+  });
+
+  it("standard says nothing about lite when every rule holds", () => {
+    assert.equal(
+      ids(hardened, DeliveryMode.Standard).includes("mode.suggest-lite"),
+      false,
+    );
+  });
+
+  it("lite skips the rules and warns once that the branch is unprotected", () => {
+    const findings = audit.evaluate(unprotected, tidy, DeliveryMode.Lite);
+
+    assert.deepEqual(
+      findings.filter(({ id }) => /^(branch|mode)\./.test(id)),
+      [
+        {
+          id: "mode.lite",
+          status: AuditStatus.Warn,
+          message:
+            "lite mode: the platform does not protect the default branch; AIR only detects changes that bypass it (ADR-0016)",
+        },
+      ],
+    );
+  });
+
+  it("never blocks on a warning, even in strict mode", async () => {
+    const use = new AuditRepository({ read: async () => unprotected });
+
+    assert.equal((await use.run(tidy, true, DeliveryMode.Lite)).failed, false);
+    assert.equal(
+      (await use.run(tidy, false, DeliveryMode.Standard)).failed,
+      true,
+    );
   });
 });

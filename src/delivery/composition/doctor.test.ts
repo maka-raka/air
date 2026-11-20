@@ -72,6 +72,18 @@ describe("readDoctorConfig", () => {
       /does not match AIR_REPOSITORY/,
     );
   });
+
+  it("reads AIR_MODE, standard by default (ADR-0016)", () => {
+    assert.equal(readDoctorConfig(env, []).mode, "standard");
+    assert.equal(
+      readDoctorConfig({ ...env, AIR_MODE: "lite" }, []).mode,
+      "lite",
+    );
+    assert.throws(
+      () => readDoctorConfig({ ...env, AIR_MODE: "free" }, []),
+      /Invalid AIR_MODE: free/,
+    );
+  });
 });
 
 describe("readLocalSettings", () => {
@@ -147,6 +159,9 @@ describe("composeDoctor", () => {
     assert.equal(failed, true);
     assert.match(renderDoctor(findings), /^FAIL {2}Repository is public/m);
     assert.match(renderDoctor(findings), /main accepts direct pushes/);
-    assert.match(renderDoctor(findings), /3 ok, 9 failed, 2 unknown$/);
+    assert.match(
+      renderDoctor(findings),
+      /3 ok, 9 failed, 2 unknown, 1 warning\(s\)$/,
+    );
   });
 });

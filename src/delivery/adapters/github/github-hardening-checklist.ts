@@ -61,14 +61,9 @@ const BRANCH_IDS = [
  * (docs/engineering/security-hardening.md). Pure: reads nothing itself.
  */
 export class GitHubHardeningChecklist {
-  evaluate(settings: RepositorySettings): readonly AuditFinding[] {
+  /** The default-branch rules and who may bypass them. */
+  branchRules(settings: RepositorySettings): readonly AuditFinding[] {
     return [
-      check(
-        "repository.private",
-        settings.private,
-        "Repository is private",
-        "Repository is public: anyone can comment, and the agent reads comments (prompt injection)",
-      ),
       ...known(settings.branch, BRANCH_IDS, (value) =>
         this.branch(settings.defaultBranch, value),
       ),
@@ -80,6 +75,18 @@ export class GitHubHardeningChecklist {
           `These can bypass the default-branch rules: ${actors.join(", ")}`,
         ),
       ]),
+    ];
+  }
+
+  /** Everything else on the checklist. */
+  evaluate(settings: RepositorySettings): readonly AuditFinding[] {
+    return [
+      check(
+        "repository.private",
+        settings.private,
+        "Repository is private",
+        "Repository is public: anyone can comment, and the agent reads comments (prompt injection)",
+      ),
       ...known(
         settings.codeowners,
         ["codeowners.workflows", "codeowners.errors"],
@@ -209,6 +216,7 @@ export class GitHubPlatformAudit implements PlatformAuditPort {
     const settings = await this.settings.read();
     return {
       findings: this.checklist.evaluate(settings),
+      branchRules: this.checklist.branchRules(settings),
       accounts: settings.accounts,
     };
   }
