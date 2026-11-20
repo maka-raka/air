@@ -24,8 +24,13 @@ const status = (
 function adapter(fixture: Fixture) {
   const paths: string[] = [];
   const request: HttpRequest = async (url) => {
-    const path = new URL(url).pathname.replace("/repos/example/air", "");
+    const parsed = new URL(url);
+    const path = parsed.pathname.replace("/repos/example/air", "");
     paths.push(path);
+    const size = Number(parsed.searchParams.get("per_page") ?? 30);
+    const page = Number(parsed.searchParams.get("page") ?? 1);
+    const slice = <T>(items: readonly T[]) =>
+      items.slice((page - 1) * size, page * size);
     const respond = (body: unknown, status = 200) => ({
       ok: status < 400,
       status,
@@ -36,9 +41,9 @@ function adapter(fixture: Fixture) {
         ? respond({}, 404)
         : respond({ ...fixture.pull, head: { sha: "abc123" } });
     if (path === "/commits/abc123/check-runs")
-      return respond({ check_runs: fixture.runs ?? [] });
+      return respond({ check_runs: slice(fixture.runs ?? []) });
     if (path === "/commits/abc123/statuses")
-      return respond(fixture.statuses ?? []);
+      return respond(slice(fixture.statuses ?? []));
     return respond({}, 500);
   };
   const client = new GitHubRestClient({
@@ -125,6 +130,54 @@ describe("GitHubPullRequestHttpAdapter", () => {
       assert.equal((await prs.status(57)).checksGreen, false);
     });
   }
+
+  it("is not green when the agent's statuses push a failure off the first page", async () => {
+    const flood = Array.from({ length: 100 }, (_, i) =>
+      status("success", `agent-${i}`, AGENT_ID),
+    );
+    const { prs } = adapter({
+      pull: { state: "open" },
+      runs: [passed],
+      statuses: [...flood, status("failure")],
+    });
+
+    assert.equal((await prs.status(57)).checksGreen, false);
+  });
+
+  it("is not green with a failing check run past the first page", async () => {
+    const { prs } = adapter({
+      pull: { state: "open" },
+      runs: [
+        ...Array.from({ length: 100 }, () => passed),
+        { status: "completed", conclusion: "failure" },
+      ],
+    });
+
+    assert.equal((await prs.status(57)).checksGreen, false);
+  });
+
+  it("is not green when there are more statuses than it reads", async () => {
+    const { prs } = adapter({
+      pull: { state: "open" },
+      runs: [passed],
+      statuses: Array.from({ length: 1000 }, (_, i) =>
+        status("success", `ci-${i}`),
+      ),
+    });
+
+    assert.equal((await prs.status(57)).checksGreen, false);
+  });
+
+  it("reads every page of a long but bounded list", async () => {
+    const { prs } = adapter({
+      pull: { state: "open" },
+      statuses: Array.from({ length: 250 }, (_, i) =>
+        status("success", `ci-${i}`),
+      ),
+    });
+
+    assert.equal((await prs.status(57)).checksGreen, true);
+  });
 
   it("counts only the newest status of each context", async () => {
     const { prs } = adapter({

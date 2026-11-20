@@ -19,6 +19,10 @@ import {
 
 const PASSING = values(GitHubPassingCheck);
 
+/** Check runs and statuses are read in full up to this bound, then fail. */
+const PAGE_SIZE = 100;
+const MAX_PAGES = 10;
+
 type HeadState = Readonly<{ active: boolean; sha: string }>;
 
 function notFound(error: unknown): boolean {
@@ -105,17 +109,19 @@ export class GitHubPullRequestHttpAdapter implements PullRequestStatusPort {
 
   private async checksGreen(sha: string): Promise<boolean> {
     const [runs, statuses] = await Promise.all([
-      this.client.call(
-        HttpMethod.Get,
-        `/commits/${sha}/check-runs?per_page=100`,
-      ),
-      this.client.call(HttpMethod.Get, `/commits/${sha}/statuses?per_page=100`),
+      this.list(`/commits/${sha}/check-runs`, (data) => {
+        if (!object(data) || !Array.isArray(data.check_runs))
+          throw invalidResponse("Invalid check runs payload");
+        return data.check_runs;
+      }),
+      this.list(`/commits/${sha}/statuses`, (data) => {
+        if (!Array.isArray(data))
+          throw invalidResponse("Invalid commit status payload");
+        return data;
+      }),
     ]);
-    if (!object(runs) || !Array.isArray(runs.check_runs))
-      throw invalidResponse("Invalid check runs payload");
-    if (!Array.isArray(statuses))
-      throw invalidResponse("Invalid commit status payload");
-    const conclusions = runs.check_runs.map((run: unknown) =>
+    if (runs === null || statuses === null) return false;
+    const conclusions = runs.map((run: unknown) =>
       object(run) && run.status === GitHubCheckRunStatus.Completed
         ? String(run.conclusion)
         : "",
@@ -123,5 +129,29 @@ export class GitHubPullRequestHttpAdapter implements PullRequestStatusPort {
     const states = latestStates(statuses, this.untrustedStatusCreators);
     const all = [...conclusions, ...states];
     return all.length > 0 && all.every((value) => PASSING.includes(value));
+  }
+
+  /**
+   * Every item of a paged list, or null when it is longer than AIR reads.
+   * A failing check past the first page still counts, so filling the first
+   * page (for example with the agent's own statuses) can't hide it.
+   */
+  private async list(
+    path: string,
+    items: (data: unknown) => readonly unknown[],
+  ): Promise<readonly unknown[] | null> {
+    const all: unknown[] = [];
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const query = new URLSearchParams({
+        per_page: String(PAGE_SIZE),
+        page: String(page),
+      });
+      const batch = items(
+        await this.client.call(HttpMethod.Get, `${path}?${query}`),
+      );
+      all.push(...batch);
+      if (batch.length < PAGE_SIZE) return all;
+    }
+    return null;
   }
 }

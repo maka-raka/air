@@ -7,6 +7,7 @@ Changes that affect projects using AIR. Versions follow semver; before 1.0 a min
 ### Security
 
 - **The agent can no longer turn its own pull request green.** The review gate counted every commit status on the head commit, whoever set it, and a token that can push can also set statuses (a classic `repo` token does). Now AIR reads each status with its creator and ignores the ones set by the agent account (matched by immutable ID). For each context, the newest remaining status counts. A status whose creator can't be read never counts as passing. Nothing changes for checks that CI reports.
+- **The agent can no longer hide a failing check behind its own statuses.** The review gate read only the first 100 commit statuses and check runs of the head commit. Statuses are listed newest first, so the agent could set 100 statuses of its own: they were ignored, but they pushed a failing CI status off the page, and one passing check run was enough to open the gate. Now AIR reads every page, up to 1,000 statuses and 1,000 check runs. If there are more, the checks don't count as green.
 
 ### Added
 
