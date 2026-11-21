@@ -239,7 +239,7 @@ export class MemoryTracker {
 
   /** `ancestor` is `sha` or reachable through its parents. */
   contains(sha: string, ancestor: string): boolean {
-    for (let at: string | null = sha; at !== null; ) {
+    for (let at: string | null = sha; at !== null;) {
       if (at === ancestor) return true;
       at = this.parents.get(at) ?? null;
     }
