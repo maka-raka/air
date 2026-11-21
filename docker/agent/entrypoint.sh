@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # air-agent <issue>: one AIR agent run in this container (ADR-0011).
-# Clones AIR_REPOSITORY as the agent account, then runs Claude Code in tmux.
-# Attach with: docker exec -it <container> tmux attach -t agent
+# Clones AIR_REPOSITORY as the agent account, then runs Claude Code: in tmux
+# (AIR_AGENT_MODE=interactive, the default; attach with
+# docker exec -it <container> tmux attach -t agent), or headless.
 set -euo pipefail
 
 fail() {
@@ -19,6 +20,13 @@ done
   fail "set ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN)"
 [[ "$AIR_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] ||
   fail "AIR_REPOSITORY must be <owner>/<repo>"
+# interactive: Claude Code in tmux, for a person to attach to.
+# headless: `claude -p`, no prompts; air-finish-run closes the run after it.
+mode="${AIR_AGENT_MODE:-interactive}"
+[[ "$mode" == interactive || "$mode" == headless ]] ||
+  fail "AIR_AGENT_MODE must be interactive or headless"
+max_turns="${AIR_AGENT_MAX_TURNS:-200}"
+[[ "$max_turns" =~ ^[1-9][0-9]*$ ]] || fail "AIR_AGENT_MAX_TURNS must be a positive number"
 
 # gh and git act as the agent account only.
 export GH_TOKEN="$AIR_AGENT_TOKEN"
@@ -75,6 +83,23 @@ fi
 # The managed Stop hook (air-stop-hook) asks the gate about this issue.
 export AIR_ISSUE="$issue"
 prompt="${AIR_AGENT_PROMPT:-Take issue #$issue under AIR delivery control, following the air-delivery skill.}"
+
+if [[ "$mode" == headless ]]; then
+  # Nobody answers a permission prompt here: Claude Code refuses what the
+  # managed allow rules don't cover, and the agent asks people through AIR.
+  prompt+=" No person is watching this session: when you need a decision, run npx air block $issue with your question instead of waiting."
+  transcript="/var/lib/air-audit/claude-issue-$issue-$(date -u +%Y%m%dT%H%M%SZ).jsonl"
+  echo "air-agent: issue #$issue on $branch, headless; transcript: $transcript"
+  set +e
+  claude -p "$prompt" --permission-mode acceptEdits --max-turns "$max_turns" \
+    --output-format stream-json --verbose | tee "$transcript"
+  status="${PIPESTATUS[0]}"
+  set -e
+  echo "air-agent: session ended ($status)"
+  air-finish-run "$issue"
+  exit 0
+fi
+
 tmux new-session -d -s agent -c "$repo_dir" claude "$prompt"
 echo "air-agent: issue #$issue on $branch; attach with: docker exec -it $(hostname) tmux attach -t agent"
 

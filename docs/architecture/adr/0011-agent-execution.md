@@ -57,6 +57,10 @@ Starting a container needs the Docker API, which is root-equivalent on the host.
 
 The agent image's managed settings add a Stop hook, so the agent doesn't end a session the gate would refuse. `air gate <issue> --check` (`EvaluatePhaseGate.preview`) gives the gate's verdict without moving state. The hook exits 2 with the problems only when the phase is working and the gate would refuse it, at most `AIR_STOP_HOOK_MAX` times per run. It is advice: the hook moves no state and can't open a gate, and a broken check lets the session end. Taken from the ZazenCodes software factory v2, where the builder's Stop hook runs the gate.
 
+### 6. Headless runs (added 2026-11-21)
+
+An interactive Claude Code session waits on the first permission prompt, so an automatic launch stalls without a person. `AIR_AGENT_MODE=headless` runs Claude Code as `claude -p` with a bounded number of turns. The image's managed settings carry an allow list next to the deny list: a headless session runs only what the allow list covers, refuses everything else, and denies still win. The prompt tells the agent to ask through `air block`. When the session ends, `air-finish-run` makes sure no phase stays working without an agent. It runs `air gate` if the gate would pass, and `air block` with the gate's problems if it would refuse. It uses the agent's own credentials and only the gate's verdict, so it adds no new authority. The allow list, like the deny list, guards against mistakes. The boundary is still the agent token, the branch rules and the container (Repository Hardening §4).
+
 ## Roadmap
 
 | # | Step | Status |
