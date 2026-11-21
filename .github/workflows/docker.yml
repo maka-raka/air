@@ -102,6 +102,20 @@ jobs:
           echo "$mode"
           test "$mode_code" -ne 0
           grep -q "AIR_AGENT_MODE must be interactive or headless" <<<"$mode"
+          set +e
+          runtime=$(docker run --rm -e AIR_REPOSITORY=x/y -e AIR_AGENT_LOGIN=a \
+            -e AIR_AGENT_TOKEN=t -e AIR_AGENT_SIGNING_KEY=k -e ANTHROPIC_API_KEY=k \
+            -e AIR_AGENT_MAX_RUNTIME=forever air-agent:ci 1 2>&1); runtime_code=$?
+          finish=$(docker run --rm -e AIR_REPOSITORY=x/y -e AIR_AGENT_LOGIN=a \
+            -e AIR_AGENT_TOKEN=t -e AIR_AGENT_SIGNING_KEY=k \
+            air-agent:ci --finish 1 2>&1); finish_code=$?
+          set -e
+          printf '%s\n' "$runtime" "$finish"
+          test "$runtime_code" -ne 0
+          grep -q "AIR_AGENT_MAX_RUNTIME must be a duration" <<<"$runtime"
+          # --finish needs no Anthropic key: it fails later, on the fake token.
+          test "$finish_code" -ne 0
+          ! grep -q "ANTHROPIC_API_KEY" <<<"$finish"
 
       - name: Agent image tools and managed settings
         run: |

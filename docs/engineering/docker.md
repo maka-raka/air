@@ -61,7 +61,7 @@ The entrypoint:
 
 Set `AIR_AGENT_MODE=headless` in `.env.air.agent` for runs nobody watches, such as the ones the launcher starts (§4). In an interactive run, the first command Claude Code wants to confirm waits for a person who isn't there. A headless run differs in four ways:
 
-- Claude Code runs as `claude -p … --permission-mode acceptEdits --max-turns $AIR_AGENT_MAX_TURNS` (default 200) and never prompts. It runs what the managed `permissions.allow` rules cover and refuses the rest: reading and editing files, `npx air`, `npm test` / `npm run` / `npm ci`, `node`, everyday `git` commands, `gh pr create|view|checks|diff|list`, `gh run view|list` and common shell tools. The deny rules still win, so a push to the default branch, a force push or an edit under `.github/` or `.claude/` stays refused.
+- Claude Code runs as `claude -p … --permission-mode acceptEdits --max-turns $AIR_AGENT_MAX_TURNS` (default 200) and never prompts. A session still going after `AIR_AGENT_MAX_RUNTIME` (default `2h`) is stopped. It runs what the managed `permissions.allow` rules cover and refuses the rest: reading and editing files, `npx air`, `npm test` / `npm run` / `npm ci`, `node`, everyday `git` commands, `gh pr create|view|checks|diff|list`, `gh run view|list` and common shell tools. The deny rules still win, so a push to the default branch, a force push or an edit under `.github/` or `.claude/` stays refused.
 - The prompt tells the agent nobody is watching, so it asks with `npx air block` instead of waiting.
 - The session's transcript (`--output-format stream-json`) goes to the container log and to `claude-issue-<n>-<time>.jsonl` in the `air-agent-audit` volume.
 - When the session ends for any reason (done, out of turns, crashed), `air-finish-run` closes the run. It asks `air gate <n> --check`:
@@ -92,6 +92,8 @@ CLAUDE_CODE_VERSION=2.1.318 docker compose build agent
 The poller can request an agent run when an approver's command makes a phase ready, and a separate `air-launcher` process starts it ([ADR-0011](../architecture/adr/0011-agent-execution.md) §3–4).
 
 Launched runs have nobody attached, so set `AIR_AGENT_MODE=headless` in `.env.air.agent` (§3). Otherwise each run waits at its first permission prompt until someone attaches.
+
+**Watchdog.** A headless run closes itself, but a container killed from outside never gets that far, for example one stopped for using too much memory, or one the host stopped. Each round, the launcher looks for agent containers that exited with an error and starts one finisher for each: `air-agent --finish <issue>`, labelled `air.agent.finishes=<run>`. The finisher clones the default branch, installs AIR from its lockfile and runs `air-finish-run`, without Claude Code. It closes the run with `air gate` or `air block` like any headless run. The launcher still holds no AIR key, because the finisher uses the agent's credentials from `.env.air.agent`. A finisher is never finished itself, and a run gets at most one while its container is kept. The launcher logs `#<n> <run> died: finishing (exit 137)`.
 
 1. Choose the phases in `.env.air.poller` and restart the poller:
 

@@ -15,6 +15,8 @@ import {
   agentRunsFile,
 } from "../adapters/local/file-agent-runs-snapshot.js";
 import { PublishAgentRuns } from "../application/agent-runs.js";
+import { RecoverDeadRuns } from "../application/recover-dead-runs.js";
+import type { RecoveryResult } from "../application/recover-dead-runs.js";
 import type { CommandRunner } from "../adapters/local/docker-agent-runtime.js";
 
 export type LauncherConfig = Readonly<{
@@ -90,11 +92,20 @@ export function readLauncherConfig(env: Env): LauncherConfig {
   };
 }
 
-export type LauncherRound = Pick<DispatchAgentLaunches, "dispatchOnce">;
+/** One round's results: runs started, and dead runs being closed. */
+export type LauncherRound = Readonly<{
+  roundOnce(): Promise<RoundResults>;
+}>;
+
+export type RoundResults = Readonly<{
+  dispatched: readonly DispatchResult[];
+  recovered: readonly RecoveryResult[];
+}>;
 
 /**
- * One round: start what is queued, then publish what runs so the console
- * can show it without access to the container runtime (ADR-0012).
+ * One round: close runs whose container died (ADR-0011 §7), start what is
+ * queued, then publish what runs so the console can show it without access
+ * to the container runtime (ADR-0012).
  */
 export function composeLauncher(
   config: LauncherConfig,
@@ -119,17 +130,19 @@ export function composeLauncher(
     runtime,
     new FileAgentRunsSnapshot(agentRunsFile(launchDir)),
   );
+  const recovery = new RecoverDeadRuns(runtime, runtime);
   return {
-    dispatchOnce: async () => {
-      const results = await dispatcher.dispatchOnce();
+    roundOnce: async () => {
+      const recovered = await recovery.recoverOnce();
+      const dispatched = await dispatcher.dispatchOnce();
       await publisher.publishOnce();
-      return results;
+      return { dispatched, recovered };
     },
   };
 }
 
 export type LauncherLog = Readonly<{
-  results(results: readonly DispatchResult[]): void;
+  results(results: RoundResults): void;
   failure(error: unknown): void;
 }>;
 
@@ -142,7 +155,7 @@ export async function runLauncher(
 ): Promise<void> {
   while (!signal.aborted) {
     try {
-      log.results(await dispatcher.dispatchOnce());
+      log.results(await dispatcher.roundOnce());
     } catch (error) {
       log.failure(error);
     }
@@ -151,10 +164,14 @@ export async function runLauncher(
 }
 
 const consoleLog: LauncherLog = {
-  results: (results) => {
-    for (const { issue, phase, outcome, detail } of results)
+  results: ({ dispatched, recovered }) => {
+    for (const { issue, phase, outcome, detail } of dispatched)
       console.log(
         `#${issue} ${phase}: ${outcome}${detail ? ` (${detail})` : ""}`,
+      );
+    for (const { issue, run, outcome, detail } of recovered)
+      console.log(
+        `#${issue} ${run} died: ${outcome}${detail ? ` (${detail})` : ""}`,
       );
   },
   failure: (error) =>

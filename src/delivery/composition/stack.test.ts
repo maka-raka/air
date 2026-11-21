@@ -3,6 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
+import { RecoveryOutcome } from "../application/recover-dead-runs.js";
 import { composeLauncher, readLauncherConfig } from "./launcher.js";
 import { MemoryComposition, generateMemoryKeys } from "./memory.js";
 import type { MemoryServices } from "./memory.js";
@@ -52,6 +53,10 @@ type Container = {
   model: string | null;
   service: string;
   running: boolean;
+  exitCode: number;
+  /** A finisher's run (`air-agent --finish`), from its label. */
+  finishes: string;
+  args: readonly string[];
 };
 
 /** Stands in for the `docker` binary: records runs, answers `ps`. */
@@ -60,7 +65,7 @@ class FakeDocker {
   readonly files = new Set<string>();
 
   readonly runner: CommandRunner = async (_file, args) => {
-    if (args[0] === "ps") return this.ps(args.includes("--all"));
+    if (args[0] === "ps") return this.ps(args);
     const after = (flag: string) =>
       args.flatMap((arg, i) => (args[i - 1] === flag ? [arg] : []));
     this.files.add(after("--file")[0] ?? "");
@@ -78,21 +83,44 @@ class FakeDocker {
       model: model ?? null,
       service: args.at(-2) ?? "",
       running: true,
+      exitCode: 0,
+      finishes: label("air.agent.finishes"),
+      args: [...args],
     });
     return "";
   };
 
-  /** The agent's session ends: the container stops. */
-  stop(issue: number): void {
+  /** The agent's session ends: the container stops, with this exit code. */
+  stop(issue: number, exitCode = 0): void {
     for (const container of this.containers)
-      if (container.issue === issue) container.running = false;
+      if (container.issue === issue && container.running) {
+        container.running = false;
+        container.exitCode = exitCode;
+      }
   }
 
   running(): Container[] {
     return this.containers.filter((container) => container.running);
   }
 
-  private ps(all: boolean): string {
+  private ps(args: readonly string[]): string {
+    if (args.includes("label=air.agent.finishes"))
+      return this.containers
+        .flatMap((c) => (c.finishes ? [c.finishes] : []))
+        .join("\n");
+    if (args.includes("status=exited"))
+      return this.containers
+        .filter((c) => !c.running)
+        .map((c) =>
+          [
+            c.name,
+            c.issue,
+            `Exited (${c.exitCode}) 1 minute ago`,
+            c.finishes,
+          ].join("\t"),
+        )
+        .join("\n");
+    const all = args.includes("--all");
     return this.containers
       .filter((container) => all || container.running)
       .map((c) =>
@@ -102,7 +130,7 @@ class FakeDocker {
               c.issue,
               c.phase,
               c.running ? "running" : "exited",
-              c.running ? "Up" : "Exited (0)",
+              c.running ? "Up" : `Exited (${c.exitCode})`,
             ].join("\t")
           : String(c.issue),
       )
@@ -225,7 +253,7 @@ describe("the local stack on the memory tracker", () => {
     );
 
     // 2. The launcher starts it with the requirements model, from compose.
-    const first = await launcher.dispatchOnce();
+    const first = (await launcher.roundOnce()).dispatched;
     assert.deepEqual(
       first.map(({ issue, outcome }) => [issue, outcome]),
       [[gifts, DispatchOutcome.Started]],
@@ -257,7 +285,7 @@ describe("the local stack on the memory tracker", () => {
     });
     assert.equal(state(s, gifts), "requirements:waiting");
     await say(s, export_, alice, "/air initialize");
-    await launcher.dispatchOnce();
+    (await launcher.roundOnce()).dispatched;
     await agentRun(s, export_, DeliveryPhase.Requirements, {
       taskSize: DeliveryTaskSize.Small,
       miniDesign: true,
@@ -266,7 +294,7 @@ describe("the local stack on the memory tracker", () => {
     // 5. Both wait for a person; the console offers the next command. The
     //    console sees runs as the launcher last published them, so a stopped
     //    container shows as stopped after the launcher's next round.
-    assert.deepEqual(await launcher.dispatchOnce(), []);
+    assert.deepEqual((await launcher.roundOnce()).dispatched, []);
     overview = await ui.overview.overview();
     assert.deepEqual(
       overview.needsYou.map(({ issue, attention }) => [
@@ -296,7 +324,7 @@ describe("the local stack on the memory tracker", () => {
     //    model, the other waits for capacity.
     await say(s, gifts, alice, "/air advance build");
     await say(s, export_, alice, "/air advance build");
-    const second = await launcher.dispatchOnce();
+    const second = (await launcher.roundOnce()).dispatched;
     assert.deepEqual(
       second.map(({ issue, outcome }) => [issue, outcome]),
       [
@@ -318,7 +346,7 @@ describe("the local stack on the memory tracker", () => {
     const change = tracker.openChange("a1b2c3d");
     tracker.updateChange(change, { checksGreen: true });
     await agentRun(s, gifts, DeliveryPhase.Build, { pullRequest: change });
-    const third = await launcher.dispatchOnce();
+    const third = (await launcher.roundOnce()).dispatched;
     assert.deepEqual(
       third.map(({ issue, outcome }) => [issue, outcome]),
       [[export_, DispatchOutcome.Started]],
@@ -370,7 +398,7 @@ describe("the local stack on the memory tracker", () => {
     await say(s, issue, mallory, "/air initialize");
     tracker.setField(issue, mallory.id, STATE_FIELD, "build:ready");
     assert.deepEqual(await s.queue.pending(), []);
-    assert.deepEqual(await launcher.dispatchOnce(), []);
+    assert.deepEqual((await launcher.roundOnce()).dispatched, []);
     assert.deepEqual(s.docker.containers, []);
 
     // The console shows the state as untrusted and asks for a repair.
@@ -394,5 +422,41 @@ describe("the local stack on the memory tracker", () => {
         .events()
         .some((event) => event.kind === AuditKind.Command && !event.allowed),
     );
+  });
+
+  it("closes a run whose container was killed, once (ADR-0011 §7)", async () => {
+    const s = await stack();
+    const { tracker, alice, docker, launcher } = s;
+    const issue = tracker.openIssue(alice.id, "Big import", "");
+    await say(s, issue, alice, "/air initialize");
+    await launcher.roundOnce();
+    docker.stop(issue, 137);
+
+    const first = await launcher.roundOnce();
+    const second = await launcher.roundOnce();
+
+    assert.deepEqual(
+      first.recovered.map(({ issue, outcome, detail }) => [
+        issue,
+        outcome,
+        detail,
+      ]),
+      [[issue, RecoveryOutcome.Finishing, "exit 137"]],
+    );
+    assert.deepEqual(second.recovered, []);
+    const finisher = docker.containers.find(({ finishes }) => finishes !== "");
+    assert.deepEqual(finisher?.args.slice(-2), ["--finish", String(issue)]);
+    assert.equal(finisher?.finishes, docker.containers[0]?.name);
+  });
+
+  it("leaves a run that ended cleanly alone", async () => {
+    const s = await stack();
+    const { tracker, alice, docker, launcher } = s;
+    const issue = tracker.openIssue(alice.id, "Small fix", "");
+    await say(s, issue, alice, "/air initialize");
+    await launcher.roundOnce();
+    docker.stop(issue);
+
+    assert.deepEqual((await launcher.roundOnce()).recovered, []);
   });
 });

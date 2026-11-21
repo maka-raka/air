@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # air-agent <issue>: one AIR agent run in this container (ADR-0011).
+# air-agent --finish <issue>: no Claude Code; closes a run whose container
+# died before air-finish-run could (the launcher starts this, §7).
 # Clones AIR_REPOSITORY as the agent account, then runs Claude Code: in tmux
 # (AIR_AGENT_MODE=interactive, the default; attach with
 # docker exec -it <container> tmux attach -t agent), or headless.
@@ -10,13 +12,18 @@ fail() {
   exit 1
 }
 
+finish=false
+if [[ "${1:-}" == --finish ]]; then
+  finish=true
+  shift
+fi
 issue="${1:-}"
-[[ "$issue" =~ ^[1-9][0-9]*$ ]] || fail "usage: air-agent <issue-number>"
+[[ "$issue" =~ ^[1-9][0-9]*$ ]] || fail "usage: air-agent [--finish] <issue-number>"
 
 for name in AIR_REPOSITORY AIR_AGENT_LOGIN AIR_AGENT_TOKEN AIR_AGENT_SIGNING_KEY; do
   [[ -n "${!name:-}" ]] || fail "set $name"
 done
-[[ -n "${ANTHROPIC_API_KEY:-}${CLAUDE_CODE_OAUTH_TOKEN:-}" ]] ||
+$finish || [[ -n "${ANTHROPIC_API_KEY:-}${CLAUDE_CODE_OAUTH_TOKEN:-}" ]] ||
   fail "set ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN)"
 [[ "$AIR_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] ||
   fail "AIR_REPOSITORY must be <owner>/<repo>"
@@ -27,6 +34,10 @@ mode="${AIR_AGENT_MODE:-interactive}"
   fail "AIR_AGENT_MODE must be interactive or headless"
 max_turns="${AIR_AGENT_MAX_TURNS:-200}"
 [[ "$max_turns" =~ ^[1-9][0-9]*$ ]] || fail "AIR_AGENT_MAX_TURNS must be a positive number"
+# Headless only: the session ends after this long, and the run is closed.
+max_runtime="${AIR_AGENT_MAX_RUNTIME:-2h}"
+[[ "$max_runtime" =~ ^[1-9][0-9]*[smhd]?$ ]] ||
+  fail "AIR_AGENT_MAX_RUNTIME must be a duration such as 90m or 2h"
 
 # gh and git act as the agent account only.
 export GH_TOKEN="$AIR_AGENT_TOKEN"
@@ -46,6 +57,15 @@ branch="air/issue-$issue"
 git clone --filter=blob:none "https://github.com/$AIR_REPOSITORY.git" "$repo_dir"
 cd "$repo_dir"
 default_ref="$(git symbolic-ref --short refs/remotes/origin/HEAD)"
+if $finish; then
+  # The default branch's AIR, never the run's branch: nothing the dead run
+  # pushed is installed or read here.
+  [[ -f package-lock.json ]] || fail "$AIR_REPOSITORY has no package-lock.json (install AIR first)"
+  npm ci --ignore-scripts --no-audit --no-fund
+  export AIR_AUDIT_LOG="${AIR_AUDIT_LOG:-/var/lib/air-audit/agent-issue-$issue-finish-$(date -u +%Y%m%dT%H%M%SZ).jsonl}"
+  echo "air-agent: closing the run of #$issue"
+  exec air-finish-run "$issue"
+fi
 if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
   git fetch origin "$branch"
   # Anyone with write access can push this branch: refuse one that changes
@@ -91,10 +111,12 @@ if [[ "$mode" == headless ]]; then
   transcript="/var/lib/air-audit/claude-issue-$issue-$(date -u +%Y%m%dT%H%M%SZ).jsonl"
   echo "air-agent: issue #$issue on $branch, headless; transcript: $transcript"
   set +e
-  claude -p "$prompt" --permission-mode acceptEdits --max-turns "$max_turns" \
+  timeout --kill-after=30s "$max_runtime" \
+    claude -p "$prompt" --permission-mode acceptEdits --max-turns "$max_turns" \
     --output-format stream-json --verbose | tee "$transcript"
   status="${PIPESTATUS[0]}"
   set -e
+  ((status == 124)) && echo "air-agent: session stopped after $max_runtime (AIR_AGENT_MAX_RUNTIME)"
   echo "air-agent: session ended ($status)"
   air-finish-run "$issue"
   exit 0
