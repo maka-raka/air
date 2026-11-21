@@ -28,6 +28,18 @@ function targetsDefaultBranch(data: unknown): boolean {
   return ref === defaultBranch;
 }
 
+/** A full commit hash: an approval names exactly this commit. */
+const SHA = /^[0-9a-f]{40,64}$/;
+
+function head(data: unknown): string {
+  if (!object(data) || !object(data.head))
+    throw invalidResponse("Invalid pull request payload");
+  const { sha } = data.head;
+  if (typeof sha !== "string" || !SHA.test(sha))
+    throw invalidResponse("Invalid pull request payload");
+  return sha;
+}
+
 /** The file's path and, for a rename, the path it had before. */
 function paths(file: unknown): readonly string[] {
   if (!object(file) || typeof file.filename !== "string")
@@ -54,7 +66,11 @@ export class GitHubPullRequestFilesHttpAdapter implements CodeChangeFilesPort {
       this.client.call(HttpMethod.Get, `/pulls/${pullRequest}`),
       this.list(pullRequest),
     ]);
-    return { targetsDefaultBranch: targetsDefaultBranch(pull), paths: files };
+    return {
+      targetsDefaultBranch: targetsDefaultBranch(pull),
+      head: head(pull),
+      paths: files,
+    };
   }
 
   private async list(pullRequest: number): Promise<readonly string[] | null> {

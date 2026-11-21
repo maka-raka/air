@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { AllowProtectedChange } from "../application/allow-protected-change.js";
+import { GitHubPullRequestFilesHttpAdapter } from "../adapters/github/pull-request-files-http-adapter.js";
 import { resolve, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { isEntryPoint, loadEnvFile, repository, required } from "./config.js";
@@ -40,6 +42,8 @@ import {
   trustPolicy,
   trustedExecutor,
   pullRequestStatus,
+  labelStateStore,
+  protectedChangeApprovals,
 } from "./trust.js";
 import type { ServiceLogins } from "./trust.js";
 import type { StateAnchorMode } from "../domain/trust-policy.js";
@@ -225,6 +229,8 @@ export async function composeLocal(
     trust,
     audit,
   );
+  const replies = new GitHubCommandReplyAdapter(comments);
+  const processed = new GitHubProcessedCommands(comments);
   const handler = new CommentCommandHandler(
     new RecordedDeliveryEvidence(
       records,
@@ -238,16 +244,32 @@ export async function composeLocal(
       audit,
       new RecordedRisk(records),
     ),
-    new GitHubCommandReplyAdapter(comments),
+    replies,
     // Replies are posted with this token, so only its markers are trusted.
-    new GitHubProcessedCommands(comments),
+    processed,
     trust,
   );
+  const commands = new AllowProtectedChange(handler, {
+    state: labelStateStore(client),
+    records,
+    changes: new GitHubPullRequestFilesHttpAdapter(client),
+    approvals: protectedChangeApprovals(
+      comments,
+      { repositoryId: identity.id, verifier: signer.verifier, signer },
+      trust,
+      audit,
+    ),
+    replies,
+    processed,
+    trust,
+    audit,
+    now: () => new Date(),
+  });
   const ingestion = new IngestHumanCommand(
     new InMemoryDeliveryClaims(config.leaseMs),
     new GitHubCollaboratorAccess(repository),
     trust,
-    handler,
+    commands,
     audit,
   );
   return new GitHubCommentPoller(

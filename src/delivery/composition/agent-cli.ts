@@ -59,6 +59,7 @@ import {
   trustPolicy,
   trustedExecutor,
   codeChanges,
+  protectedChangeApprovals,
   pullRequestStatus,
 } from "./trust.js";
 import { GitHubRepositoryHttpAdapter } from "../adapters/github/repository-http-adapter.js";
@@ -363,15 +364,16 @@ export async function composeAgent(
   });
   const comments = new GitHubIssueCommentHttpAdapter(client);
   const audit = fileAuditLog(config.auditLog);
+  const operatorKey = recordVerifier(
+    config.operatorPublicKey,
+    "AIR_OPERATOR_PUBLIC_KEY",
+  );
   const anchors = stateAnchorStore(
     comments,
     identity.id,
     accounts,
     {
-      operator: recordVerifier(
-        config.operatorPublicKey,
-        "AIR_OPERATOR_PUBLIC_KEY",
-      ),
+      operator: operatorKey,
       agent: signer.verifier,
       deployer: config.deployPublicKey
         ? recordVerifier(config.deployPublicKey, "AIR_DEPLOY_PUBLIC_KEY")
@@ -391,6 +393,15 @@ export async function composeAgent(
   );
   const preflight = new AgentIdentityPreflight(users, viewer.id);
   const now = () => new Date();
+  const changes = codeChanges(
+    client,
+    protectedChangeApprovals(
+      comments,
+      { repositoryId: identity.id, verifier: operatorKey },
+      trust,
+      audit,
+    ),
+  );
   return {
     commands: new AgentCommands(executor, records, preflight, {
       now,
@@ -402,11 +413,11 @@ export async function composeAgent(
       executor,
       records,
       pullRequestStatus(client, accounts, config.mode),
-      codeChanges(client),
+      changes,
       preflight,
       { now, runTtlMs: config.runTtlMs },
     ),
-    lenses: new ReadRequiredLenses(records, codeChanges(client)),
+    lenses: new ReadRequiredLenses(records, changes),
     context: new ReadAgentContext(
       new GitHubIssueTextAdapter(client, comments),
       new GitHubCollaboratorAccess(new GitHubRepositoryHttpAdapter(client)),

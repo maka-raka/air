@@ -17,6 +17,8 @@ export const AuditKind = {
   AgentLaunch: "agent-launch",
   /** The operator ran the project check on a pull request (ADR-0016). */
   Check: "check",
+  /** An approver allowed, or failed to allow, a protected change (ADR-0017). */
+  ProtectedChange: "protected-change",
 } as const;
 export type AuditKind = (typeof AuditKind)[keyof typeof AuditKind];
 

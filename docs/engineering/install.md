@@ -74,7 +74,7 @@ Fill in the repository, accounts, approvers, the public keys, the operator token
 
 To run the poller and each agent in their own container instead, see [Running AIR in Docker](docker.md).
 
-Approvers then work in the issue: `/air initialize`, `/air advance <phase>`, `/air close`.
+Approvers then work in the issue: `/air initialize`, `/air advance <phase>`, `/air close`. When the gate says a pull request changes protected files, an approver who reviewed it comments `/air allow-protected <commit>` ([ADR-0017](../architecture/adr/0017-protected-paths.md)).
 
 ## Pull request convention
 

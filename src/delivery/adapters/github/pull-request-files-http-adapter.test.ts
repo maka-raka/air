@@ -30,8 +30,10 @@ function client(respond: Respond) {
 }
 
 const POLICY = ".github/air-policy.json";
-const pull = (base = "main") => ({
+const HEAD = "a".repeat(40);
+const pull = (base = "main", sha = HEAD) => ({
   base: { ref: base, repo: { default_branch: "main" } },
+  head: { sha },
 });
 
 describe("GitHubPullRequestFilesHttpAdapter", () => {
@@ -53,6 +55,7 @@ describe("GitHubPullRequestFilesHttpAdapter", () => {
       await new GitHubPullRequestFilesHttpAdapter(rest).files(57),
       {
         targetsDefaultBranch: true,
+        head: HEAD,
         paths: ["src/a.ts", "docs/x.md", ".claude/x.md"],
       },
     );
@@ -95,6 +98,18 @@ describe("GitHubPullRequestFilesHttpAdapter", () => {
       (await new GitHubPullRequestFilesHttpAdapter(rest).files(57))
         .targetsDefaultBranch,
       false,
+    );
+  });
+
+  it("refuses a head that isn't a full commit", async () => {
+    const { client: rest } = client((path) => {
+      if (path === "/pulls/57") return [pull("main", "abc123"), 200];
+      return [[], 200];
+    });
+
+    await assert.rejects(
+      new GitHubPullRequestFilesHttpAdapter(rest).files(57),
+      /Invalid pull request payload/,
     );
   });
 

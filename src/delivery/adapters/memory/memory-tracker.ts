@@ -63,6 +63,8 @@ export type MemoryCodeChange = Readonly<{
 
 /** What a test may change on an open code change. */
 type CodeChangeUpdate = Readonly<{
+  /** A push: the change's new head commit. */
+  head?: string;
   approved?: boolean;
   checksGreen?: boolean;
   paths?: readonly string[];

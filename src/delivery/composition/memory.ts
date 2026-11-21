@@ -40,6 +40,8 @@ import { MemoryCodeChangeAdapter } from "../adapters/memory/memory-code-change.j
 import { MemoryDeliveryPolicy } from "../adapters/memory/memory-delivery-policy.js";
 import { CodeChangeCheck } from "../application/code-change-check.js";
 import { ReadRequiredLenses } from "../application/read-required-lenses.js";
+import { AllowProtectedChange } from "../application/allow-protected-change.js";
+import { TrustedProtectedChangeApprovals } from "../application/protected-change-approval.js";
 import { deliveryPolicyCodec } from "./delivery-policy.js";
 import { MemoryCommandReplies } from "../adapters/memory/memory-command-reply.js";
 import { MemoryCommentIngress } from "../adapters/memory/memory-comment-ingress.js";
@@ -53,6 +55,7 @@ import {
 } from "../adapters/memory/memory-issue-adapter.js";
 import {
   MemoryDeliveryRecordStore,
+  MemoryProtectedChangeApprovalStore,
   MemoryStateAnchorStore,
 } from "../adapters/memory/memory-signed-stores.js";
 import type {
@@ -189,11 +192,23 @@ export class MemoryComposition {
       new MemoryCommandReplies(this.tracker, roster.operator.id),
       this.trust,
     );
+    const replies = new MemoryCommandReplies(this.tracker, roster.operator.id);
+    const commands = new AllowProtectedChange(handler, {
+      state: new MemoryDeliveryStateStore(this.tracker, roster.operator.id),
+      records,
+      changes: new MemoryCodeChangeAdapter(this.tracker),
+      approvals: this.approvals(log, keys.operator),
+      replies,
+      processed: replies,
+      trust: this.trust,
+      audit: log,
+      now: this.config.now,
+    });
     const ingestion = new IngestHumanCommand(
       new InMemoryDeliveryClaims(this.config.leaseMs),
       new MemoryAuthorAccess(this.tracker),
       this.trust,
-      handler,
+      commands,
       log,
     );
     return {
@@ -225,11 +240,11 @@ export class MemoryComposition {
         executor,
         records,
         new MemoryCodeChangeAdapter(this.tracker),
-        this.codeChanges(),
+        this.codeChanges(log),
         preflight,
         { now, runTtlMs },
       ),
-      lenses: new ReadRequiredLenses(records, this.codeChanges()),
+      lenses: new ReadRequiredLenses(records, this.codeChanges(log)),
       context: new ReadAgentContext(
         new MemoryIssueText(this.tracker),
         new MemoryAuthorAccess(this.tracker),
@@ -311,7 +326,7 @@ export class MemoryComposition {
     };
   }
 
-  private codeChanges(): CodeChangeCheck {
+  private codeChanges(log: AuditPort): CodeChangeCheck {
     const codec = deliveryPolicyCodec();
     const policy = this.config.policy;
     return new CodeChangeCheck(
@@ -319,6 +334,23 @@ export class MemoryComposition {
       new MemoryDeliveryPolicy(
         policy === undefined ? codec.fallback() : codec.decode(policy),
       ),
+      this.approvals(log),
+    );
+  }
+
+  /** Approvals signed by the operator; only the operator gets its signer. */
+  private approvals(
+    log: AuditPort,
+    signer?: Ed25519RecordSigner,
+  ): TrustedProtectedChangeApprovals {
+    const { roster, keys } = this.config;
+    return new TrustedProtectedChangeApprovals(
+      new MemoryProtectedChangeApprovalStore(this.tracker, roster.operator.id, {
+        verifier: keys.operator.verifier,
+        ...(signer ? { signer } : {}),
+      }),
+      this.trust,
+      log,
     );
   }
 

@@ -38,7 +38,11 @@ export class MemoryCodeChangeAdapter
   /** The tracker has one branch to merge into, so every change targets it. */
   async files(number: number): Promise<CodeChangeFiles> {
     const change = this.tracker.change(number);
-    return { targetsDefaultBranch: true, paths: change?.paths ?? null };
+    return {
+      targetsDefaultBranch: true,
+      head: change?.head ?? "",
+      paths: change?.paths ?? null,
+    };
   }
 
   async pullRequest(number: number): Promise<MergedPullRequest | null> {

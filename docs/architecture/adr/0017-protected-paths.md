@@ -1,6 +1,6 @@
 # ADR-0017 — Protected Paths and Required Lenses in the Gate
 
-- **Status:** Proposed for review (implemented: protected paths, required lenses, policy file, `air lenses`)
+- **Status:** Proposed for review (implemented: protected paths, required lenses, policy file, `air lenses`, `/air allow-protected`)
 - **Date:** 2026-11-21
 - **Scope:** Which files a delivery's own pull request may not change, which review lenses it must run, where those rules come from, and how the phase gate enforces them
 - **Builds on:** [ADR-0007](0007-threat-model-and-trust-boundaries.md) (threat model), [ADR-0010](0010-zero-trust.md) (zero trust), [ADR-0013](0013-agent-roles.md) (review lenses), [ADR-0016](0016-lite-mode.md) (lite mode)
@@ -36,7 +36,14 @@ The ZazenCodes "software factory" (v2) solves both with configuration its script
 
 6. **`air lenses <issue>`.** `ReadRequiredLenses` prints the lenses the gate will require for the delivery's pull request, with anything else that would keep the gate closed. It reads and records nothing. The skill tells the agent to run it before choosing lenses.
 
-7. **The policy file.** `.github/air-policy.json`, written by `air init` (not in demo mode) and never updated by `air templates`, because JSON can't carry a template marker:
+7. **`/air allow-protected <commit>`.** Sometimes a delivery has to change a protected file. An approver who reviewed the pull request at a commit comments `/air allow-protected <commit>` (7 to 64 hex characters). The gate's problem message already gives the command with the current head. Ingestion admits it like any approver command. Then `AllowProtectedChange`, in the poller, checks three things:
+   - the delivery is in build or review;
+   - the latest build or review report names a pull request, and it targets the default branch;
+   - its head commit starts with the one the approver named.
+
+   If they hold, the operator writes a `ProtectedChangeApproval` for that pull request, the **full** head commit and the approver's account ID. It is signed with the operator key in its own signature domain, `air-approval:v1`, so neither a record nor a state signature can stand in for it. The approval moves no state, and the operator doesn't read the policy, so its token needs no repository contents. The gate accepts protected paths only with an approval that `TrustPolicy.approval` trusts (by the operator, unedited, signature valid) for the same pull request at the same head. A commit fixes the diff, so the approver approves exactly what they reviewed, and any new push needs a new approval. Naming the commit closes the gap between the approver reading the diff and the poller seeing the command: a push in between makes the command fail instead of approving code nobody saw. Every decision is audited as `protected-change`.
+
+8. **The policy file.** `.github/air-policy.json`, written by `air init` (not in demo mode) and never updated by `air templates`, because JSON can't carry a template marker:
 
    ```json
    {
@@ -57,7 +64,8 @@ The ZazenCodes "software factory" (v2) solves both with configuration its script
 
 ## Consequences
 
-- A delivery that needs to change a protected file can't pass the gate. A person makes that change in a separate pull request, outside AIR, for now. A signed operator decision that allows it for one head commit is planned (#98, step 3).
+- A delivery that needs to change a protected file waits for an approver's `/air allow-protected <commit>`, and again after every new commit. The approval waives only the protected-path rule: the default branch, the file limit, the checks and the required lenses still apply.
+- An approval is as strong as the approver's review. In standard mode, Code Owners on `.github/` and `.claude/` still require the same people on the pull request itself.
 - AIR's own repository, and any project that keeps product code under `.github/` or `.claude/`, will want to narrow the list in the policy file.
 - The check runs when the gate is evaluated. A commit pushed after the review gate passed isn't seen until the next gate. In standard mode, branch rules and Code Owners still cover that gap. Binding the gate's result to the head commit is follow-up work, as it is for checks.
 - One more API call per gate, plus one per hundred changed files.

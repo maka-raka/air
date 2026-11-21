@@ -11,6 +11,12 @@ import type { StateAnchorPort } from "../../application/execute-delivery-command
 import type { Position } from "../../domain/state-machine.js";
 import type { AnchorEvidence } from "../../domain/trust-policy.js";
 import { DeliveryRecordCodec } from "../codec/delivery-record-codec.js";
+import { ProtectedChangeApprovalCodec } from "../codec/protected-change-approval-codec.js";
+import type {
+  ApprovalCandidate,
+  ProtectedChangeApproval,
+  ProtectedChangeApprovalSource,
+} from "../../application/protected-change-approval.js";
 import { StateAnchorCodec } from "../codec/state-anchor-codec.js";
 import { SignatureDomain } from "../signature/record-signature.js";
 import type {
@@ -24,6 +30,7 @@ import { stateValue } from "./memory-delivery-state-store.js";
 export const MemoryProperty = {
   Record: "air.record",
   State: "air.state",
+  Approval: "air.approval",
   Signature: "air.signature",
 } as const;
 
@@ -178,6 +185,70 @@ export class MemoryStateAnchorStore
             ...decoded,
           },
         ];
+      },
+    );
+  }
+
+  private scope(issue: number) {
+    return { sourceId: this.tracker.project.id, issue };
+  }
+}
+
+/**
+ * Protected-change approvals as comments, signed with the operator's key in
+ * their own signature domain. Reports every well-formed one with its
+ * evidence; `TrustPolicy.approval` decides which count.
+ */
+export class MemoryProtectedChangeApprovalStore implements ProtectedChangeApprovalSource {
+  private readonly codec = new ProtectedChangeApprovalCodec();
+  private readonly signer?: Ed25519RecordSigner;
+  private readonly verifier: Ed25519RecordVerifier;
+
+  constructor(
+    private readonly tracker: MemoryTracker,
+    private readonly actorId: number,
+    keys: MemoryRecordKeys,
+  ) {
+    this.signer = keys.signer?.forDomain(
+      SignatureDomain.ProtectedChangeApproval,
+    );
+    this.verifier = keys.verifier.forDomain(
+      SignatureDomain.ProtectedChangeApproval,
+    );
+  }
+
+  async append(
+    issue: number,
+    approval: ProtectedChangeApproval,
+  ): Promise<void> {
+    if (!this.signer) throw new Error("Only the operator can write approvals");
+    const encoded = this.codec.encode(approval);
+    this.tracker.post(
+      issue,
+      this.actorId,
+      `Protected change allowed for #${approval.pullRequest} at ${approval.head}`,
+      {
+        [MemoryProperty.Approval]: encoded,
+        [MemoryProperty.Signature]: this.signer.sign(
+          this.scope(issue),
+          encoded,
+        ),
+      },
+    );
+  }
+
+  async candidates(issue: number): Promise<readonly ApprovalCandidate[]> {
+    return signed(this.tracker, issue, MemoryProperty.Approval).flatMap(
+      ({ comment, encoded, signature }) => {
+        const approval = this.codec.decode(encoded);
+        if (!approval) return [];
+        const signatureValid = this.verifier.verify(
+          this.scope(issue),
+          encoded,
+          signature,
+        );
+        const { authorId, edited } = comment;
+        return [{ approval, evidence: { authorId, edited, signatureValid } }];
       },
     );
   }

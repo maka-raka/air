@@ -18,6 +18,7 @@ export type RecordScope = Readonly<{ sourceId: number; issue: number }>;
 export const SignatureDomain = {
   Record: "air-record:v1",
   StateAnchor: "air-state:v1",
+  ProtectedChangeApproval: "air-approval:v1",
 } as const;
 export type SignatureDomain =
   (typeof SignatureDomain)[keyof typeof SignatureDomain];
