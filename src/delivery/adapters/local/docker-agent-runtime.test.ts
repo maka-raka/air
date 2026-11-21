@@ -163,3 +163,83 @@ describe("DockerAgentRuntime.runs", () => {
     ]);
   });
 });
+
+describe("DockerAgentRuntime watchdog (ADR-0011 §7)", () => {
+  it("lists exited runs with their exit codes and finisher labels", async () => {
+    const { runner, calls } = recording(
+      [
+        "air-agent-7-build-1\t7\tExited (137) 2 minutes ago\t",
+        "air-agent-7-finish-2\t7\tExited (0) 1 minute ago\tair-agent-7-build-1",
+        "air-agent-8-build-1\t8\tDead\t",
+        "bad name\t9\tExited (1) now\t",
+        "air-agent-x\tnope\tExited (1) now\t",
+      ].join("\n"),
+    );
+
+    const exited = await new DockerAgentRuntime(options, runner).exited();
+
+    assert.deepEqual(exited, [
+      { name: "air-agent-7-build-1", issue: 7, exitCode: 137 },
+      {
+        name: "air-agent-7-finish-2",
+        issue: 7,
+        exitCode: 0,
+        finishes: "air-agent-7-build-1",
+      },
+      { name: "air-agent-8-build-1", issue: 8, exitCode: null },
+    ]);
+    assert.ok(calls[0]?.args.includes("status=exited"));
+    assert.ok(calls[0]?.args.includes("status=dead"));
+  });
+
+  it("lists whose runs the finishers close", async () => {
+    const { runner } = recording(
+      "air-agent-7-build-1\n\nair-agent-9-review-3\n",
+    );
+
+    assert.deepEqual(
+      await new DockerAgentRuntime(options, runner).finishers(),
+      ["air-agent-7-build-1", "air-agent-9-review-3"],
+    );
+  });
+
+  it("starts a finisher with fixed arguments", async () => {
+    const { runner, calls } = recording();
+
+    await new DockerAgentRuntime(options, runner, () => NOW).finish({
+      name: "air-agent-7-build-1",
+      issue: 7,
+      exitCode: 137,
+    });
+
+    assert.deepEqual(calls[0]?.args, [
+      "compose",
+      "--file",
+      "/srv/air/compose.yaml",
+      "run",
+      "--detach",
+      "--name",
+      "air-agent-7-finish-20261119T102030",
+      "--label",
+      "air.agent.issue=7",
+      "--label",
+      "air.agent.finishes=air-agent-7-build-1",
+      "agent",
+      "--finish",
+      "7",
+    ]);
+  });
+
+  it("refuses a run name docker wouldn't give", async () => {
+    const { runner } = recording();
+
+    await assert.rejects(
+      new DockerAgentRuntime(options, runner).finish({
+        name: "x;rm -rf /",
+        issue: 7,
+        exitCode: 1,
+      }),
+      /Invalid run/,
+    );
+  });
+});

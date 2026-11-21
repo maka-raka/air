@@ -104,15 +104,19 @@ describe("composeLauncher", () => {
       runner,
     );
 
-    const results = await dispatcher.dispatchOnce();
+    const { dispatched, recovered } = await dispatcher.roundOnce();
 
     assert.deepEqual(
-      results.map(({ issue, outcome }) => [issue, outcome]),
+      dispatched.map(({ issue, outcome }) => [issue, outcome]),
       [[9, DispatchOutcome.Started]],
     );
-    assert.equal(calls[0]?.[0], "ps");
-    assert.deepEqual(calls[1]?.slice(-2), ["agent", "9"]);
-    assert.deepEqual(calls[2]?.slice(0, 2), ["ps", "--all"]);
+    assert.deepEqual(recovered, []);
+    // exited runs and finishers, running issues, the start, the snapshot
+    assert.ok(calls[0]?.includes("status=exited"));
+    assert.ok(calls[1]?.includes("label=air.agent.finishes"));
+    assert.equal(calls[2]?.[0], "ps");
+    assert.deepEqual(calls[3]?.slice(-2), ["agent", "9"]);
+    assert.deepEqual(calls[4]?.slice(0, 2), ["ps", "--all"]);
     assert.deepEqual(await new FileAgentLaunchQueue(launchDir).pending(), []);
     const published = await new FileAgentRunsSnapshot(
       agentRunsFile(launchDir),
@@ -129,11 +133,11 @@ describe("runLauncher", () => {
     let rounds = 0;
     await runLauncher(
       {
-        async dispatchOnce() {
+        async roundOnce() {
           rounds += 1;
           if (rounds === 1) throw new Error("docker down");
           controller.abort();
-          return [];
+          return { dispatched: [], recovered: [] };
         },
       },
       1,
