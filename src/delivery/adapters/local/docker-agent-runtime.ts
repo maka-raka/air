@@ -8,6 +8,11 @@ import type {
   AgentRun,
   AgentRunsSourcePort,
 } from "../../application/agent-runs.js";
+import type {
+  ExitedRun,
+  ExitedRunsPort,
+  RunFinisherPort,
+} from "../../application/recover-dead-runs.js";
 import { DeliveryPhase } from "../../domain/state-machine.js";
 import type { Phase } from "../../domain/state-machine.js";
 
@@ -36,7 +41,24 @@ export type DockerAgentRuntimeOptions = Readonly<{
 export const AgentContainerLabel = {
   Issue: "air.agent.issue",
   Phase: "air.agent.phase",
+  /** On a finisher: the run it closes (ADR-0011 §7). */
+  Finishes: "air.agent.finishes",
 } as const;
+
+/** Container states of a run that is over. */
+const ContainerState = { Exited: "exited", Dead: "dead" } as const;
+const FINISH_FLAG = "--finish";
+const FINISH_PHASE = "finish";
+/** `docker ps` status of a stopped container: "Exited (137) 2 minutes ago". */
+const EXIT_STATUS = /^Exited \((\d{1,3})\)/;
+/** What Docker allows in a container name. */
+const CONTAINER_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
+const EXITED_FORMAT = [
+  "{{.Names}}",
+  `{{.Label "${AgentContainerLabel.Issue}"}}`,
+  "{{.Status}}",
+  `{{.Label "${AgentContainerLabel.Finishes}"}}`,
+].join("\t");
 
 const NAME_PREFIX = "air-agent";
 /** Checked again here: the name ends up in a process argument. */
@@ -71,6 +93,20 @@ function parseRun(line: string): AgentRun | null {
   };
 }
 
+function parseExited(line: string): ExitedRun | null {
+  const [name = "", issue = "", status = "", finishes = ""] = line.split("\t");
+  const number = Number(issue);
+  if (!Number.isSafeInteger(number) || number < 1) return null;
+  if (!CONTAINER_NAME.test(name)) return null;
+  const code = EXIT_STATUS.exec(status);
+  return {
+    name,
+    issue: number,
+    exitCode: code ? Number(code[1]) : null,
+    ...(finishes ? { finishes } : {}),
+  };
+}
+
 function stamp(date: Date): string {
   return date.toISOString().replace(/[-:]/g, "").replace(/\..*$/, "");
 }
@@ -89,7 +125,11 @@ function issues(output: string): number[] {
  * shell; the only variable parts are the issue number and the phase.
  */
 export class DockerAgentRuntime
-  implements AgentRuntimePort, AgentRunsSourcePort
+  implements
+    AgentRuntimePort,
+    AgentRunsSourcePort,
+    ExitedRunsPort,
+    RunFinisherPort
 {
   constructor(
     private readonly options: DockerAgentRuntimeOptions,
@@ -147,6 +187,62 @@ export class DockerAgentRuntime
       // Claude Code reads its model from ANTHROPIC_MODEL (ADR-0013).
       ...(model ? ["--env", `ANTHROPIC_MODEL=${model}`] : []),
       this.options.service,
+      String(issue),
+    ]);
+  }
+
+  async exited(): Promise<readonly ExitedRun[]> {
+    const output = await this.runner(this.options.docker, [
+      "ps",
+      "--all",
+      "--filter",
+      `label=${AgentContainerLabel.Issue}`,
+      "--filter",
+      `status=${ContainerState.Exited}`,
+      "--filter",
+      `status=${ContainerState.Dead}`,
+      "--format",
+      EXITED_FORMAT,
+    ]);
+    return output
+      .split("\n")
+      .map(parseExited)
+      .filter((run): run is ExitedRun => run !== null);
+  }
+
+  async finishers(): Promise<readonly string[]> {
+    const output = await this.runner(this.options.docker, [
+      "ps",
+      "--all",
+      "--filter",
+      `label=${AgentContainerLabel.Finishes}`,
+      "--format",
+      `{{.Label "${AgentContainerLabel.Finishes}"}}`,
+    ]);
+    return output
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((name) => name !== "");
+  }
+
+  async finish({ issue, name }: ExitedRun): Promise<void> {
+    if (!Number.isSafeInteger(issue) || issue < 1)
+      throw new Error(`Invalid issue: ${issue}`);
+    if (!CONTAINER_NAME.test(name)) throw new Error(`Invalid run: ${name}`);
+    await this.runner(this.options.docker, [
+      "compose",
+      "--file",
+      this.options.composeFile,
+      "run",
+      "--detach",
+      "--name",
+      `${NAME_PREFIX}-${issue}-${FINISH_PHASE}-${stamp(this.now())}`,
+      "--label",
+      `${AgentContainerLabel.Issue}=${issue}`,
+      "--label",
+      `${AgentContainerLabel.Finishes}=${name}`,
+      this.options.service,
+      FINISH_FLAG,
       String(issue),
     ]);
   }

@@ -94,6 +94,28 @@ jobs:
           grep -q "set AIR_REPOSITORY" <<<"$missing"
           test "$bad_code" -ne 0
           grep -q "must be <owner>/<repo>" <<<"$bad"
+          set +e
+          mode=$(docker run --rm -e AIR_REPOSITORY=x/y -e AIR_AGENT_LOGIN=a \
+            -e AIR_AGENT_TOKEN=t -e AIR_AGENT_SIGNING_KEY=k -e ANTHROPIC_API_KEY=k \
+            -e AIR_AGENT_MODE=unattended air-agent:ci 1 2>&1); mode_code=$?
+          set -e
+          echo "$mode"
+          test "$mode_code" -ne 0
+          grep -q "AIR_AGENT_MODE must be interactive or headless" <<<"$mode"
+          set +e
+          runtime=$(docker run --rm -e AIR_REPOSITORY=x/y -e AIR_AGENT_LOGIN=a \
+            -e AIR_AGENT_TOKEN=t -e AIR_AGENT_SIGNING_KEY=k -e ANTHROPIC_API_KEY=k \
+            -e AIR_AGENT_MAX_RUNTIME=forever air-agent:ci 1 2>&1); runtime_code=$?
+          finish=$(docker run --rm -e AIR_REPOSITORY=x/y -e AIR_AGENT_LOGIN=a \
+            -e AIR_AGENT_TOKEN=t -e AIR_AGENT_SIGNING_KEY=k \
+            air-agent:ci --finish 1 2>&1); finish_code=$?
+          set -e
+          printf '%s\n' "$runtime" "$finish"
+          test "$runtime_code" -ne 0
+          grep -q "AIR_AGENT_MAX_RUNTIME must be a duration" <<<"$runtime"
+          # --finish needs no Anthropic key: it fails later, on the fake token.
+          test "$finish_code" -ne 0
+          ! grep -q "ANTHROPIC_API_KEY" <<<"$finish"
 
       - name: Agent image tools and managed settings
         run: |
@@ -124,6 +146,29 @@ jobs:
             echo "{}" | air-stop-hook
             echo "{}" | AIR_ISSUE=43 FAKE_GATE=0 air-stop-hook
             echo "{}" | AIR_ISSUE=44 FAKE_GATE=1 air-stop-hook
+          '
+
+      - name: Headless agent run ends with a gate or a block, never working
+        run: |
+          docker run --rm --entrypoint jq air-agent:ci -e \
+            '(.permissions.allow | index("Bash(npx air:*)") != null) and (.permissions.deny | index("Edit(.github/**)") != null)' \
+            /etc/claude-code/managed-settings.json
+          docker run --rm --entrypoint bash air-agent:ci -c '
+            set -euo pipefail
+            mkdir -p /tmp/bin
+            cat > /tmp/bin/npx <<"STUB"
+          #!/bin/sh
+          echo "$*" >> /tmp/calls
+          case "$*" in
+            *--check*) echo "would ${FAKE_GATE:-reject}: build"; [ "${FAKE_GATE:-reject}" = pass ] || exit 2 ;;
+          esac
+          STUB
+            chmod +x /tmp/bin/npx
+            export PATH=/tmp/bin:$PATH
+            FAKE_GATE=pass air-finish-run 42
+            grep -qx -- "--no air gate 42" /tmp/calls
+            air-finish-run 43
+            grep -q -- "^--no air block 43 --question-file" /tmp/calls
           '
 
       - name: Agent refuses a branch that changes its configuration

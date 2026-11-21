@@ -57,6 +57,14 @@ Starting a container needs the Docker API, which is root-equivalent on the host.
 
 The agent image's managed settings add a Stop hook, so the agent doesn't end a session the gate would refuse. `air gate <issue> --check` (`EvaluatePhaseGate.preview`) gives the gate's verdict without moving state. The hook exits 2 with the problems only when the phase is working and the gate would refuse it, at most `AIR_STOP_HOOK_MAX` times per run. It is advice: the hook moves no state and can't open a gate, and a broken check lets the session end. Taken from the ZazenCodes software factory v2, where the builder's Stop hook runs the gate.
 
+### 6. Headless runs (added 2026-11-21)
+
+An interactive Claude Code session waits on the first permission prompt, so an automatic launch stalls without a person. `AIR_AGENT_MODE=headless` runs Claude Code as `claude -p` with a bounded number of turns. The image's managed settings carry an allow list next to the deny list: a headless session runs only what the allow list covers, refuses everything else, and denies still win. The prompt tells the agent to ask through `air block`. When the session ends, `air-finish-run` makes sure no phase stays working without an agent. It runs `air gate` if the gate would pass, and `air block` with the gate's problems if it would refuse. It uses the agent's own credentials and only the gate's verdict, so it adds no new authority. The allow list, like the deny list, guards against mistakes. The boundary is still the agent token, the branch rules and the container (Repository Hardening §4).
+
+### 7. A watchdog for runs that die (added 2026-11-21)
+
+`air-finish-run` runs only if the container lives to the end of the session. A headless session is bounded in time (`AIR_AGENT_MAX_RUNTIME`, through `timeout`) and is closed as usual when the time runs out. A container killed from outside (out of memory, a host restart) isn't closed by anything inside it. In each round, the launcher's `RecoverDeadRuns` lists agent containers that exited with a non-zero code and starts one finisher for each through the same compose service: `air-agent --finish <issue>`, labelled with the run it closes. The finisher runs only `air-finish-run`, from the default branch, without Claude Code and without an Anthropic key. The launcher's authority doesn't change: it starts containers and holds no AIR key, and the finisher decides nothing the gate doesn't. A finisher is never finished itself. The label on the finisher is what marks a run as handled, so removing the finisher container lets the launcher try again.
+
 ## Roadmap
 
 | # | Step | Status |

@@ -17,6 +17,11 @@ Changes that affect projects using AIR. Versions follow semver; before 1.0 a min
 
 ### Added
 
+- **A watchdog for agent runs** ([ADR-0011](docs/architecture/adr/0011-agent-execution.md) §7):
+  - **Time limit.** A headless session is stopped after `AIR_AGENT_MAX_RUNTIME` (default `2h`), and the run is closed as usual.
+  - **Finisher for dead containers.** If an agent container exits with an error before closing its run (out of memory, a host restart), the launcher starts one finisher, `air-agent --finish <issue>`. It runs `air-finish-run` from the default branch with the agent's credentials, without Claude Code, so the issue doesn't stay working with nobody on it.
+  - **Launcher interface.** The launcher's round is now `roundOnce()`, which returns both the dispatched and the recovered runs.
+- **Headless agent runs.** In `AIR_AGENT_MODE=headless`, the Docker agent runs `claude -p` with no permission prompts and at most `AIR_AGENT_MAX_TURNS` turns (default 200). It runs what the new managed allow list covers and refuses the rest; deny rules still win. After the session, `air-finish-run` runs `air gate` if the gate would pass, or `air block` with the gate's problems, so a launched run never leaves an issue working with nobody on it. The transcript goes to the agent audit volume ([ADR-0011](docs/architecture/adr/0011-agent-execution.md) §6). Rebuild the agent image; interactive runs are unchanged apart from fewer prompts for the allowed commands.
 - **`air doctor` checks that the setup can run**, besides the hardening checklist:
   - each token it finds belongs to its account, asked with that token;
   - each signing key matches its public key;
