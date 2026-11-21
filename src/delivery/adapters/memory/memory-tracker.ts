@@ -57,6 +57,15 @@ export type MemoryCodeChange = Readonly<{
   approved: boolean;
   checksGreen: boolean;
   mergeCommit: string | null;
+  /** The paths the change adds, changes or removes. */
+  paths: readonly string[];
+}>;
+
+/** What a test may change on an open code change. */
+type CodeChangeUpdate = Readonly<{
+  approved?: boolean;
+  checksGreen?: boolean;
+  paths?: readonly string[];
 }>;
 
 export type MemoryDeployment = Readonly<{
@@ -237,7 +246,7 @@ export class MemoryTracker {
     return false;
   }
 
-  openChange(head: string): number {
+  openChange(head: string, paths: readonly string[] = []): number {
     if (!this.parents.has(head)) throw new Error(`Unknown commit ${head}`);
     const number = this.id();
     this.changes.set(number, {
@@ -248,14 +257,12 @@ export class MemoryTracker {
       approved: false,
       checksGreen: false,
       mergeCommit: null,
+      paths,
     });
     return number;
   }
 
-  updateChange(
-    number: number,
-    update: Partial<Pick<MemoryCodeChange, "approved" | "checksGreen">>,
-  ): void {
+  updateChange(number: number, update: CodeChangeUpdate): void {
     this.changes.set(number, { ...this.requireChange(number), ...update });
   }
 

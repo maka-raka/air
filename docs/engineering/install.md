@@ -42,7 +42,7 @@ Commit `package.json` and `package-lock.json`; the lockfile pins the tarball's h
 npx --no air init
 ```
 
-This adds the agent skill, the standard review lenses (`.claude/agents/air-review-*.md`), the rules for choosing them (`.claude/skills/air-delivery/lenses.md`), the deploy workflow and `.env.air.example`, and ignores `.env.air` and `.air/`. Existing files are kept. Add optional lenses with `--lens privacy,cost` or `--lens all` ([ADR-0013](../architecture/adr/0013-agent-roles.md)). Commit these files; edit `lenses.md` and the lens files to fit the project.
+This adds the agent skill, the standard review lenses (`.claude/agents/air-review-*.md`), the rules for choosing them (`.claude/skills/air-delivery/lenses.md`), the deploy workflow, the delivery policy `.github/air-policy.json` and `.env.air.example`, and ignores `.env.air` and `.air/`. The policy lists the paths a delivery's pull request may not change; the gate reads it from the default branch ([ADR-0017](../architecture/adr/0017-protected-paths.md)). Existing files are kept. Add optional lenses with `--lens privacy,cost` or `--lens all` ([ADR-0013](../architecture/adr/0013-agent-roles.md)). Commit these files; edit `lenses.md` and the lens files to fit the project.
 
 ## 3. Accounts, keys and settings
 

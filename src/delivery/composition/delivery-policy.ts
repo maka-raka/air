@@ -1,0 +1,18 @@
+import { DeliveryPolicyCodec } from "../adapters/codec/delivery-policy-codec.js";
+
+/** Where AIR reads the project's delivery policy from (ADR-0017). */
+export const DELIVERY_POLICY_PATH = ".github/air-policy.json";
+
+/**
+ * Protected without a policy file: CI and deploy workflows, and AIR's agent
+ * and skill templates with Claude Code's settings and hooks (ADR-0017).
+ */
+export const DEFAULT_PROTECTED_PATHS = [".github/**", ".claude/**"] as const;
+
+/** Reads a policy file; the policy file itself is always protected. */
+export function deliveryPolicyCodec(): DeliveryPolicyCodec {
+  return new DeliveryPolicyCodec({
+    protectedPaths: DEFAULT_PROTECTED_PATHS,
+    alwaysProtected: [DELIVERY_POLICY_PATH],
+  });
+}

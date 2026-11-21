@@ -115,6 +115,33 @@ describe("PhaseGateEvaluator", () => {
     });
   }
 
+  for (const phase of [DeliveryPhase.Build, DeliveryPhase.Review]) {
+    it(`rejects ${phase} when the change breaks the protected-path rule`, () => {
+      const records = [start, report(phase, { pullRequest: 57 })];
+      const evaluated = new PhaseGateEvaluator().evaluate(
+        phase,
+        new DeliveryRecordHistory(records, NOW, 2 * 60 * 60 * 1000),
+        green,
+        ["Pull request changes protected files: `.ci/x.yml`"],
+      );
+
+      assert.equal(evaluated.passed, false);
+      assert.match(evaluated.problems.join(), /protected files/);
+    });
+  }
+
+  it("ignores change problems outside code phases", () => {
+    const records = [start, report(DeliveryPhase.Accept, { verdict: "go" })];
+    const evaluated = new PhaseGateEvaluator().evaluate(
+      DeliveryPhase.Accept,
+      new DeliveryRecordHistory(records, NOW, 2 * 60 * 60 * 1000),
+      null,
+      ["Pull request changes protected files: `.ci/x.yml`"],
+    );
+
+    assert.deepEqual(evaluated.problems, []);
+  });
+
   it("lets the policy reject a no-go verdict", () => {
     const records = [start, report(DeliveryPhase.Accept, { verdict: "no-go" })];
 

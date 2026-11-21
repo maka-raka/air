@@ -25,6 +25,13 @@ import {
   Ed25519RecordVerifier,
 } from "../adapters/signature/record-signature.js";
 import { GitHubPullRequestHttpAdapter } from "../adapters/github/pull-request-http-adapter.js";
+import { GitHubPullRequestFilesHttpAdapter } from "../adapters/github/pull-request-files-http-adapter.js";
+import { GitHubDeliveryPolicyHttpAdapter } from "../adapters/github/delivery-policy-http-adapter.js";
+import {
+  DELIVERY_POLICY_PATH,
+  deliveryPolicyCodec,
+} from "./delivery-policy.js";
+import { ProtectedChangeCheck } from "../application/protected-changes.js";
 import { PROJECT_CHECK_CONTEXT } from "../application/project-check.js";
 import type { PullRequestStatusPort } from "../application/recorded-delivery-evidence.js";
 import { DeliveryMode } from "../domain/delivery-mode.js";
@@ -298,5 +305,19 @@ export function pullRequestStatus(
     client,
     [accounts.agent.id],
     required,
+  );
+}
+
+/** The gate's protected-path rule, with the policy from the default branch. */
+export function protectedChanges(
+  client: GitHubRestClient,
+): ProtectedChangeCheck {
+  return new ProtectedChangeCheck(
+    new GitHubPullRequestFilesHttpAdapter(client),
+    new GitHubDeliveryPolicyHttpAdapter(
+      client,
+      deliveryPolicyCodec(),
+      DELIVERY_POLICY_PATH,
+    ),
   );
 }

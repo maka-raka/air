@@ -129,6 +129,7 @@ Port contracts made explicit by the second adapter:
 - Every evidence bundle has `source`, `capturedAt`, `scope` and stable `revision` (PR head SHA, deployed artifact or equivalent).
 - Gate validation checks evidence freshness and completeness for that particular phase.
 - A missing or unavailable evidence source is **not** counted as a passing gate.
+- In build and review, `ProtectedChangeCheck` adds the change's own problems: it must target the default branch, list all its files and leave protected paths alone. The policy comes from the default branch through `DeliveryPolicyPort`, the files through `CodeChangeFilesPort` ([ADR-0017](adr/0017-protected-paths.md)).
 - `accept` and `observe` must distinguish stage from production and treat logs as untrusted.
 - Evidence data may be stored by reference to avoid including secrets, PII or large outputs in issue comments.
 

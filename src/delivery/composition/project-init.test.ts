@@ -49,8 +49,15 @@ describe("initProject", () => {
 
     const result = await initProject(root);
 
-    assert.deepEqual(result.created, Object.values(PROJECT_FILES));
+    assert.deepEqual(result.created, [
+      ...Object.values(PROJECT_FILES),
+      ".github/air-policy.json",
+    ]);
     assert.deepEqual(result.ignored, [...IGNORED]);
+    assert.deepEqual(
+      JSON.parse(await readFile(join(root, ".github/air-policy.json"), "utf8")),
+      { protected: [".github/**", ".claude/**"] },
+    );
     const skill = await readFile(
       join(root, ".claude/skills/air-delivery/SKILL.md"),
       "utf8",

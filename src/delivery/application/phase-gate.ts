@@ -19,6 +19,7 @@ import type {
   ReportRecord,
 } from "./delivery-record.js";
 import { DeliveryFailure } from "./execute-delivery-command.js";
+import type { ProtectedChangeCheck } from "./protected-changes.js";
 import type {
   DeliveryResult,
   DeliveryStatePort,
@@ -50,6 +51,7 @@ export class PhaseGateEvaluator {
     phase: Phase,
     history: DeliveryRecordHistory,
     pullRequest: PullRequestStatus | null,
+    changeProblems: readonly string[] = [],
   ): Gate {
     const run = history.activeRunStart();
     const report = history.latestReport(phase);
@@ -58,7 +60,9 @@ export class PhaseGateEvaluator {
       ...(run ? [] : ["No active agent run"]),
       ...(report ? [] : [`No ${phase} report`]),
       ...(report && !current ? [`The ${phase} report predates this run`] : []),
-      ...(report ? this.phaseProblems(phase, report, pullRequest) : []),
+      ...(report
+        ? this.phaseProblems(phase, report, pullRequest, changeProblems)
+        : []),
     ];
     return {
       passed: problems.length === 0,
@@ -90,12 +94,14 @@ export class PhaseGateEvaluator {
     phase: Phase,
     report: ReportRecord,
     pullRequest: PullRequestStatus | null,
+    changeProblems: readonly string[],
   ): readonly string[] {
     const facts = report.facts;
     if (phase === DeliveryPhase.Requirements) return this.intakeProblems(facts);
     if (phase === DeliveryPhase.Design)
       return facts.artifact ? [] : ["Design artifact link is missing"];
-    if (codePhases.includes(phase)) return this.codeProblems(pullRequest);
+    if (codePhases.includes(phase))
+      return this.codeProblems(pullRequest, changeProblems);
     if (verdictPhases.includes(phase))
       return facts.verdict ? [] : ["Verdict (go or no-go) is missing"];
     return [];
@@ -107,11 +113,17 @@ export class PhaseGateEvaluator {
     return facts.taskSize ? [] : ["Task size (S or L) is missing"];
   }
 
-  private codeProblems(pullRequest: PullRequestStatus | null) {
+  private codeProblems(
+    pullRequest: PullRequestStatus | null,
+    changeProblems: readonly string[],
+  ) {
     if (!pullRequest) return ["Report does not name a pull request"];
     if (!pullRequest.exists || !pullRequest.active)
       return ["Pull request is missing or closed without merge"];
-    return pullRequest.checksGreen ? [] : ["Pull request checks are not green"];
+    return [
+      ...(pullRequest.checksGreen ? [] : ["Pull request checks are not green"]),
+      ...changeProblems,
+    ];
   }
 }
 
@@ -131,6 +143,7 @@ export class EvaluatePhaseGate {
     private readonly executor: DeliveryCommandExecutor,
     private readonly records: DeliveryRecordPort,
     private readonly pullRequests: PullRequestStatusPort,
+    private readonly protectedChanges: ProtectedChangeCheck,
     private readonly preflight: AgentPreflightPort,
     private readonly runtime: Readonly<{ now: () => Date; runTtlMs: number }>,
     private readonly evaluator: PhaseGateEvaluator = new PhaseGateEvaluator(),
@@ -157,10 +170,15 @@ export class EvaluatePhaseGate {
       this.runtime.now(),
       this.runtime.runTtlMs,
     );
+    const number = this.pullRequestNumber(position.phase, history);
+    const pullRequest = number ? await this.pullRequests.status(number) : null;
     const gate = this.evaluator.evaluate(
       position.phase,
       history,
-      await this.pullRequest(position.phase, history),
+      pullRequest,
+      number && pullRequest?.exists && pullRequest.active
+        ? await this.protectedChanges.problems(number)
+        : [],
     );
     const result = await this.executor.execute({
       issue,
@@ -185,15 +203,16 @@ export class EvaluatePhaseGate {
     return { result, gate };
   }
 
-  private async pullRequest(
+  private pullRequestNumber(
     phase: Phase,
     history: DeliveryRecordHistory,
-  ): Promise<PullRequestStatus | null> {
+  ): number | null {
     if (!codePhases.includes(phase)) return null;
-    const number =
+    return (
       history.latestReport(phase)?.facts.pullRequest ??
-      history.latestReport(DeliveryPhase.Build)?.facts.pullRequest;
-    return number ? this.pullRequests.status(number) : null;
+      history.latestReport(DeliveryPhase.Build)?.facts.pullRequest ??
+      null
+    );
   }
 
   private rejected(detail: string): GateOutcome {

@@ -3,6 +3,10 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_ENV_FILE } from "./config.js";
+import {
+  DEFAULT_PROTECTED_PATHS,
+  DELIVERY_POLICY_PATH,
+} from "./delivery-policy.js";
 import { DEMO_VARIABLE } from "./demo-mode.js";
 import { KeyRole, keyNames } from "./trust.js";
 
@@ -95,6 +99,15 @@ export const PROJECT_FILES: Readonly<Record<string, string>> =
       file.target,
     ]),
   );
+
+/**
+ * The policy file as `air init` writes it: the default protected paths,
+ * spelled out so the project sees and owns them. JSON can't carry a
+ * template marker, so `air templates` never touches it (ADR-0017).
+ */
+export function policyFile(): string {
+  return `${JSON.stringify({ protected: DEFAULT_PROTECTED_PATHS }, null, 2)}\n`;
+}
 
 /** Local files that must never be committed. */
 export const IGNORED = [".env.air", ".air/"] as const;
@@ -309,7 +322,8 @@ function selected(options: InitOptions): readonly TemplateFile[] {
 
 /**
  * Prepares a project for AIR: the agent skill, its review lenses, the
- * deploy workflow and an env template. Existing files are never
+ * deploy workflow, the delivery policy and an env template (a demo gets
+ * no policy file and runs on the defaults). Existing files are never
  * overwritten; `air templates` updates them.
  */
 export async function initProject(
@@ -326,6 +340,13 @@ export async function initProject(
       stamp(file.source, content),
     );
     (wrote ? created : kept).push(file.target);
+  }
+  if (!options.demo) {
+    const wrote = await createOnce(
+      join(root, DELIVERY_POLICY_PATH),
+      policyFile(),
+    );
+    (wrote ? created : kept).push(DELIVERY_POLICY_PATH);
   }
   if (options.demo) {
     const wrote = await createOnce(

@@ -23,6 +23,9 @@ export const GitHubPassingCheck = {
   Skipped: "skipped",
 } as const;
 
+/** Repository contents that are a file, not a directory or a link. */
+export const GitHubContentType = { File: "file" } as const;
+
 export const GitHubDeploymentState = { Success: "success" } as const;
 
 export const GitHubReviewState = { Approved: "APPROVED" } as const;

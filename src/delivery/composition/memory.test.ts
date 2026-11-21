@@ -34,7 +34,7 @@ type World = Readonly<{
 }>;
 
 /** A tracker with AIR's accounts, one approver and one non-approver. */
-function world(): World {
+function world(policy?: string): World {
   const tracker = new MemoryTracker({ id: 500, name: "acme/shop" });
   const operator = tracker.addAccount("air-operator", { write: true });
   const agent = tracker.addAccount("air-agent", { write: true });
@@ -49,6 +49,7 @@ function world(): World {
     runTtlMs: 2 * 60 * 60 * 1000,
     leaseMs: 60_000,
     newRunId: () => `run-${++run}`,
+    ...(policy === undefined ? {} : { policy }),
   }).compose();
   return { tracker, alice, mallory, agent, services };
 }
@@ -272,5 +273,84 @@ describe("AIR on the memory tracker (ADR-0009)", () => {
     assert.equal(outcome.result.ok, false);
     assert.deepEqual(outcome.gate?.problems, ["No requirements report"]);
     assert.equal(state(tracker, issue), "requirements:working");
+  });
+
+  describe("protected paths (ADR-0017)", () => {
+    /** An issue in build with a green change that touches the given paths. */
+    async function building(w: World, paths: readonly string[]) {
+      const { tracker, alice, services } = w;
+      const issue = tracker.openIssue(alice.id, "Tune checks", "");
+      await say(w, issue, alice, "/air initialize");
+      await agentPhase(w, issue, DeliveryPhase.Requirements, {
+        taskSize: DeliveryTaskSize.Small,
+        miniDesign: true,
+      });
+      await say(w, issue, alice, "/air advance build");
+      tracker.commit("d4e5f6a");
+      const change = tracker.openChange("d4e5f6a", paths);
+      tracker.updateChange(change, { checksGreen: true });
+      assert.equal((await services.agent.commands.start(issue)).ok, true);
+      await services.agent.commands.report(
+        issue,
+        DeliveryPhase.Build,
+        { pullRequest: change },
+        "Built.",
+      );
+      return { issue, change };
+    }
+
+    it("keeps the gate closed while a change touches a protected path", async () => {
+      // Arrange
+      const w = world();
+      const { issue, change } = await building(w, [
+        "src/checks.ts",
+        ".claude/agents/air-review-security.md",
+      ]);
+
+      // Act
+      const refused = await w.services.agent.gate.run(issue);
+      w.tracker.updateChange(change, { paths: ["src/checks.ts"] });
+      const passed = await w.services.agent.gate.run(issue);
+
+      // Assert
+      assert.deepEqual(refused.gate?.problems, [
+        "Pull request changes protected files: `.claude/agents/air-review-security.md`",
+      ]);
+      assert.equal(refused.result.ok, false);
+      assert.equal(passed.result.ok, true);
+      assert.equal(state(w.tracker, issue), "build:waiting");
+    });
+
+    it("follows the project's list and always protects the policy file", async () => {
+      // Arrange
+      const w = world('{"protected":["scripts/**"]}');
+      const { issue } = await building(w, [
+        ".claude/agents/air-review-security.md",
+        ".github/air-policy.json",
+        "scripts/check.sh",
+      ]);
+
+      // Act
+      const outcome = await w.services.agent.gate.run(issue);
+
+      // Assert
+      assert.deepEqual(outcome.gate?.problems, [
+        "Pull request changes protected files: `.github/air-policy.json`, `scripts/check.sh`",
+      ]);
+    });
+
+    it("keeps the gate closed on an invalid policy file", async () => {
+      // Arrange
+      const w = world('{"protect":["scripts/**"]}');
+      const { issue } = await building(w, ["src/a.ts"]);
+
+      // Act
+      const outcome = await w.services.agent.gate.run(issue);
+
+      // Assert
+      assert.deepEqual(outcome.gate?.problems, [
+        "The AIR policy file is invalid",
+      ]);
+    });
   });
 });
