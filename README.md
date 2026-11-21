@@ -26,6 +26,7 @@ Not done yet: GitHub App tokens instead of personal access tokens, and unattende
 - [Adopt AIR in a project](docs/engineering/install.md)
 - [Local runtime](docs/engineering/local-runtime.md)
 - [Running AIR in Docker](docs/engineering/docker.md)
+- [First live run (checklist)](docs/engineering/first-run.md)
 - [Repository hardening (required)](docs/engineering/security-hardening.md)
 - [Changelog](CHANGELOG.md)
 
