@@ -262,7 +262,7 @@ describe("agent CLI composition", () => {
       issue: 42,
       phase: "requirements",
       facts: { taskSize: "S", miniDesign: true },
-      summary: { text: "Criteria and mini-design." },
+      summary: { text: "## Summary\n- Criteria and mini-design." },
     });
 
     const outcome = await runAgent(services, {
@@ -299,7 +299,7 @@ describe("agent CLI composition", () => {
       issue: 42,
       phase: "requirements",
       facts: { taskSize: "S" },
-      summary: { text: "Old report." },
+      summary: { text: "## Summary\n- Old report." },
     });
     await new Promise((done) => setTimeout(done, 5));
     await runAgent(services, { command: AgentCliCommand.Start, issue: 42 });

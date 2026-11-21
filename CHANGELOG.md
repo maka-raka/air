@@ -17,6 +17,7 @@ Changes that affect projects using AIR. Versions follow semver; before 1.0 a min
 
 ### Added
 
+- **Report highlights.** Every phase report now starts with `## Summary` and one to five one-line bullets. `air report` records them as the signed fact `highlights` and refuses a report without them, and the console shows them on the issue page ([ADR-0013](docs/architecture/adr/0013-agent-roles.md) §5). **Upgrading:** an open delivery whose current report has no highlights needs a new report before its gate passes. `air templates` updates an untouched skill.
 - **`/air allow-protected <commit>`** lets an approver who reviewed a delivery's pull request at that commit let it change protected files ([ADR-0017](docs/architecture/adr/0017-protected-paths.md)). The operator records the decision, signed and bound to the pull request and the full head commit; a new push needs a new approval. The gate's message names the command with the current commit. The operator token needs no new permission.
 - **`air lenses <issue>`** prints the review lenses the gate will require for the delivery's pull request, and anything else that would keep it closed.
 - **`air init` writes `.github/air-policy.json`** with the default protected paths and lens rules. `air templates` never changes it. Demo mode writes none and uses the defaults.
