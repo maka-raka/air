@@ -4,11 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
 import {
+  SPLIT_ENV_FILES,
   composeDoctor,
+  composeSetupCheck,
+  loadSplitEnvFiles,
   readDoctorConfig,
   readLocalSettings,
+  readSetupFacts,
   renderDoctor,
 } from "./doctor.js";
+import type { HttpRequest } from "../adapters/github/github-rest-client.js";
 
 const dir = await mkdtemp(join(tmpdir(), "air-doctor-"));
 after(() => rm(dir, { recursive: true, force: true }));
@@ -83,6 +88,113 @@ describe("readDoctorConfig", () => {
       () => readDoctorConfig({ ...env, AIR_MODE: "free" }, []),
       /Invalid AIR_MODE: free/,
     );
+  });
+});
+
+describe("readSetupFacts", () => {
+  it("collects each account's token and keys, and the agent settings", () => {
+    const facts = readSetupFacts({
+      ...env,
+      AIR_AGENT_TOKEN: "agent-token",
+      AIR_AGENT_SIGNING_KEY: "agent-signing",
+      AIR_AGENT_PUBLIC_KEY: "agent-public",
+      AIR_AGENT_MODE: "headless",
+      AIR_AGENT_LAUNCH_PHASES: "build, review",
+    });
+
+    assert.deepEqual(facts, {
+      credentials: [
+        {
+          role: "operator",
+          login: "air-bot",
+          tokenName: "AIR_GITHUB_TOKEN",
+          token: "operator-token",
+        },
+        {
+          role: "agent",
+          login: "air-agent",
+          tokenName: "AIR_AGENT_TOKEN",
+          token: "agent-token",
+          signingKey: "agent-signing",
+          publicKey: "agent-public",
+        },
+      ],
+      agentMode: "headless",
+      launchPhases: ["build", "review"],
+    });
+  });
+
+  it("adds the deployer only when one is configured", () => {
+    const facts = readSetupFacts({ ...env, AIR_DEPLOY_LOGIN: "air-deployer" });
+
+    assert.deepEqual(
+      facts.credentials.map(({ role }) => role),
+      ["operator", "agent", "deployer"],
+    );
+  });
+});
+
+describe("composeSetupCheck", () => {
+  it("checks tokens, the default policy and installed lenses on GitHub", async () => {
+    const request: HttpRequest = async (url, init) => {
+      const auth = JSON.stringify(init.headers);
+      const path = new URL(url).pathname;
+      const reply = (body: unknown, status = 200) => ({
+        ok: status < 400,
+        status,
+        json: async () => body,
+      });
+      if (path === "/user")
+        return reply({
+          id: 1,
+          login: auth.includes("agent-token") ? "someone-else" : "air-bot",
+        });
+      if (path.endsWith("/contents/.github/air-policy.json"))
+        return reply({ message: "Not Found" }, 404);
+      if (path.endsWith("/contents/.claude/agents"))
+        return reply(
+          ["code", "tests", "scope", "deps", "data"].map((lens) => ({
+            type: "file",
+            name: `air-review-${lens}.md`,
+          })),
+        );
+      return reply({}, 500);
+    };
+    const config = readDoctorConfig(
+      { ...env, AIR_AGENT_TOKEN: "agent-token" },
+      [],
+    );
+
+    const findings = await composeSetupCheck(config, request).run(config.setup);
+
+    assert.deepEqual(
+      findings.map(({ id, status }) => `${id}:${status}`),
+      [
+        "setup.token.operator:pass",
+        "setup.token.agent:fail",
+        "setup.policy:pass",
+        "setup.lenses:fail",
+      ],
+    );
+    assert.match(findings[3]!.message, /not installed: security/);
+  });
+});
+
+describe("loadSplitEnvFiles", () => {
+  it("loads the per-container env files that exist", async () => {
+    const root = await mkdtemp(join(dir, "split-"));
+    await writeFile(join(root, ".env.air.agent"), "AIR_AGENT_MODE=headless\n");
+    const loaded: string[][] = [];
+
+    const present = loadSplitEnvFiles(root, (argv) => loaded.push([...argv]));
+
+    assert.deepEqual(SPLIT_ENV_FILES, [
+      ".env.air.poller",
+      ".env.air.agent",
+      ".env.air.deploy",
+    ]);
+    assert.deepEqual(present, [`${root}/.env.air.agent`]);
+    assert.deepEqual(loaded, [["--env-file", `${root}/.env.air.agent`]]);
   });
 });
 

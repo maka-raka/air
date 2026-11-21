@@ -30,6 +30,8 @@ import {
 } from "./project-init.js";
 import {
   composeDoctor,
+  composeSetupCheck,
+  loadSplitEnvFiles,
   readDoctorConfig,
   readLocalSettings,
   renderDoctor,
@@ -646,11 +648,15 @@ async function main(): Promise<void> {
     return;
   }
   if (argv[0] === AgentCliCommand.Doctor) {
-    const config = readDoctorConfig(process.env, loadEnvFile(argv.slice(1)));
+    const args = loadEnvFile(argv.slice(1));
+    loadSplitEnvFiles();
+    const config = readDoctorConfig(process.env, args);
+    const setup = await composeSetupCheck(config).run(config.setup);
     const { findings, failed } = await composeDoctor(config).run(
       readLocalSettings(".", config.demo),
       config.strict,
       config.mode,
+      setup,
     );
     console.log(renderDoctor(findings));
     process.exitCode = failed ? ExitCode.Error : ExitCode.Ok;

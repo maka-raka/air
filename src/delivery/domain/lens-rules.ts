@@ -30,6 +30,15 @@ export class LensRules {
     return sorted([...this.always, ...matched, ...risky]);
   }
 
+  /** Every lens some rule can require, sorted: all must be installed. */
+  names(): readonly string[] {
+    return sorted([
+      ...this.always,
+      ...this.byPath.flatMap((rule) => rule.lenses),
+      ...[...this.byRisk.values()].flat(),
+    ]);
+  }
+
   /** Required lenses that are not among the ones that ran. */
   missing(
     paths: readonly string[],
