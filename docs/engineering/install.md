@@ -1,6 +1,6 @@
 # Adopting AIR in a Project
 
-This guide connects a repository to AIR with the local poller. Read [Repository Hardening](security-hardening.md) first: its settings are required.
+This guide connects a repository to AIR with the local poller. Read [Repository Hardening](security-hardening.md) first: its settings are required. For a first end-to-end try on a throwaway repository, follow [First Live Run](first-run.md).
 
 Requires **Node.js 24 or later** (`engines` in `package.json`). npm only warns on an older Node; AIR is not tested there.
 
