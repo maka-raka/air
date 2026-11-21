@@ -2,7 +2,9 @@
 
 Changes that affect projects using AIR. Versions follow semver; before 1.0 a minor version may break.
 
-## Unreleased
+## 0.5.0-rc.1 (2026-11-22)
+
+Release candidate for 0.5.0, for the [first live run](docs/engineering/first-run.md). It is published as a GitHub pre-release, so the latest release stays 0.4.0.
 
 ### Security
 

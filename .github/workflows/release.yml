@@ -88,7 +88,11 @@ jobs:
           FILE: ${{ needs.build.outputs.file }}
           REPO: ${{ github.repository }}
         run: |
+          # A tag with a suffix (v0.5.0-rc.1) is a pre-release: never "latest".
+          prerelease=()
+          [[ "$TAG" == *-* ]] && prerelease=(--prerelease)
           gh release create "$TAG" "$FILE" SHA256SUMS --verify-tag --repo "$REPO" \
+            "${prerelease[@]}" \
             --title "AIR $TAG" \
             --notes "Install: npm install --save-dev https://github.com/$REPO/releases/download/$TAG/$FILE
           Verify: gh attestation verify $FILE --repo $REPO"
