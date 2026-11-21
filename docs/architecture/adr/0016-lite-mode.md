@@ -12,14 +12,14 @@ The [repository hardening](../../engineering/security-hardening.md) protects the
 
 Demo mode (ADR-0014) is not the answer. It is meant for a throwaway repository, relaxes the separation of roles, and `air doctor` always fails in it. Lite mode is for real work and keeps every trust rule that doesn't depend on branch rules.
 
-| | `standard` (default) | `lite` |
-| --- | --- | --- |
-| Default-branch rules | required | not checked; `air doctor` warns that the branch is unprotected |
-| Checks behind the review gate | CI | `air-check` runs the project's check locally; the operator sets the `air/check` commit status |
-| Agent's access to code | write | read only; `air push` (operator) pushes `air/<issue>-…` branches only *(planned)* |
-| Changes that bypass AIR | blocked by the platform | detected: the operator moves them off the default branch and opens an issue *(planned)* |
-| Releases and deploys | from the default branch | only commits with a signed gate record *(planned)* |
-| Separate agent, operator and approver; signed records; audit log | kept | kept |
+|                                                                  | `standard` (default)    | `lite`                                                                                        |
+| ---------------------------------------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------- |
+| Default-branch rules                                             | required                | not checked; `air doctor` warns that the branch is unprotected                                |
+| Checks behind the review gate                                    | CI                      | `air-check` runs the project's check locally; the operator sets the `air/check` commit status |
+| Agent's access to code                                           | write                   | read only; `air push` (operator) pushes `air/<issue>-…` branches only _(planned)_             |
+| Changes that bypass AIR                                          | blocked by the platform | detected: the operator moves them off the default branch and opens an issue _(planned)_       |
+| Releases and deploys                                             | from the default branch | only commits with a signed gate record _(planned)_                                            |
+| Separate agent, operator and approver; signed records; audit log | kept                    | kept                                                                                          |
 
 ## Decision
 
@@ -41,10 +41,13 @@ A separate command that uses the operator's token (`AIR_GITHUB_TOKEN`, checked a
 1. takes the pull request from the delivery's latest trusted Build report, the same one the review gate reads;
 2. refuses a missing or closed pull request, or one whose head is in another repository;
 3. sets `air/check` to `pending`, fetches the head commit, and runs `AIR_CHECK_COMMAND` with `/bin/sh` on a detached `git worktree` in a temporary directory, never in the project's own checkout;
-4. strips `AIR_*`, `GH_TOKEN`, `GITHUB_TOKEN` and `GH_ENTERPRISE_TOKEN` from the command's environment, and stops its whole process group after `AIR_CHECK_TIMEOUT_MS` (30 minutes by default);
-5. writes the output to `.air/checks/<sha>.log`, sets `air/check` to `success` or `failure` (or `error` if the check couldn't run), and records the outcome in `.air/audit-check.jsonl`.
+4. strips `AIR_*`, `GH_TOKEN`, `GITHUB_TOKEN` and `GH_ENTERPRISE_TOKEN` from the environment of the command **and of every git call**, and stops the command's whole process group after `AIR_CHECK_TIMEOUT_MS` (30 minutes by default);
+5. runs git with `core.hooksPath=/dev/null` and `core.fsmonitor=false`. Git takes hooks from the project's checkout (a husky-style `core.hooksPath` too), and `git worktree add` runs `post-checkout`. The agent can write to that checkout, so without this a hook it planted would run with the operator's token in its environment;
+6. writes the output to `.air/checks/<sha>.log`, sets `air/check` to `success` or `failure` (or `error` if the check couldn't run), and records the outcome in `.air/audit-check.jsonl`.
 
-The review gate needs no change. It already ignores statuses set by the agent (#94), so in `lite` an `air/check` from the operator is what turns a pull request green. Any other status or check run on the commit must pass too, so in `lite` disable workflows that can't run: a run that fails to start (for example on a billing block) keeps the gate closed. The operator's token needs **Commit statuses: read and write**.
+### Review gate in `lite`
+
+Ignoring the agent's statuses (#94) is not enough in `lite`. There, Claude Code may run with the owner's own `gh` credentials, and a status set with them is not the agent's. So in `lite` the review gate **requires** `air/check`, and counts it only from the operator (by immutable ID): an `air/check` from anyone else is ignored, and without the operator's `success` on the head commit the gate stays closed. Both the poller and `air gate` read `AIR_MODE` for this. Any other status or check run on the commit must pass too, so in `lite` disable workflows that can't run: a run that fails to start (for example on a billing block) keeps the gate closed. The operator's token needs **Commit statuses: read and write**.
 
 The agent must never run `air-check`. The command uses a token the agent doesn't hold, but on one machine it can reach the same `.env.air`, so the installed skill forbids it. Step 2 adds a Claude Code deny rule.
 
@@ -59,4 +62,6 @@ The agent must never run `air-check`. The command uses a token the agent doesn't
 
 - In `lite`, nothing on the platform stops a direct push to the default branch. AIR detects and reports it after the fact, and won't release it.
 - In `lite`, the agent and the operator run on the same machine as the same OS user. Deny rules and key storage stop mistakes. As the hardening guide says, they aren't a security boundary, and a deliberate bypass on that machine is possible. Only `standard` gives a platform-enforced guarantee.
+- The checked code is the agent's code, and it runs as that same user. Stripping the environment keeps tokens in memory out of reach, not files: the code can read `.env.air`, the owner's `gh` login (`~/.config/gh/hosts.yml`, an admin token for the repository) and SSH keys. With those it could push, change repository settings or close the watchdog's alert. A process that leaves the process group (`setsid`, a double fork) also outlives the timeout. Running the agent and `air-check` in containers without the owner's credentials (the Docker runtime) is the planned way to close this; until then, treat a `lite` check as no stronger than the agent itself.
+- On a repository owned by a personal account, a bot collaborator can't use a fine-grained token, only a classic one, and a classic token for a private repository has full `repo` access, code included. "Read-only agent" (step 2) needs GitHub App tokens (#91) or an organization-owned repository.
 - Switching from `lite` to `standard` means applying the branch rules and setting `AIR_MODE=standard`. No accounts or keys change.

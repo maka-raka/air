@@ -1,13 +1,36 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdir, mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import type {
   CheckRun,
   CheckRunnerPort,
 } from "../../application/project-check.js";
-import { execFileRunner } from "./docker-agent-runtime.js";
-import type { CommandRunner } from "./docker-agent-runtime.js";
+
+/** Runs git without a shell, in `env`, and returns its stdout. */
+export type GitRunner = (
+  args: readonly string[],
+  env: NodeJS.ProcessEnv,
+) => Promise<string>;
+
+const execFileAsync = promisify(execFile);
+
+export const execGit: GitRunner = async (args, env) =>
+  (await execFileAsync("git", [...args], { env, maxBuffer: 1024 * 1024 }))
+    .stdout;
+
+/**
+ * Git settings that would run code from the project checkout, which the
+ * agent can write to: hooks (including a `core.hooksPath` such as husky's)
+ * and an fsmonitor command. Every git call of the check turns them off.
+ */
+const NO_REPOSITORY_CODE = [
+  "-c",
+  "core.hooksPath=/dev/null",
+  "-c",
+  "core.fsmonitor=false",
+] as const;
 
 export type ShellExit = Readonly<{ exitCode: number | null }>;
 
@@ -78,7 +101,9 @@ export type WorktreeCheckOptions = Readonly<{
 
 /**
  * Runs the project check on a detached worktree of the exact commit, in a
- * temporary directory, without AIR's secrets in its environment.
+ * temporary directory, without AIR's secrets in its environment. Git runs
+ * without them too, and without hooks, which it would otherwise take from
+ * the project checkout and run with the operator's token in reach.
  *
  * Same machine, same OS user: the checked code could still read files the
  * user can read. That is lite mode's accepted limit (ADR-0016).
@@ -86,7 +111,7 @@ export type WorktreeCheckOptions = Readonly<{
 export class WorktreeCheckRunner implements CheckRunnerPort {
   constructor(
     private readonly options: WorktreeCheckOptions,
-    private readonly git: CommandRunner = execFileRunner,
+    private readonly gitRunner: GitRunner = execGit,
     private readonly shell: ShellRunner = spawnShell,
     private readonly env: NodeJS.ProcessEnv = process.env,
     private readonly now: () => number = Date.now,
@@ -94,20 +119,12 @@ export class WorktreeCheckRunner implements CheckRunnerPort {
 
   async run(sha: string): Promise<CheckRun> {
     const { repositoryRoot: root, remote } = this.options;
-    await this.git("git", [
-      "-C",
-      root,
-      "fetch",
-      "--no-tags",
-      "-q",
-      remote,
-      sha,
-    ]);
+    await this.git(["-C", root, "fetch", "--no-tags", "-q", remote, sha]);
     await mkdir(this.options.logDir, { recursive: true, mode: 0o700 });
     const dir = await mkdtemp(join(tmpdir(), "air-check-"));
     const logPath = join(this.options.logDir, `${sha}.log`);
     try {
-      await this.git("git", [
+      await this.git([
         "-C",
         root,
         "worktree",
@@ -131,15 +148,18 @@ export class WorktreeCheckRunner implements CheckRunnerPort {
         logPath,
       };
     } finally {
-      await this.git("git", [
-        "-C",
-        root,
-        "worktree",
-        "remove",
-        "--force",
-        dir,
-      ]).catch(() => undefined);
+      await this.git(["-C", root, "worktree", "remove", "--force", dir]).catch(
+        () => undefined,
+      );
       await rm(dir, { recursive: true, force: true });
     }
+  }
+
+  /** Git sees neither AIR's secrets nor code from the project checkout. */
+  private git(args: readonly string[]): Promise<string> {
+    return this.gitRunner(
+      [...NO_REPOSITORY_CODE, ...args],
+      checkEnvironment(this.env),
+    );
   }
 }
