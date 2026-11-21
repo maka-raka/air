@@ -76,7 +76,7 @@ export class AllowProtectedChange implements AdmittedCommandHandlerPort {
       });
     try {
       const position = await this.allow(message, parsed.commit);
-      await this.audit(message, true, "applied");
+      await this.audit(message, true, CommandOutcome.Applied);
       await this.ports.replies.reply(issue, {
         outcome: CommandOutcome.Applied,
         commentId: comment.id,

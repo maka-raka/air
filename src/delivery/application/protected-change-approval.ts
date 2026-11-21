@@ -23,6 +23,11 @@ export type ApprovalCandidate = Readonly<{
   evidence: RecordEvidence;
 }>;
 
+/** How an approval is named among delivery records, e.g. in the audit log. */
+export const ApprovalRecordKind = {
+  ProtectedChange: "protected-change-approval",
+} as const;
+
 /** Raw approval storage: every well-formed one, from anyone; decides nothing. */
 export interface ProtectedChangeApprovalSource {
   append(issue: number, approval: ProtectedChangeApproval): Promise<void>;
@@ -63,7 +68,10 @@ export class TrustedProtectedChangeApprovals implements ProtectedChangeApprovalP
           allowed: false,
           reason: decision.denial,
           actorId: evidence.authorId,
-          details: { record: "protected-change-approval", at: approval.at },
+          details: {
+            record: ApprovalRecordKind.ProtectedChange,
+            at: approval.at,
+          },
         });
     }
     return accepted;
