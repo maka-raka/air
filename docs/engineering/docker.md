@@ -73,6 +73,8 @@ Claude Code is pinned in `docker/agent/Dockerfile` and `compose.yaml`. To build 
 CLAUDE_CODE_VERSION=2.1.318 docker compose build agent
 ```
 
+Before the first run, check the setup from this directory: `AIR_DOCTOR_TOKEN=$(gh auth token) npx --no air doctor`. It reads `.env.air` and the per-container files next to it, so it can tell whether each token belongs to its account and each signing key matches its public key ([Install](install.md), step 5).
+
 ## 4. Automatic agent runs
 
 The poller can request an agent run when an approver's command makes a phase ready, and a separate `air-launcher` process starts it ([ADR-0011](../architecture/adr/0011-agent-execution.md) §3–4).

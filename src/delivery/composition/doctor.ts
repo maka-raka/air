@@ -14,11 +14,33 @@ import { GitHubRepositoryHttpAdapter } from "../adapters/github/repository-http-
 import { GitHubPlatformAudit } from "../adapters/github/github-hardening-checklist.js";
 import { GitHubRepositorySettingsHttpAdapter } from "../adapters/github/repository-settings-http-adapter.js";
 import type { AuditedAccount } from "../adapters/github/repository-settings-http-adapter.js";
-import { DEFAULT_ENV_FILE, repository } from "./config.js";
+import {
+  DEFAULT_ENV_FILE,
+  ENV_FILE_FLAG,
+  loadEnvFile,
+  repository,
+} from "./config.js";
 import type { Env } from "./config.js";
 import { readApproverLogins, readServiceLogins } from "./trust.js";
 import { DemoMode } from "./demo-mode.js";
 import { DeliveryModes } from "../domain/delivery-mode.js";
+import { CheckSetup } from "../application/setup-check.js";
+import type {
+  ServiceCredentials,
+  SetupFacts,
+} from "../application/setup-check.js";
+import {
+  GitHubInstalledLensesHttpAdapter,
+  GitHubTokenOwnerHttpAdapter,
+} from "../adapters/github/setup-http-adapters.js";
+import { GitHubDeliveryPolicyHttpAdapter } from "../adapters/github/delivery-policy-http-adapter.js";
+import { Ed25519KeyPairCheck } from "../adapters/signature/key-pair-check.js";
+import {
+  DELIVERY_POLICY_PATH,
+  deliveryPolicyCodec,
+} from "./delivery-policy.js";
+import { KeyRole, keyNames } from "./trust.js";
+import { readLaunchPhases } from "./local.js";
 import type { DeliveryMode } from "../domain/delivery-mode.js";
 
 export type DoctorConfig = Readonly<{
@@ -33,7 +55,84 @@ export type DoctorConfig = Readonly<{
   demo: DemoMode | null;
   /** AIR_MODE: lite does not require branch rules (ADR-0016). */
   mode: DeliveryMode;
+  /** Tokens, keys and agent settings found here, for the setup check. */
+  setup: SetupFacts;
 }>;
+
+/**
+ * The Docker layout splits secrets per container (docs/engineering/
+ * docker.md); `air doctor` reads those next to `.env.air` when present, so
+ * it can check every account's token and keys in one run.
+ */
+export const SPLIT_ENV_FILES = [
+  ".env.air.poller",
+  ".env.air.agent",
+  ".env.air.deploy",
+] as const;
+
+/** Loads each split env file that exists; set variables still win. */
+export function loadSplitEnvFiles(
+  root = ".",
+  load: (argv: readonly string[]) => unknown = loadEnvFile,
+): readonly string[] {
+  const present = SPLIT_ENV_FILES.map((name) => `${root}/${name}`).filter(
+    (path) => existsSync(path),
+  );
+  present.forEach((path) => load([ENV_FILE_FLAG, path]));
+  return present;
+}
+
+/** What the setup check needs from the environment. */
+export function readSetupFacts(env: Env): SetupFacts {
+  const logins = readServiceLogins(env);
+  const credential = (
+    role: AccountRole,
+    login: string,
+    tokenName: string,
+    keyRole: KeyRole,
+  ): ServiceCredentials => {
+    const names = keyNames[keyRole];
+    const token = env[tokenName];
+    const signingKey = env[names.signing];
+    const publicKey = env[names.public];
+    return {
+      role,
+      login,
+      tokenName,
+      ...(token ? { token } : {}),
+      ...(signingKey ? { signingKey } : {}),
+      ...(publicKey ? { publicKey } : {}),
+    };
+  };
+  return {
+    credentials: [
+      credential(
+        AccountRole.Operator,
+        logins.operatorLogin,
+        "AIR_GITHUB_TOKEN",
+        KeyRole.Operator,
+      ),
+      credential(
+        AccountRole.Agent,
+        logins.agentLogin,
+        "AIR_AGENT_TOKEN",
+        KeyRole.Agent,
+      ),
+      ...(logins.deployLogin
+        ? [
+            credential(
+              AccountRole.Deployer,
+              logins.deployLogin,
+              "AIR_DEPLOY_TOKEN",
+              KeyRole.Deployer,
+            ),
+          ]
+        : []),
+    ],
+    ...(env.AIR_AGENT_MODE ? { agentMode: env.AIR_AGENT_MODE } : {}),
+    launchPhases: readLaunchPhases(env),
+  };
+}
 
 export const DOCTOR_USAGE = `Usage: air doctor [--strict] [--env-file <path>]
 
@@ -77,6 +176,7 @@ export function readDoctorConfig(
     strict: args.includes(STRICT),
     demo: DemoMode.fromEnv(env),
     mode: DeliveryModes.parse(env.AIR_MODE),
+    setup: readSetupFacts(env),
   };
 }
 
@@ -128,6 +228,31 @@ export function composeDoctor(
         { accounts: config.accounts, environments: config.environments },
       ),
     ),
+  );
+}
+
+/** The setup check, reading project files with the doctor's token. */
+export function composeSetupCheck(
+  config: DoctorConfig,
+  request?: HttpRequest,
+): CheckSetup {
+  const client = (token: string) =>
+    new GitHubRestClient({
+      owner: config.owner,
+      repo: config.repo,
+      token,
+      request,
+    });
+  const doctor = client(config.token);
+  return new CheckSetup(
+    new GitHubTokenOwnerHttpAdapter(client),
+    new Ed25519KeyPairCheck(),
+    new GitHubDeliveryPolicyHttpAdapter(
+      doctor,
+      deliveryPolicyCodec(),
+      DELIVERY_POLICY_PATH,
+    ),
+    new GitHubInstalledLensesHttpAdapter(doctor),
   );
 }
 
