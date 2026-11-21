@@ -61,6 +61,13 @@ export type MemoryCodeChange = Readonly<{
   paths: readonly string[];
 }>;
 
+/** What a test may change on an open code change. */
+type CodeChangeUpdate = Readonly<{
+  approved?: boolean;
+  checksGreen?: boolean;
+  paths?: readonly string[];
+}>;
+
 export type MemoryDeployment = Readonly<{
   environment: string;
   commit: string;
@@ -255,12 +262,7 @@ export class MemoryTracker {
     return number;
   }
 
-  updateChange(
-    number: number,
-    update: Partial<
-      Pick<MemoryCodeChange, "approved" | "checksGreen" | "paths">
-    >,
-  ): void {
+  updateChange(number: number, update: CodeChangeUpdate): void {
     this.changes.set(number, { ...this.requireChange(number), ...update });
   }
 
