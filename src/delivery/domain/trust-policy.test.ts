@@ -475,6 +475,39 @@ for (const [name, anchor, expected] of [
     `${expected ? "counts" : "does not count"} ${name}`,
   );
 
+// protected-change approvals (ADR-0017)
+for (const [name, evidence, expected] of [
+  [
+    "the operator's signed approval",
+    { authorId: OPERATOR, edited: false, signatureValid: true },
+    true,
+  ],
+  [
+    "an approval by the agent",
+    { authorId: AGENT, edited: false, signatureValid: true },
+    false,
+  ],
+  [
+    "an approval by an approver",
+    { authorId: APPROVER, edited: false, signatureValid: true },
+    false,
+  ],
+  [
+    "an edited approval",
+    { authorId: OPERATOR, edited: true, signatureValid: true },
+    false,
+  ],
+  [
+    "an unsigned approval",
+    { authorId: OPERATOR, edited: false, signatureValid: false },
+    false,
+  ],
+] as const)
+  check(
+    new TrustPolicy(roster).approval(evidence).trusted === expected,
+    `${expected ? "counts" : "does not count"} ${name}`,
+  );
+
 // roster
 for (const [name, change] of [
   ["shared service accounts", { agentId: OPERATOR }],

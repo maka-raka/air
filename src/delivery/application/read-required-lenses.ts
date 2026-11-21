@@ -32,6 +32,6 @@ export class ReadRequiredLenses {
     const risk =
       history.latestReport(DeliveryPhase.Requirements)?.facts.risk ??
       DeliveryRisk.Low;
-    return this.check.required(change, risk);
+    return this.check.required({ issue, pullRequest: change }, risk);
   }
 }

@@ -31,6 +31,8 @@ export const TrustDenial = {
   StateHistoryInvalid: "state-history-invalid",
   /** A delivery record not written by the agent account. */
   RecordNotByAgent: "record-not-by-agent",
+  /** A protected-change approval not written by the operator account. */
+  ApprovalNotByOperator: "approval-not-by-operator",
   /** A delivery record changed after it was written. */
   RecordEdited: "record-edited",
   /** A delivery record whose signature does not verify for this issue. */
@@ -318,6 +320,24 @@ export class TrustPolicy {
   record(evidence: RecordEvidence): TrustDecision {
     if (evidence.authorId !== this.roster.agentId)
       return deny(TrustDenial.RecordNotByAgent, `Account ${evidence.authorId}`);
+    if (evidence.edited)
+      return deny(TrustDenial.RecordEdited, "Edited after it was written");
+    if (!evidence.signatureValid)
+      return deny(TrustDenial.RecordSignatureInvalid, "Signature invalid");
+    return TRUSTED;
+  }
+
+  /**
+   * A protected-change approval (ADR-0017) counts only from the operator,
+   * which writes it for an approver's command, unedited and signed with the
+   * operator's key.
+   */
+  approval(evidence: RecordEvidence): TrustDecision {
+    if (evidence.authorId !== this.roster.operatorId)
+      return deny(
+        TrustDenial.ApprovalNotByOperator,
+        `Account ${evidence.authorId}`,
+      );
     if (evidence.edited)
       return deny(TrustDenial.RecordEdited, "Edited after it was written");
     if (!evidence.signatureValid)

@@ -179,7 +179,7 @@ export class EvaluatePhaseGate {
       pullRequest,
       number && pullRequest?.exists && pullRequest.active
         ? await this.codeChanges.problems(
-            number,
+            { issue, pullRequest: number },
             this.reviewClaim(position.phase, history),
           )
         : [],

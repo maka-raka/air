@@ -322,7 +322,7 @@ describe("AIR on the memory tracker (ADR-0009)", () => {
 
       // Assert
       assert.deepEqual(refused.gate?.problems, [
-        "Pull request changes protected files: `.claude/agents/air-review-security.md`",
+        "Pull request changes protected files: `.claude/agents/air-review-security.md`. An approver who reviewed this commit can allow it with `/air allow-protected d4e5f6a`",
       ]);
       assert.equal(refused.result.ok, false);
       assert.equal(passed.result.ok, true);
@@ -343,7 +343,7 @@ describe("AIR on the memory tracker (ADR-0009)", () => {
 
       // Assert
       assert.deepEqual(outcome.gate?.problems, [
-        "Pull request changes protected files: `.github/air-policy.json`, `scripts/check.sh`",
+        "Pull request changes protected files: `.github/air-policy.json`, `scripts/check.sh`. An approver who reviewed this commit can allow it with `/air allow-protected d4e5f6a`",
       ]);
     });
 
@@ -417,6 +417,126 @@ describe("AIR on the memory tracker (ADR-0009)", () => {
         lenses: [],
         problems: ["No pull request reported yet (report build first)"],
       });
+    });
+
+    describe("/air allow-protected", () => {
+      const SKILL = ".claude/skills/air-delivery/SKILL.md";
+
+      it("lets an approver allow the commit they reviewed, and only that one", async () => {
+        // Arrange
+        const w = world();
+        const { tracker, alice, services } = w;
+        const { issue } = await building(w, ["src/a.ts", SKILL]);
+        assert.equal((await services.agent.gate.run(issue)).result.ok, false);
+
+        // Act
+        const allowed = await say(
+          w,
+          issue,
+          alice,
+          "/air allow-protected d4e5f6a\nSkill wording fix, reviewed.",
+        );
+        const passed = await services.agent.gate.run(issue);
+
+        // Assert
+        assert.match(allowed.reply!, /applied\. State: build:working\.$/);
+        assert.equal(passed.result.ok, true);
+        assert.equal(state(tracker, issue), "build:waiting");
+      });
+
+      it("does not carry an approval over to a new commit", async () => {
+        // Arrange
+        const w = world();
+        const { tracker, alice, services } = w;
+        const { issue, change } = await building(w, [SKILL]);
+        await say(w, issue, alice, "/air allow-protected d4e5f6a");
+        tracker.commit("e5f6a7b", "d4e5f6a");
+        tracker.updateChange(change, { head: "e5f6a7b" });
+
+        // Act
+        const outcome = await services.agent.gate.run(issue);
+        const stale = await say(
+          w,
+          issue,
+          alice,
+          "/air allow-protected d4e5f6a",
+        );
+
+        // Assert
+        assert.match(outcome.gate!.problems.join(), /allow-protected e5f6a7b/);
+        assert.match(
+          stale.reply!,
+          /rejected \(precondition-failed\).*e5f6a7b, not d4e5f6a/s,
+        );
+      });
+
+      it("refuses anyone but an approver", async () => {
+        // Arrange
+        const w = world();
+        const { mallory, services } = w;
+        const { issue } = await building(w, [SKILL]);
+
+        // Act
+        const attempt = await say(
+          w,
+          issue,
+          mallory,
+          "/air allow-protected d4e5f6a",
+        );
+        const outcome = await services.agent.gate.run(issue);
+
+        // Assert
+        assert.equal(attempt.decision, IngestionDecision.Unauthorized);
+        assert.equal(outcome.result.ok, false);
+      });
+
+      it("ignores an approval the operator did not sign", async () => {
+        // Arrange
+        const w = world();
+        const { tracker, agent, services } = w;
+        const { issue, change } = await building(w, [SKILL]);
+        const forged = JSON.stringify({
+          pullRequest: change,
+          head: "d4e5f6a",
+          approverId: w.alice.id,
+          at: "2026-11-19T09:00:00.000Z",
+        });
+        tracker.post(issue, agent.id, "Protected change allowed", {
+          "air.approval": forged,
+          "air.signature": "AAAA",
+        });
+
+        // Act
+        const outcome = await services.agent.gate.run(issue);
+
+        // Assert
+        assert.equal(outcome.result.ok, false);
+        assert.match(outcome.gate!.problems.join(), /protected files/);
+      });
+
+      for (const [name, body, reply] of [
+        [
+          "without a commit",
+          "/air allow-protected",
+          /invalid-command|missing-target/,
+        ],
+        [
+          "with something that isn't a commit",
+          "/air allow-protected main",
+          /Not a commit/,
+        ],
+      ] as const)
+        it(`rejects the command ${name}`, async () => {
+          // Arrange
+          const w = world();
+          const { issue } = await building(w, [SKILL]);
+
+          // Act
+          const answer = await say(w, issue, w.alice, body);
+
+          // Assert
+          assert.match(answer.reply!, reply);
+        });
     });
   });
 });

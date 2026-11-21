@@ -32,6 +32,10 @@ import {
   deliveryPolicyCodec,
 } from "./delivery-policy.js";
 import { CodeChangeCheck } from "../application/code-change-check.js";
+import { TrustedProtectedChangeApprovals } from "../application/protected-change-approval.js";
+import type { ProtectedChangeApprovalPort } from "../application/protected-change-approval.js";
+import { GitHubProtectedChangeApprovalStore } from "../adapters/github/protected-change-approval-store.js";
+import type { ApprovalKeys } from "../adapters/github/protected-change-approval-store.js";
 import { PROJECT_CHECK_CONTEXT } from "../application/project-check.js";
 import type { PullRequestStatusPort } from "../application/recorded-delivery-evidence.js";
 import { DeliveryMode } from "../domain/delivery-mode.js";
@@ -308,8 +312,28 @@ export function pullRequestStatus(
   );
 }
 
-/** The gate's protected-path rule, with the policy from the default branch. */
-export function codeChanges(client: GitHubRestClient): CodeChangeCheck {
+/**
+ * Protected-change approvals (ADR-0017), checked against the operator's key.
+ * Only the poller passes the operator's signer and can write them.
+ */
+export function protectedChangeApprovals(
+  comments: IssueCommentReader & IssueCommentWriter,
+  keys: ApprovalKeys,
+  trust: TrustPolicy,
+  audit: AuditPort,
+): TrustedProtectedChangeApprovals {
+  return new TrustedProtectedChangeApprovals(
+    new GitHubProtectedChangeApprovalStore(comments, keys),
+    trust,
+    audit,
+  );
+}
+
+/** The gate's rules for a code change, with the policy from the default branch. */
+export function codeChanges(
+  client: GitHubRestClient,
+  approvals: ProtectedChangeApprovalPort,
+): CodeChangeCheck {
   return new CodeChangeCheck(
     new GitHubPullRequestFilesHttpAdapter(client),
     new GitHubDeliveryPolicyHttpAdapter(
@@ -317,5 +341,6 @@ export function codeChanges(client: GitHubRestClient): CodeChangeCheck {
       deliveryPolicyCodec(),
       DELIVERY_POLICY_PATH,
     ),
+    approvals,
   );
 }
