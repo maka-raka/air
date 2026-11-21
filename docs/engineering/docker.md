@@ -63,6 +63,8 @@ The container stops when the Claude Code session ends. Remove it with `docker rm
 
 `docker/agent/managed-settings.json` makes Claude Code ignore the checkout's hooks, MCP servers and permission rules (`allowManagedHooksOnly`, `allowManagedMcpServersOnly` with an empty `allowedMcpServers`, `allowManagedPermissionRulesOnly`) and disables bypass-permissions mode. That is why the entrypoint can mark the checkout as trusted. It also adds deny rules the agent cannot change: no unclassified issue text, merges, reviews, releases, workflow runs, label edits, force pushes or edits under `.github/`. They catch mistakes; they are not a security boundary, because another spelling of a command is not denied ([Repository Hardening §4](security-hardening.md#4-agent-environment)). They back up branch protection; they do not replace it.
 
+The managed settings also add AIR's own **Stop hook**, `air-stop-hook`. When Claude Code is about to end the session, it runs `air gate <issue> --check`. If the phase is working and the gate would refuse it, the hook returns the problems and Claude Code carries on with them. If the gate would pass, if there is nothing to gate (the agent blocked, or already moved the phase to waiting), or if the check fails, the session ends as usual. It sends the agent back at most `AIR_STOP_HOOK_MAX` times per run (default 3), so it can't keep a stuck session alive. It is a hint: the gate still decides.
+
 Each container has a process limit, and the poller and agent have memory and CPU limits; raise the agent's in `compose.yaml` if a project's build needs more.
 
 Claude Code is pinned in `docker/agent/Dockerfile` and `compose.yaml`. To build another version:
@@ -137,7 +139,7 @@ Without Docker: `npm run build && node dist/src/delivery/composition/console.js 
 
 ## 6. Without Docker
 
-The host workflow in [Local runtime](local-runtime.md) still works and suits development, but the agent then sees your machine's credentials.
+The host workflow in [Local runtime](local-runtime.md) still works and suits development, but the agent then sees your machine's credentials. The Stop hook isn't installed there. `npx air gate <issue> --check` works anywhere, and a project can add it as a Stop hook of its own.
 
 ## Limits (see ADR-0011)
 

@@ -1,5 +1,18 @@
 {
   "allowManagedHooksOnly": true,
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/air-stop-hook",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  },
   "allowManagedPermissionRulesOnly": true,
   "allowManagedMcpServersOnly": true,
   "allowedMcpServers": [],

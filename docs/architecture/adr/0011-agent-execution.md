@@ -53,6 +53,10 @@ When automatic launch is added (step 3), the trigger is **not** "a label appeare
 
 Starting a container needs the Docker API, which is root-equivalent on the host. The poller therefore **does not** get the Docker socket. It writes a launch request (issue, phase) to a queue directory; a separate `air-launcher` process starts the agent service with `docker compose run` and fixed arguments (only the issue number and phase vary). The launcher refuses to start with any AIR token or signing key in its environment; the agent's secrets reach the container only through compose's env file. Rootless Docker or Podman is preferred for that process.
 
+### 5. A Stop hook that asks the gate (added 2026-11-21, #98)
+
+The agent image's managed settings add a Stop hook, so the agent doesn't end a session the gate would refuse. `air gate <issue> --check` (`EvaluatePhaseGate.preview`) gives the gate's verdict without moving state. The hook exits 2 with the problems only when the phase is working and the gate would refuse it, at most `AIR_STOP_HOOK_MAX` times per run. It is advice: the hook moves no state and can't open a gate, and a broken check lets the session end. Taken from the ZazenCodes software factory v2, where the builder's Stop hook runs the gate.
+
 ## Roadmap
 
 | # | Step | Status |

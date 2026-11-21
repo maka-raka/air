@@ -539,4 +539,22 @@ describe("AIR on the memory tracker (ADR-0009)", () => {
         });
     });
   });
+
+  it("previews the gate without moving state (air gate --check)", async () => {
+    // Arrange
+    const w = world();
+    const { tracker, alice, services } = w;
+    const issue = tracker.openIssue(alice.id, "Fix typo", "");
+    await say(w, issue, alice, "/air initialize");
+    const idle = await services.agent.gate.preview(issue);
+    await services.agent.commands.start(issue);
+
+    // Act
+    const working = await services.agent.gate.preview(issue);
+
+    // Assert
+    assert.deepEqual(idle, { phase: DeliveryPhase.Requirements, gate: null });
+    assert.deepEqual(working.gate?.problems, ["No requirements report"]);
+    assert.equal(state(tracker, issue), "requirements:working");
+  });
 });

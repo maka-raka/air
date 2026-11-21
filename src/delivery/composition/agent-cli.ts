@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { AgentCommands } from "../application/agent-commands.js";
 import { EvaluatePhaseGate } from "../application/phase-gate.js";
+import type { GatePreview } from "../application/phase-gate.js";
 import { ReadRequiredLenses } from "../application/read-required-lenses.js";
 import type { RequiredLenses } from "../application/code-change-check.js";
 import { ReadAgentContext } from "../application/agent-context.js";
@@ -92,7 +93,12 @@ export const AgentCliCommand = {
 export type AgentInvocation =
   | Readonly<{ command: typeof AgentCliCommand.Context; issue: number }>
   | Readonly<{ command: typeof AgentCliCommand.Start; issue: number }>
-  | Readonly<{ command: typeof AgentCliCommand.Gate; issue: number }>
+  | Readonly<{
+      command: typeof AgentCliCommand.Gate;
+      issue: number;
+      /** Only say what the gate would decide; move no state. */
+      check?: boolean;
+    }>
   | Readonly<{ command: typeof AgentCliCommand.Lenses; issue: number }>
   | Readonly<{
       command: typeof AgentCliCommand.Block;
@@ -115,7 +121,7 @@ export const USAGE = `Usage:
   air start <issue>
   air block <issue> (--question <text> | --question-file <path>)
   air report <issue> <phase> (--summary <text> | --summary-file <path>) [--facts <json>]
-  air gate <issue>
+  air gate <issue> [--check]
   air lenses <issue>
   air keygen [agent|operator|deployer]
   air init [--lens <name,...|all>]
@@ -195,8 +201,14 @@ function parseContext(issue: string | undefined, rest: readonly string[]) {
 }
 
 function parseGate(issue: string | undefined, rest: readonly string[]) {
-  if (rest.length > 0) throw new Error("gate takes only an issue");
-  return { command: AgentCliCommand.Gate, issue: issueNumber(issue) } as const;
+  const check = rest.length === 1 && rest[0] === FLAG_CHECK;
+  if (rest.length > 0 && !check)
+    throw new Error("gate takes an issue and optionally --check");
+  return {
+    command: AgentCliCommand.Gate,
+    issue: issueNumber(issue),
+    ...(check ? { check } : {}),
+  } as const;
 }
 
 function parseLensesCommand(
@@ -451,6 +463,8 @@ export async function runAgent(
   invocation: ActionInvocation,
 ): Promise<CliOutcome> {
   const { commands } = services;
+  const check = invocation.command === AgentCliCommand.Gate && invocation.check;
+  if (check) throw new Error("air gate --check moves no state");
   if (invocation.command === AgentCliCommand.Gate) {
     const { result, gate } = await services.gate.run(invocation.issue);
     return { result, problems: gate?.problems ?? [] };
@@ -488,6 +502,30 @@ export function render({ result, problems = [] }: CliOutcome): string {
 }
 
 export const ExitCode = { Ok: 0, Error: 1, Rejected: 2 } as const;
+
+/**
+ * `air gate --check`: one line, then the problems. Exit 2 only when the gate
+ * would refuse a working phase; there is nothing to gate otherwise.
+ */
+export function renderPreview({ phase, gate }: GatePreview): {
+  text: string;
+  exitCode: (typeof ExitCode)[keyof typeof ExitCode];
+} {
+  if (!gate)
+    return {
+      text: `nothing to gate: ${phase ?? "the delivery"} is not working`,
+      exitCode: ExitCode.Ok,
+    };
+  if (gate.passed)
+    return { text: `would pass: ${phase}`, exitCode: ExitCode.Ok };
+  return {
+    text: [
+      `would reject: ${phase}`,
+      ...gate.problems.map((problem) => `  - ${problem}`),
+    ].join("\n"),
+    exitCode: ExitCode.Rejected,
+  };
+}
 
 /** `air lenses`: the required lenses, then anything that blocks the gate. */
 export function renderLenses({ lenses, problems }: RequiredLenses): string {
@@ -632,6 +670,14 @@ async function main(): Promise<void> {
   if (invocation.command === AgentCliCommand.Context) {
     const context = await services.context.read(invocation.issue);
     console.log(new AgentContextRenderer().render(context));
+    return;
+  }
+  if (invocation.command === AgentCliCommand.Gate && invocation.check) {
+    const preview = renderPreview(
+      await services.gate.preview(invocation.issue),
+    );
+    console.log(preview.text);
+    process.exitCode = preview.exitCode;
     return;
   }
   if (invocation.command === AgentCliCommand.Lenses) {
