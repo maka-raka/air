@@ -17,6 +17,14 @@ Changes that affect projects using AIR. Versions follow semver; before 1.0 a min
 
 ### Added
 
+- **`air doctor` checks that the setup can run**, besides the hardening checklist:
+  - each token it finds belongs to its account, asked with that token;
+  - each signing key matches its public key;
+  - the policy file on the default branch is valid;
+  - every lens the policy can require is installed;
+  - `AIR_AGENT_MODE` is valid, with a warning if launched runs aren't headless.
+
+  It also reads `.env.air.poller`, `.env.air.agent` and `.env.air.deploy` when present, so one run covers the Docker layout.
 - **`air gate <issue> --check`** prints what the gate would say now, without moving state. It exits 2 only if the phase is working and the gate would refuse it.
 - **Docker agent: a Stop hook that asks the gate.** Before Claude Code ends a session, `air-stop-hook` runs `air gate --check`. If the gate would refuse the working phase, the agent gets the problems and carries on, at most `AIR_STOP_HOOK_MAX` times per run (default 3). Rebuild the agent image ([ADR-0011](docs/architecture/adr/0011-agent-execution.md) §5).
 - **Report highlights.** Every phase report now starts with `## Summary` and one to five one-line bullets. `air report` records them as the signed fact `highlights` and refuses a report without them, and the console shows them on the issue page ([ADR-0013](docs/architecture/adr/0013-agent-roles.md) §5). **Upgrading:** an open delivery whose current report has no highlights needs a new report before its gate passes. `air templates` updates an untouched skill.

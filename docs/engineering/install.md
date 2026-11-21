@@ -53,7 +53,14 @@ This adds the agent skill, the standard review lenses (`.claude/agents/air-revie
    - **variables:** `AIR_OPERATOR_LOGIN`, `AIR_AGENT_LOGIN`, `AIR_DEPLOY_LOGIN`, `AIR_AGENT_PUBLIC_KEY`, `AIR_OPERATOR_PUBLIC_KEY`, `AIR_DEPLOY_PUBLIC_KEY`, and optionally `AIR_ENVIRONMENT_STAGE` / `AIR_ENVIRONMENT_PROD` / `AIR_STATE_ANCHORS`;
    - **environment secrets** in each deploy environment: `AIR_DEPLOY_TOKEN` and `AIR_DEPLOY_SIGNING_KEY`.
 
-5. Verify with `AIR_DOCTOR_TOKEN=$(gh auth token) npx --no air doctor --strict` after step 4. Fix every `FAIL` and `??` before running AIR.
+5. Verify with `AIR_DOCTOR_TOKEN=$(gh auth token) npx --no air doctor --strict` after step 4. Fix every `FAIL` and `??` before running AIR. Besides the hardening checklist, the doctor checks that your setup can actually run:
+   - every token it finds (`AIR_GITHUB_TOKEN`, `AIR_AGENT_TOKEN`, `AIR_DEPLOY_TOKEN`) belongs to its account;
+   - every signing key matches its public key;
+   - `.github/air-policy.json` on the default branch is valid;
+   - every lens the policy can require is installed in `.claude/agents/`;
+   - `AIR_AGENT_MODE` is valid, with a warning if the poller launches runs that aren't headless.
+
+   With the Docker layout, run it where `.env.air.poller` and `.env.air.agent` are; it reads them too.
 
 ## 4. Local configuration
 

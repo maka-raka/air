@@ -222,16 +222,17 @@ export class AuditRepository {
     private readonly audit = new RepositoryAudit(),
   ) {}
 
+  /** `extra`: findings of other checks, judged by the same rule. */
   async run(
     local: LocalSettings,
     strict: boolean,
     mode: DeliveryMode = DeliveryMode.Standard,
+    extra: readonly AuditFinding[] = [],
   ) {
-    const findings = this.audit.evaluate(
-      await this.platform.read(),
-      local,
-      mode,
-    );
+    const findings = [
+      ...this.audit.evaluate(await this.platform.read(), local, mode),
+      ...extra,
+    ];
     const blocking: readonly AuditStatus[] = strict
       ? [AuditStatus.Fail, AuditStatus.Unknown]
       : [AuditStatus.Fail];

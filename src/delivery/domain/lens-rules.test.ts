@@ -49,4 +49,9 @@ check(
   "requires nothing without rules",
 );
 
+check(
+  listed(rules.names()) === "api,code,data,deps,security,tests",
+  "names every lens some rule can require",
+);
+
 console.log("LensRules passed: " + assertions + " assertions");

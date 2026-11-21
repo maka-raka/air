@@ -39,7 +39,8 @@ export function isEntryPoint(moduleUrl: string): boolean {
 
 /** Loaded when present and no `--env-file` is given. */
 export const DEFAULT_ENV_FILE = ".env.air";
-const ENV_FLAG = "--env-file";
+export const ENV_FILE_FLAG = "--env-file";
+const ENV_FLAG = ENV_FILE_FLAG;
 const WINDOWS = "win32";
 const OTHERS_CAN_ACCESS = 0o077;
 
