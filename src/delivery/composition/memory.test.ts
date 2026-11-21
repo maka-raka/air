@@ -10,7 +10,10 @@ import { verifyAuditChain } from "../adapters/local/hash-chained-audit-log.js";
 import { AuditKind } from "../application/audit.js";
 import { DeliveryFailure } from "../application/execute-delivery-command.js";
 import { IngestionDecision } from "../application/ingest-human-command.js";
-import { IntakeRecommendation } from "../application/delivery-record.js";
+import {
+  DeliveryRisk,
+  IntakeRecommendation,
+} from "../application/delivery-record.js";
 import { DeploymentEnvironment } from "../application/record-deployment.js";
 import {
   DeliveryPhase,
@@ -175,7 +178,7 @@ describe("AIR on the memory tracker (ADR-0009)", () => {
     assert.equal(state(tracker, issue), "review:ready");
     await agentPhase(w, issue, DeliveryPhase.Review, {
       pullRequest: change,
-      lenses: ["code"],
+      lenses: ["code", "tests", "scope"],
     });
     assert.equal(state(tracker, issue), "review:waiting");
 
@@ -275,15 +278,20 @@ describe("AIR on the memory tracker (ADR-0009)", () => {
     assert.equal(state(tracker, issue), "requirements:working");
   });
 
-  describe("protected paths (ADR-0017)", () => {
+  describe("delivery policy (ADR-0017)", () => {
     /** An issue in build with a green change that touches the given paths. */
-    async function building(w: World, paths: readonly string[]) {
+    async function building(
+      w: World,
+      paths: readonly string[],
+      risk: DeliveryRisk = DeliveryRisk.Low,
+    ) {
       const { tracker, alice, services } = w;
       const issue = tracker.openIssue(alice.id, "Tune checks", "");
       await say(w, issue, alice, "/air initialize");
       await agentPhase(w, issue, DeliveryPhase.Requirements, {
         taskSize: DeliveryTaskSize.Small,
         miniDesign: true,
+        risk,
       });
       await say(w, issue, alice, "/air advance build");
       tracker.commit("d4e5f6a");
@@ -351,6 +359,64 @@ describe("AIR on the memory tracker (ADR-0009)", () => {
       assert.deepEqual(outcome.gate?.problems, [
         "The AIR policy file is invalid",
       ]);
+    });
+
+    it("requires the lenses the policy names for the change and its risk", async () => {
+      // Arrange
+      const w = world();
+      const { tracker, alice, services } = w;
+      const { issue, change } = await building(
+        w,
+        ["src/orders.ts", "db/migrations/007_orders.sql"],
+        DeliveryRisk.High,
+      );
+      assert.equal((await services.agent.gate.run(issue)).result.ok, true);
+      await say(w, issue, alice, "/air advance review");
+      await services.agent.commands.start(issue);
+
+      // Act
+      const required = await services.agent.lenses.read(issue);
+      await services.agent.commands.report(
+        issue,
+        DeliveryPhase.Review,
+        { pullRequest: change, lenses: ["code", "tests", "scope"] },
+        "Reviewed.",
+      );
+      const refused = await services.agent.gate.run(issue);
+      await services.agent.commands.report(
+        issue,
+        DeliveryPhase.Review,
+        { pullRequest: change, lenses: [...required.lenses, "ux"] },
+        "Reviewed again.",
+      );
+      const passed = await services.agent.gate.run(issue);
+
+      // Assert
+      assert.deepEqual(required, {
+        lenses: ["code", "data", "scope", "security", "tests"],
+        problems: [],
+      });
+      assert.deepEqual(refused.gate?.problems, [
+        "Required review lenses did not run: data, security",
+      ]);
+      assert.equal(passed.result.ok, true);
+      assert.equal(state(tracker, issue), "review:waiting");
+    });
+
+    it("tells the agent when there is no pull request to judge yet", async () => {
+      // Arrange
+      const w = world();
+      const issue = w.tracker.openIssue(w.alice.id, "Nothing built", "");
+      await say(w, issue, w.alice, "/air initialize");
+
+      // Act
+      const required = await w.services.agent.lenses.read(issue);
+
+      // Assert
+      assert.deepEqual(required, {
+        lenses: [],
+        problems: ["No pull request reported yet (report build first)"],
+      });
     });
   });
 });

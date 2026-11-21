@@ -3,7 +3,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_ENV_FILE } from "./config.js";
+import { PolicyKey } from "../adapters/codec/delivery-policy-codec.js";
 import {
+  DEFAULT_LENSES,
   DEFAULT_PROTECTED_PATHS,
   DELIVERY_POLICY_PATH,
 } from "./delivery-policy.js";
@@ -101,12 +103,16 @@ export const PROJECT_FILES: Readonly<Record<string, string>> =
   );
 
 /**
- * The policy file as `air init` writes it: the default protected paths,
- * spelled out so the project sees and owns them. JSON can't carry a
+ * The policy file as `air init` writes it: the default protected paths
+ * and required lenses, spelled out so the project sees and owns them. JSON can't carry a
  * template marker, so `air templates` never touches it (ADR-0017).
  */
 export function policyFile(): string {
-  return `${JSON.stringify({ protected: DEFAULT_PROTECTED_PATHS }, null, 2)}\n`;
+  const policy = {
+    [PolicyKey.Protected]: DEFAULT_PROTECTED_PATHS,
+    [PolicyKey.Lenses]: DEFAULT_LENSES,
+  };
+  return `${JSON.stringify(policy, null, 2)}\n`;
 }
 
 /** Local files that must never be committed. */

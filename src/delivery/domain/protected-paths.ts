@@ -4,7 +4,8 @@ const MAX_PATTERN_LENGTH = 200;
 const PATTERN_CHARS = /^[\x20-\x5a\x5e-\x7e]+$/;
 const ANY_SEGMENTS = "**";
 /** Segments that would make a path relative instead of naming a file. */
-const RELATIVE: readonly string[] = ["", ".", ".."];
+const RelativeSegment = { Empty: "", Current: ".", Parent: ".." } as const;
+const RELATIVE: readonly string[] = Object.values(RelativeSegment);
 
 function escape(text: string): string {
   return text.replace(/[.+^${}()|\\]/g, "\\$&");

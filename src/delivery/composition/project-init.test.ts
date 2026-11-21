@@ -56,7 +56,18 @@ describe("initProject", () => {
     assert.deepEqual(result.ignored, [...IGNORED]);
     assert.deepEqual(
       JSON.parse(await readFile(join(root, ".github/air-policy.json"), "utf8")),
-      { protected: [".github/**", ".claude/**"] },
+      {
+        protected: [".github/**", ".claude/**"],
+        lenses: {
+          always: ["code", "tests", "scope"],
+          paths: {
+            "**/package.json": ["deps"],
+            "**/package-lock.json": ["deps"],
+            "**/migrations/**": ["data"],
+          },
+          risk: { high: ["security"] },
+        },
+      },
     );
     const skill = await readFile(
       join(root, ".claude/skills/air-delivery/SKILL.md"),

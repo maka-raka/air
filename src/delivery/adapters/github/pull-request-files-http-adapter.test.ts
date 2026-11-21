@@ -115,6 +115,7 @@ describe("GitHubDeliveryPolicyHttpAdapter", () => {
   const codec = new DeliveryPolicyCodec({
     protectedPaths: [".github/**"],
     alwaysProtected: [".github/air-policy.json"],
+    lenses: {},
   });
   const file = (text: string) => ({
     type: "file",

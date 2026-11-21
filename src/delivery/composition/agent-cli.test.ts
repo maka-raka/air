@@ -14,6 +14,7 @@ import {
   parseAgentArgs,
   readAgentConfig,
   render,
+  renderLenses,
   runAgent,
   templateArgs,
   initArgs,
@@ -479,11 +480,39 @@ describe("parseAgentArgs", () => {
     ["report", "42", "build", "--summary", "x", "--facts", "[1]"],
     ["gate"],
     ["gate", "42", "extra"],
+    ["lenses"],
+    ["lenses", "42", "extra"],
   ]) {
     it(`rejects ${JSON.stringify(argv)}`, () => {
       assert.throws(() => parseAgentArgs(argv));
     });
   }
+});
+
+describe("air lenses", () => {
+  it("parses an issue", () => {
+    assert.deepEqual(parseAgentArgs(["lenses", "42"]), {
+      command: AgentCliCommand.Lenses,
+      issue: 42,
+    });
+  });
+
+  it("prints the required lenses", () => {
+    assert.equal(
+      renderLenses({ lenses: ["code", "tests"], problems: [] }),
+      "required: code, tests",
+    );
+  });
+
+  it("prints what keeps the gate closed", () => {
+    assert.equal(
+      renderLenses({
+        lenses: ["code"],
+        problems: ["Pull request changes protected files: `.claude/x.md`"],
+      }),
+      "required: code\nrejected:\n  - Pull request changes protected files: `.claude/x.md`",
+    );
+  });
 });
 
 describe("air audit verify", () => {

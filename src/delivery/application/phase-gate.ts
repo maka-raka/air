@@ -10,6 +10,7 @@ import type { DeliveryCommandExecutor } from "./comment-command-handler.js";
 import {
   DeliveryRecordHistory,
   DeliveryRecordKind,
+  DeliveryRisk,
   IntakeRecommendation,
   RunOutcome,
 } from "./delivery-record.js";
@@ -19,7 +20,7 @@ import type {
   ReportRecord,
 } from "./delivery-record.js";
 import { DeliveryFailure } from "./execute-delivery-command.js";
-import type { ProtectedChangeCheck } from "./protected-changes.js";
+import type { CodeChangeCheck, ReviewClaim } from "./code-change-check.js";
 import type {
   DeliveryResult,
   DeliveryStatePort,
@@ -143,7 +144,7 @@ export class EvaluatePhaseGate {
     private readonly executor: DeliveryCommandExecutor,
     private readonly records: DeliveryRecordPort,
     private readonly pullRequests: PullRequestStatusPort,
-    private readonly protectedChanges: ProtectedChangeCheck,
+    private readonly codeChanges: CodeChangeCheck,
     private readonly preflight: AgentPreflightPort,
     private readonly runtime: Readonly<{ now: () => Date; runTtlMs: number }>,
     private readonly evaluator: PhaseGateEvaluator = new PhaseGateEvaluator(),
@@ -177,7 +178,10 @@ export class EvaluatePhaseGate {
       history,
       pullRequest,
       number && pullRequest?.exists && pullRequest.active
-        ? await this.protectedChanges.problems(number)
+        ? await this.codeChanges.problems(
+            number,
+            this.reviewClaim(position.phase, history),
+          )
         : [],
     );
     const result = await this.executor.execute({
@@ -201,6 +205,20 @@ export class EvaluatePhaseGate {
         "",
       );
     return { result, gate };
+  }
+
+  /** In review, the lenses the report names and the intake's risk. */
+  private reviewClaim(
+    phase: Phase,
+    history: DeliveryRecordHistory,
+  ): ReviewClaim | null {
+    if (phase !== DeliveryPhase.Review) return null;
+    return {
+      risk:
+        history.latestReport(DeliveryPhase.Requirements)?.facts.risk ??
+        DeliveryRisk.Low,
+      lenses: history.latestReport(phase)?.facts.lenses ?? [],
+    };
   }
 
   private pullRequestNumber(

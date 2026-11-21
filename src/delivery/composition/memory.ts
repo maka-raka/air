@@ -38,7 +38,8 @@ import {
 import { MemoryAuditLines } from "../adapters/memory/memory-audit-lines.js";
 import { MemoryCodeChangeAdapter } from "../adapters/memory/memory-code-change.js";
 import { MemoryDeliveryPolicy } from "../adapters/memory/memory-delivery-policy.js";
-import { ProtectedChangeCheck } from "../application/protected-changes.js";
+import { CodeChangeCheck } from "../application/code-change-check.js";
+import { ReadRequiredLenses } from "../application/read-required-lenses.js";
 import { deliveryPolicyCodec } from "./delivery-policy.js";
 import { MemoryCommandReplies } from "../adapters/memory/memory-command-reply.js";
 import { MemoryCommentIngress } from "../adapters/memory/memory-comment-ingress.js";
@@ -110,10 +111,11 @@ type Process<T> = T & Readonly<{ audit: MemoryAuditLines }>;
 export type MemoryServices = Readonly<{
   /** The operator's process: turns `/air` comments into transitions. */
   operator: Process<{ ingress: MemoryCommentIngress }>;
-  /** The agent's process: what `air start | report | gate | block | context` run. */
+  /** The agent's process: what `air start | report | gate | lenses | block | context` run. */
   agent: Process<{
     commands: AgentCommands;
     gate: EvaluatePhaseGate;
+    lenses: ReadRequiredLenses;
     context: ReadAgentContext;
   }>;
   /** The deployer's process: what `air-deploy` runs. */
@@ -223,10 +225,11 @@ export class MemoryComposition {
         executor,
         records,
         new MemoryCodeChangeAdapter(this.tracker),
-        this.protectedChanges(),
+        this.codeChanges(),
         preflight,
         { now, runTtlMs },
       ),
+      lenses: new ReadRequiredLenses(records, this.codeChanges()),
       context: new ReadAgentContext(
         new MemoryIssueText(this.tracker),
         new MemoryAuthorAccess(this.tracker),
@@ -308,10 +311,10 @@ export class MemoryComposition {
     };
   }
 
-  private protectedChanges(): ProtectedChangeCheck {
+  private codeChanges(): CodeChangeCheck {
     const codec = deliveryPolicyCodec();
     const policy = this.config.policy;
-    return new ProtectedChangeCheck(
+    return new CodeChangeCheck(
       new MemoryCodeChangeAdapter(this.tracker),
       new MemoryDeliveryPolicy(
         policy === undefined ? codec.fallback() : codec.decode(policy),

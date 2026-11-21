@@ -5,7 +5,7 @@ import type {
 import type {
   CodeChangeFiles,
   CodeChangeFilesPort,
-} from "../../application/protected-changes.js";
+} from "../../application/code-change-check.js";
 import type {
   DeploymentEnvironment,
   DeploymentEvidencePort,
