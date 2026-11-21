@@ -108,6 +108,24 @@ jobs:
             '.allowManagedHooksOnly and .allowManagedPermissionRulesOnly and .allowManagedMcpServersOnly and .allowedMcpServers == []' \
             /etc/claude-code/managed-settings.json
 
+      - name: Agent Stop hook sends the agent back only while the gate would refuse
+        run: |
+          docker run --rm --entrypoint jq air-agent:ci -e \
+            '.hooks.Stop[0].hooks[0].command == "/usr/local/bin/air-stop-hook"' \
+            /etc/claude-code/managed-settings.json
+          docker run --rm --entrypoint bash air-agent:ci -c '
+            set -euo pipefail
+            mkdir -p /tmp/bin
+            printf "%s\n" "#!/bin/sh" "echo \"would reject: build\"; exit \${FAKE_GATE:-2}" > /tmp/bin/npx
+            chmod +x /tmp/bin/npx
+            export PATH=/tmp/bin:$PATH AIR_ISSUE=42 AIR_STOP_HOOK_MAX=1
+            if echo "{}" | air-stop-hook 2>/tmp/err; then exit 1; fi
+            grep -q "the gate would refuse" /tmp/err
+            echo "{}" | air-stop-hook
+            echo "{}" | AIR_ISSUE=43 FAKE_GATE=0 air-stop-hook
+            echo "{}" | AIR_ISSUE=44 FAKE_GATE=1 air-stop-hook
+          '
+
       - name: Agent refuses a branch that changes its configuration
         run: |
           docker run --rm --entrypoint bash air-agent:ci -c '

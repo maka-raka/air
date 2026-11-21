@@ -72,6 +72,8 @@ if [[ ! -f "$claude_state" ]]; then
   chmod 600 "$claude_state"
 fi
 
+# The managed Stop hook (air-stop-hook) asks the gate about this issue.
+export AIR_ISSUE="$issue"
 prompt="${AIR_AGENT_PROMPT:-Take issue #$issue under AIR delivery control, following the air-delivery skill.}"
 tmux new-session -d -s agent -c "$repo_dir" claude "$prompt"
 echo "air-agent: issue #$issue on $branch; attach with: docker exec -it $(hostname) tmux attach -t agent"
