@@ -248,6 +248,8 @@ export class EvaluatePhaseGate {
         history.latestReport(DeliveryPhase.Requirements)?.facts.risk ??
         DeliveryRisk.Low,
       lenses: history.latestReport(phase)?.facts.lenses ?? [],
+      verdicts: history.latestReport(phase)?.facts.lensVerdicts ?? {},
+      round: history.reportsThisRun(phase),
     };
   }
 

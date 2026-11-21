@@ -56,9 +56,12 @@ The ZazenCodes "software factory" (v2) solves both with configuration its script
          "**/migrations/**": ["data"]
        },
        "risk": { "high": ["security"] }
-     }
+     },
+     "reviewRounds": 2
    }
    ```
+
+   `reviewRounds` limits the review rounds before a person decides ([ADR-0013](0013-agent-roles.md) §6).
 
    Without the file, AIR uses these defaults. A `protected` list replaces the default list, and a `lenses` section replaces the default lens rules, where a part it leaves out requires nothing. The defaults name standard lenses only, which `air init` installs: a required lens the project lacks would keep every review gate closed. The policy file itself is always protected. The file is strict: an unknown key, a malformed pattern or lens name, an unknown risk, more than 100 patterns or path rules, or more than 32 lenses in a list makes it invalid. The gate then stays closed, so a typo can't quietly drop a protection or a required lens.
 

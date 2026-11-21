@@ -65,6 +65,33 @@ export function areHighlights(value: unknown): value is readonly string[] {
   return value.length > 0 && value.every(isHighlight);
 }
 
+/**
+ * What a review lens concluded: `changes` when it found a blocker or a
+ * major issue, `pass` otherwise (each lens ends with `Verdict: …`).
+ */
+export const LensVerdict = { Pass: "pass", Changes: "changes" } as const;
+export type LensVerdict = (typeof LensVerdict)[keyof typeof LensVerdict];
+const LENS_VERDICTS: readonly unknown[] = Object.values(LensVerdict);
+
+/** Verdicts by lens name; at most one per lens, for lenses that ran. */
+export type LensVerdicts = Readonly<Record<string, LensVerdict>>;
+
+function plainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function areLensVerdicts(value: unknown): value is LensVerdicts {
+  if (!plainObject(value)) return false;
+  const entries = Object.entries(value);
+  return (
+    entries.length <= MAX_REVIEW_LENSES &&
+    entries.every(
+      ([lens, verdict]) =>
+        isReviewLens(lens) && LENS_VERDICTS.includes(verdict),
+    )
+  );
+}
+
 /** Machine-readable phase facts. Prose belongs in the comment text. */
 export type ReportFacts = Readonly<{
   taskSize?: (typeof DeliveryTaskSize)[keyof typeof DeliveryTaskSize];
@@ -77,6 +104,8 @@ export type ReportFacts = Readonly<{
   lenses?: readonly string[];
   /** The report's `## Summary` bullets, for approvers and the console. */
   highlights?: readonly string[];
+  /** Review: each lens's verdict this round (ADR-0013 §6). */
+  lensVerdicts?: LensVerdicts;
 }>;
 
 export type DeliveryRecord =
@@ -205,6 +234,22 @@ export class DeliveryRecordHistory {
 
   activeRun(): boolean {
     return this.activeRunId() !== null;
+  }
+
+  /**
+   * Reports of the phase recorded during the active run: in review, the
+   * rounds so far. A new run, after a person unblocks, starts again at 0.
+   */
+  reportsThisRun(phase: Phase): number {
+    const start = this.activeRunStart();
+    if (!start) return 0;
+    const since = Date.parse(start.at);
+    return this.records.filter(
+      (record) =>
+        record.kind === DeliveryRecordKind.Report &&
+        record.phase === phase &&
+        Date.parse(record.at) >= since,
+    ).length;
   }
 
   latestReport(phase: Phase): ReportRecord | null {

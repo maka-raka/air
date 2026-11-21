@@ -18,6 +18,7 @@ import type {
 import { DeliveryRecordKind } from "../../application/delivery-record.js";
 import type {
   DeliveryRecord,
+  LensVerdicts,
   ReportRecord,
 } from "../../application/delivery-record.js";
 import type { AgentRun } from "../../application/agent-runs.js";
@@ -232,6 +233,18 @@ const time = (at: string | null) =>
  * no forms: every action is a link to the issue plus the command to post.
  * Every value from the platform is escaped.
  */
+
+/** "code (pass), security (changes)"; a lens without a verdict is bare. */
+function lensList(
+  lenses: readonly string[],
+  verdicts: LensVerdicts = {},
+): string {
+  if (lenses.length === 0) return "none";
+  return lenses
+    .map((lens) => (verdicts[lens] ? `${lens} (${verdicts[lens]})` : lens))
+    .join(", ");
+}
+
 export class ConsolePage {
   constructor(private readonly options: ConsolePageOptions) {}
 
@@ -317,7 +330,10 @@ ${detailLine}
             : null,
           facts.risk ? ["Risk", escapeHtml(facts.risk)] : null,
           facts.lenses
-            ? ["Review lenses", escapeHtml(facts.lenses.join(", ") || "none")]
+            ? [
+                "Review lenses",
+                escapeHtml(lensList(facts.lenses, facts.lensVerdicts)),
+              ]
             : null,
           facts.pullRequest
             ? [

@@ -131,6 +131,7 @@ describe("GitHubDeliveryPolicyHttpAdapter", () => {
     protectedPaths: [".github/**"],
     alwaysProtected: [".github/air-policy.json"],
     lenses: {},
+    reviewRounds: 2,
   });
   const file = (text: string) => ({
     type: "file",

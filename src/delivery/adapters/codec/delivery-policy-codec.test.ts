@@ -6,6 +6,7 @@ const codec = new DeliveryPolicyCodec({
   protectedPaths: [".github/**", ".claude/**"],
   alwaysProtected: [".github/air-policy.json"],
   lenses: { always: ["code"], risk: { high: ["security"] } },
+  reviewRounds: 2,
 });
 
 function required(
@@ -107,6 +108,13 @@ describe("DeliveryPolicyCodec", () => {
       assert.equal(codec.decode(JSON.stringify({ lenses })), null);
     });
 
+  it("reads the review round limit, 2 by default", () => {
+    assert.equal(codec.decode("{}")?.reviewRounds, 2);
+    assert.equal(codec.decode('{"reviewRounds":3}')?.reviewRounds, 3);
+    for (const bad of ["0", "11", "1.5", '"2"'])
+      assert.equal(codec.decode(`{"reviewRounds":${bad}}`), null, bad);
+  });
+
   it("refuses invalid defaults", () => {
     assert.throws(
       () =>
@@ -114,6 +122,7 @@ describe("DeliveryPolicyCodec", () => {
           protectedPaths: ["a//b"],
           alwaysProtected: [],
           lenses: {},
+          reviewRounds: 2,
         }),
       /Invalid policy defaults/,
     );
@@ -123,6 +132,7 @@ describe("DeliveryPolicyCodec", () => {
           protectedPaths: [],
           alwaysProtected: [],
           lenses: { always: ["Not A Lens"] },
+          reviewRounds: 2,
         }),
       /Invalid policy defaults/,
     );

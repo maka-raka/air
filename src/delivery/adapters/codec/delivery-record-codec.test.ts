@@ -9,6 +9,27 @@ import { DeliveryPhase, DeliveryStatus } from "../../domain/state-machine.js";
 describe("DeliveryRecordCodec", () => {
   const codec = new DeliveryRecordCodec();
 
+  it("keeps lens verdicts and refuses malformed ones", () => {
+    const report = (lensVerdicts: unknown) =>
+      JSON.stringify({
+        kind: DeliveryRecordKind.Report,
+        phase: DeliveryPhase.Review,
+        at: "2026-11-19T09:00:00.000Z",
+        facts: { lensVerdicts },
+      });
+
+    assert.ok(codec.decode(report({ code: "pass", security: "changes" })));
+    for (const bad of [
+      { code: "maybe" },
+      { "Bad Lens": "pass" },
+      ["pass"],
+      Object.fromEntries(
+        Array.from({ length: 33 }, (_, n) => [`l${n}`, "pass"]),
+      ),
+    ])
+      assert.equal(codec.decode(report(bad)), null, JSON.stringify(bad));
+  });
+
   it("keeps highlights and refuses malformed ones", () => {
     const report = (highlights: unknown) =>
       JSON.stringify({

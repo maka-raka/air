@@ -15,7 +15,11 @@ const policy: DeliveryPolicy = {
     [{ pattern: PathPattern.parse("db/**")!, lenses: ["data"] }],
     new Map([["high", ["security"]]]),
   ),
+  reviewRounds: 2,
 };
+
+const passing = (lenses: readonly string[]) =>
+  Object.fromEntries(lenses.map((lens) => [lens, "pass" as const]));
 
 const HEAD = "0123456789abcdef0123456789abcdef01234567";
 const CHANGE = { issue: 12, pullRequest: 57 };
@@ -163,6 +167,8 @@ describe("CodeChangeCheck", () => {
         {
           risk: "high",
           lenses: ["code", "data", "security", "ux"],
+          verdicts: passing(["code", "data", "security", "ux"]),
+          round: 1,
         },
       );
 
@@ -175,12 +181,49 @@ describe("CodeChangeCheck", () => {
         {
           risk: "high",
           lenses: ["code"],
+          verdicts: passing(["code"]),
+          round: 1,
         },
       );
 
       assert.deepEqual(problems, [
         "Required review lenses did not run: data, security",
       ]);
+    });
+
+    describe("verdicts", () => {
+      const review = (
+        verdicts: Record<string, "pass" | "changes">,
+        round: number,
+        lenses: readonly string[] = Object.keys(verdicts),
+      ) =>
+        checker(plain(["src/a.ts"]), policy).problems(CHANGE, {
+          risk: "low",
+          lenses,
+          verdicts,
+          round,
+        });
+
+      it("sends the agent back to fix while rounds are left", async () => {
+        assert.deepEqual(await review({ code: "changes", ux: "pass" }, 1), [
+          "Review lenses ask for changes: code (round 1 of 2). Fix them, run those lenses again and record a new review report",
+        ]);
+      });
+
+      it("hands it to a person once the rounds are used up", async () => {
+        assert.deepEqual(
+          await review({ code: "changes", security: "changes" }, 2),
+          [
+            "Review lenses still ask for changes after 2 rounds: code, security. Stop and `air block` with their findings: a person decides",
+          ],
+        );
+      });
+
+      it("names lenses that ran without a verdict", async () => {
+        assert.deepEqual(await review({ code: "pass" }, 1, ["code", "ux"]), [
+          "Review lenses have no verdict: ux",
+        ]);
+      });
     });
 
     it("checks no lenses outside a review", async () => {

@@ -15,6 +15,7 @@ const policy: DeliveryPolicy = {
     [],
     new Map([["high", ["security"]]]),
   ),
+  reviewRounds: 2,
 };
 
 type Fakes = Readonly<{

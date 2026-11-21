@@ -1,6 +1,7 @@
 import type { LensRules } from "../domain/lens-rules.js";
 import type { ProtectedPaths } from "../domain/protected-paths.js";
-import type { DeliveryRisk } from "./delivery-record.js";
+import { LensVerdict } from "./delivery-record.js";
+import type { DeliveryRisk, LensVerdicts } from "./delivery-record.js";
 import { covers } from "./protected-change-approval.js";
 import type {
   ProtectedChangeApproval,
@@ -29,6 +30,8 @@ export interface CodeChangeFilesPort {
 export type DeliveryPolicy = Readonly<{
   protectedPaths: ProtectedPaths;
   lenses: LensRules;
+  /** Review rounds a delivery may take before it needs a person. */
+  reviewRounds: number;
 }>;
 
 export interface DeliveryPolicyPort {
@@ -41,6 +44,10 @@ export type ReviewClaim = Readonly<{
   /** The intake's risk; `low` when the intake named none. */
   risk: DeliveryRisk;
   lenses: readonly string[];
+  /** Each lens's verdict in the latest round. */
+  verdicts: LensVerdicts;
+  /** Review reports recorded in this run, the latest included. */
+  round: number;
 }>;
 
 /** Required lenses for a change, or why they can't be told. */
@@ -58,6 +65,10 @@ function shown(path: string): string {
   const printable = path.replace(/[^\x20-\x7e]|`/g, "?");
   if (printable.length <= MAX_PATH_SHOWN) return `\`${printable}\``;
   return `\`${printable.slice(0, MAX_PATH_SHOWN)}…\``;
+}
+
+function rounds(count: number): string {
+  return count === 1 ? "1 round" : `${count} rounds`;
 }
 
 /** Enough of a commit for a person to recognise and type it. */
@@ -105,7 +116,7 @@ export class CodeChangeCheck {
       problems.push(
         `Required review lenses did not run: ${missing.join(", ")}`,
       );
-    return problems;
+    return [...problems, ...this.verdictProblems(review, policy.reviewRounds)];
   }
 
   /** The lenses a review of this change must run, for `air lenses`. */
@@ -120,6 +131,31 @@ export class CodeChangeCheck {
     const problems = this.changeProblems(change, policy, loaded);
     if (files.paths === null) return { lenses: [], problems };
     return { lenses: policy.lenses.required(files.paths, risk), problems };
+  }
+
+  /**
+   * Every lens that ran must say `pass`. Until the rounds are used up the
+   * agent fixes and reviews again; after that, only a person can decide.
+   */
+  private verdictProblems(
+    { lenses, verdicts, round }: ReviewClaim,
+    limit: number,
+  ): readonly string[] {
+    const silent = lenses.filter((lens) => verdicts[lens] === undefined);
+    const changes = Object.keys(verdicts)
+      .filter((lens) => verdicts[lens] === LensVerdict.Changes)
+      .sort();
+    const problems: string[] = [];
+    if (silent.length > 0)
+      problems.push(`Review lenses have no verdict: ${silent.join(", ")}`);
+    if (changes.length === 0) return problems;
+    const listed = changes.join(", ");
+    problems.push(
+      round < limit
+        ? `Review lenses ask for changes: ${listed} (round ${round} of ${limit}). Fix them, run those lenses again and record a new review report`
+        : `Review lenses still ask for changes after ${rounds(limit)}: ${listed}. Stop and \`air block\` with their findings: a person decides`,
+    );
+    return problems;
   }
 
   private async load(change: CodeChange): Promise<Loaded> {

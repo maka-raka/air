@@ -29,11 +29,15 @@ export const DEFAULT_LENSES = {
   [LensRuleKey.Risk]: { [DeliveryRisk.High]: ["security"] },
 } as const satisfies LensPolicySource;
 
+/** Review rounds before a delivery needs a person, without a policy file. */
+export const DEFAULT_REVIEW_ROUNDS = 2;
+
 /** Reads a policy file; the policy file itself is always protected. */
 export function deliveryPolicyCodec(): DeliveryPolicyCodec {
   return new DeliveryPolicyCodec({
     protectedPaths: DEFAULT_PROTECTED_PATHS,
     alwaysProtected: [DELIVERY_POLICY_PATH],
     lenses: DEFAULT_LENSES,
+    reviewRounds: DEFAULT_REVIEW_ROUNDS,
   });
 }

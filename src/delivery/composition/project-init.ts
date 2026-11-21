@@ -7,6 +7,7 @@ import { PolicyKey } from "../adapters/codec/delivery-policy-codec.js";
 import {
   DEFAULT_LENSES,
   DEFAULT_PROTECTED_PATHS,
+  DEFAULT_REVIEW_ROUNDS,
   DELIVERY_POLICY_PATH,
 } from "./delivery-policy.js";
 import { DEMO_VARIABLE } from "./demo-mode.js";
@@ -111,6 +112,7 @@ export function policyFile(): string {
   const policy = {
     [PolicyKey.Protected]: DEFAULT_PROTECTED_PATHS,
     [PolicyKey.Lenses]: DEFAULT_LENSES,
+    [PolicyKey.ReviewRounds]: DEFAULT_REVIEW_ROUNDS,
   };
   return `${JSON.stringify(policy, null, 2)}\n`;
 }
