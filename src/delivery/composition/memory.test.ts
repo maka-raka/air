@@ -13,7 +13,9 @@ import { IngestionDecision } from "../application/ingest-human-command.js";
 import {
   DeliveryRisk,
   IntakeRecommendation,
+  LensVerdict,
 } from "../application/delivery-record.js";
+import type { LensVerdicts } from "../application/delivery-record.js";
 import { DeploymentEnvironment } from "../application/record-deployment.js";
 import {
   DeliveryPhase,
@@ -37,6 +39,11 @@ type World = Readonly<{
 }>;
 
 /** A tracker with AIR's accounts, one approver and one non-approver. */
+/** Every lens says `pass` (ADR-0013 §6). */
+function passing(lenses: readonly string[]): LensVerdicts {
+  return Object.fromEntries(lenses.map((lens) => [lens, LensVerdict.Pass]));
+}
+
 function world(policy?: string): World {
   const tracker = new MemoryTracker({ id: 500, name: "acme/shop" });
   const operator = tracker.addAccount("air-operator", { write: true });
@@ -180,6 +187,7 @@ describe("AIR on the memory tracker (ADR-0009)", () => {
     await agentPhase(w, issue, DeliveryPhase.Review, {
       pullRequest: change,
       lenses: ["code", "tests", "scope"],
+      lensVerdicts: passing(["code", "tests", "scope"]),
     });
     assert.equal(state(tracker, issue), "review:waiting");
 
@@ -380,14 +388,22 @@ describe("AIR on the memory tracker (ADR-0009)", () => {
       await services.agent.commands.report(
         issue,
         DeliveryPhase.Review,
-        { pullRequest: change, lenses: ["code", "tests", "scope"] },
+        {
+          pullRequest: change,
+          lenses: ["code", "tests", "scope"],
+          lensVerdicts: passing(["code", "tests", "scope"]),
+        },
         "## Summary\n- Reviewed.",
       );
       const refused = await services.agent.gate.run(issue);
       await services.agent.commands.report(
         issue,
         DeliveryPhase.Review,
-        { pullRequest: change, lenses: [...required.lenses, "ux"] },
+        {
+          pullRequest: change,
+          lenses: [...required.lenses, "ux"],
+          lensVerdicts: passing([...required.lenses, "ux"]),
+        },
         "## Summary\n- Reviewed again.",
       );
       const passed = await services.agent.gate.run(issue);
@@ -402,6 +418,75 @@ describe("AIR on the memory tracker (ADR-0009)", () => {
       ]);
       assert.equal(passed.result.ok, true);
       assert.equal(state(tracker, issue), "review:waiting");
+    });
+
+    it("sends review back for fixes, then to a person after the last round", async () => {
+      // Arrange
+      const w = world();
+      const { tracker, alice, services } = w;
+      const { issue, change } = await building(w, ["src/orders.ts"]);
+      assert.equal((await services.agent.gate.run(issue)).result.ok, true);
+      await say(w, issue, alice, "/air advance review");
+      await services.agent.commands.start(issue);
+      const lenses = ["code", "scope", "tests"];
+      const round = (verdicts: LensVerdicts) =>
+        services.agent.commands.report(
+          issue,
+          DeliveryPhase.Review,
+          { pullRequest: change, lenses, lensVerdicts: verdicts },
+          "## Summary\n- Reviewed.",
+        );
+      const asked = { ...passing(lenses), code: LensVerdict.Changes };
+
+      // Act
+      await round(asked);
+      const first = await services.agent.gate.run(issue);
+      await round(asked);
+      const last = await services.agent.gate.run(issue);
+      await services.agent.commands.block(issue, "code still asks for changes");
+      await say(w, issue, alice, "/air unblock\nAccept the trade-off.");
+      await services.agent.commands.start(issue);
+      await round(passing(lenses));
+      const after = await services.agent.gate.run(issue);
+
+      // Assert
+      assert.match(
+        first.gate!.problems.join(),
+        /ask for changes: code \(round 1 of 2\)/,
+      );
+      assert.match(
+        last.gate!.problems.join(),
+        /after 2 rounds: code\. Stop and `air block`/,
+      );
+      assert.equal(after.result.ok, true);
+      assert.equal(state(tracker, issue), "review:waiting");
+    });
+
+    it("reads the round limit from the policy", async () => {
+      // Arrange
+      const w = world('{"reviewRounds":1}');
+      const { alice, services } = w;
+      const { issue, change } = await building(w, ["src/orders.ts"]);
+      await services.agent.gate.run(issue);
+      await say(w, issue, alice, "/air advance review");
+      await services.agent.commands.start(issue);
+      const lenses = ["code", "scope", "tests"];
+      await services.agent.commands.report(
+        issue,
+        DeliveryPhase.Review,
+        {
+          pullRequest: change,
+          lenses,
+          lensVerdicts: { ...passing(lenses), tests: LensVerdict.Changes },
+        },
+        "## Summary\n- Reviewed.",
+      );
+
+      // Act
+      const outcome = await services.agent.gate.run(issue);
+
+      // Assert
+      assert.match(outcome.gate!.problems.join(), /after 1 round: tests/);
     });
 
     it("tells the agent when there is no pull request to judge yet", async () => {

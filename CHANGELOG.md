@@ -17,6 +17,7 @@ Changes that affect projects using AIR. Versions follow semver; before 1.0 a min
 
 ### Added
 
+- **Review lenses now have to pass, not just run.** Each lens ends with `Verdict: PASS` or `Verdict: CHANGES`. The review report records `lensVerdicts`, and the gate passes only when every lens that ran says `pass`. While rounds are left, the gate sends the agent back to fix and review again. After `reviewRounds` rounds (policy file, default 2), the agent blocks and a person decides. A round is a review report in the current run. The console shows each lens's verdict ([ADR-0013](docs/architecture/adr/0013-agent-roles.md) §6). **Upgrading:** run `air templates` to update untouched lens files and the skill. A review report without verdicts no longer passes the gate.
 - **A watchdog for agent runs** ([ADR-0011](docs/architecture/adr/0011-agent-execution.md) §7):
   - **Time limit.** A headless session is stopped after `AIR_AGENT_MAX_RUNTIME` (default `2h`), and the run is closed as usual.
   - **Finisher for dead containers.** If an agent container exits with an error before closing its run (out of memory, a host restart), the launcher starts one finisher, `air-agent --finish <issue>`. It runs `air-finish-run` from the default branch with the agent's credentials, without Claude Code, so the issue doesn't stay working with nobody on it.

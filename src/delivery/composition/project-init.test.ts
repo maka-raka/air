@@ -67,6 +67,7 @@ describe("initProject", () => {
           },
           risk: { high: ["security"] },
         },
+        reviewRounds: 2,
       },
     );
     const skill = await readFile(

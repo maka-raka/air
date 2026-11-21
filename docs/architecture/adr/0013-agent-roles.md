@@ -66,6 +66,12 @@ An optional lens is updated once installed and never added unasked. `air templat
 
 Every report starts with `## Summary` and one to five one-line bullets. `air report` reads them into a signed fact, `highlights` (at most 200 printable characters each), and refuses a report without them. The gate names a report that has none, which covers reports recorded before this change. The console shows them at the top of each phase report, so an approver gets the gist without opening the issue. Taken from the ZazenCodes software factory v2.
 
+### 6. Lens verdicts and bounded review rounds (added 2026-11-21)
+
+Running a lens isn't the same as passing it. Each lens now ends with `Verdict: PASS`, or `Verdict: CHANGES` for a `blocker` or `major` finding. The review report records `lensVerdicts` next to `lenses`. The review gate passes only when every lens that ran has a verdict and every verdict is `pass`.
+
+A review round is a review report recorded during the current run, so the agent can't reset the count by restating it. While rounds are left (`reviewRounds` in the policy file, default 2, at most 10), the gate tells the agent to fix the findings, run those lenses again and report again. After the last round, the gate says a person decides, and the agent blocks with the remaining findings. When the person unblocks, the next run starts a new count. Taken from the ZazenCodes software factory (v1), where reviewers return PASS or CHANGES and the builder gets at most two more rounds before the work escalates to a person.
+
 ## Consequences
 
 - An intake can end in a clear "no" that a person confirms, instead of a forced size classification.

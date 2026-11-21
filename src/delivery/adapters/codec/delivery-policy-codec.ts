@@ -15,7 +15,11 @@ const MAX_PATTERNS = 100;
 export const PolicyKey = {
   Protected: "protected",
   Lenses: "lenses",
+  ReviewRounds: "reviewRounds",
 } as const;
+
+/** Review rounds a delivery may take before it needs a person. */
+export const MAX_REVIEW_ROUNDS = 10;
 
 /** Keys of the policy file's `lenses` section. */
 export const LensRuleKey = {
@@ -42,7 +46,18 @@ export type DeliveryPolicyDefaults = Readonly<{
   alwaysProtected: readonly string[];
   /** Used when the file is absent or has no `lenses` section. */
   lenses: LensPolicySource;
+  /** Used when the file is absent or sets no `reviewRounds`. */
+  reviewRounds: number;
 }>;
+
+function rounds(value: unknown): number | null {
+  const ok =
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 1 &&
+    value <= MAX_REVIEW_ROUNDS;
+  return ok ? value : null;
+}
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -125,16 +140,18 @@ export class DeliveryPolicyCodec {
   private readonly always: readonly PathPattern[];
   private readonly protectedPaths: readonly PathPattern[];
   private readonly lenses: LensRules;
+  private readonly reviewRounds: number;
 
   constructor(defaults: DeliveryPolicyDefaults) {
     this.always = valid(patterns(defaults.alwaysProtected));
     this.protectedPaths = valid(patterns(defaults.protectedPaths));
     this.lenses = valid(lensRules(defaults.lenses));
+    this.reviewRounds = valid(rounds(defaults.reviewRounds));
   }
 
   /** The policy when the project has no policy file. */
   fallback(): DeliveryPolicy {
-    return this.policy(this.protectedPaths, this.lenses);
+    return this.policy(this.protectedPaths, this.lenses, this.reviewRounds);
   }
 
   /** The policy in the file, or null if the file is invalid. */
@@ -154,17 +171,22 @@ export class DeliveryPolicyCodec {
         : patterns(protectedPaths);
     const rules =
       lensSection === undefined ? this.lenses : lensRules(lensSection);
+    const roundsSet = data[PolicyKey.ReviewRounds];
+    const limit =
+      roundsSet === undefined ? this.reviewRounds : rounds(roundsSet);
     if (!listed || !rules) return null;
-    return this.policy(listed, rules);
+    return limit ? this.policy(listed, rules, limit) : null;
   }
 
   private policy(
     listed: readonly PathPattern[],
     rules: LensRules,
+    reviewRounds: number,
   ): DeliveryPolicy {
     return {
       protectedPaths: new ProtectedPaths([...this.always, ...listed]),
       lenses: rules,
+      reviewRounds,
     };
   }
 }

@@ -5,6 +5,7 @@ import {
   MAX_REVIEW_LENSES,
   RunOutcome,
   areHighlights,
+  areLensVerdicts,
   isReviewLens,
 } from "../../application/delivery-record.js";
 import type {
@@ -59,6 +60,8 @@ function reportFacts(value: unknown): ReportFacts | null {
   if (!knownRisk(value.risk)) return null;
   if (!knownLenses(value.lenses)) return null;
   if (value.highlights !== undefined && !areHighlights(value.highlights))
+    return null;
+  if (value.lensVerdicts !== undefined && !areLensVerdicts(value.lensVerdicts))
     return null;
   return value as ReportFacts;
 }
