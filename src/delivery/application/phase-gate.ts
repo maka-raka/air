@@ -134,6 +134,14 @@ export type GateOutcome = Readonly<{
 }>;
 
 /**
+ * What the gate would say now, without moving state: `gate` is null when
+ * the phase isn't working, so there is nothing to gate.
+ */
+export type GatePreview = Readonly<{ phase: Phase | null; gate: Gate | null }>;
+
+type Evaluated = Readonly<{ gate: Gate; history: DeliveryRecordHistory }>;
+
+/**
  * T02: evaluates the current phase gate and, if it passes, moves the phase
  * from working to waiting as the Gate actor, then ends the agent run.
  * The policy, not this use case, decides whether the gate is sufficient.
@@ -166,24 +174,7 @@ export class EvaluatePhaseGate {
         gate: null,
       };
 
-    const history = new DeliveryRecordHistory(
-      await this.records.list(issue),
-      this.runtime.now(),
-      this.runtime.runTtlMs,
-    );
-    const number = this.pullRequestNumber(position.phase, history);
-    const pullRequest = number ? await this.pullRequests.status(number) : null;
-    const gate = this.evaluator.evaluate(
-      position.phase,
-      history,
-      pullRequest,
-      number && pullRequest?.exists && pullRequest.active
-        ? await this.codeChanges.problems(
-            { issue, pullRequest: number },
-            this.reviewClaim(position.phase, history),
-          )
-        : [],
-    );
+    const { gate, history } = await this.evaluate(issue, position.phase);
     const result = await this.executor.execute({
       issue,
       request: {
@@ -205,6 +196,42 @@ export class EvaluatePhaseGate {
         "",
       );
     return { result, gate };
+  }
+
+  /**
+   * `air gate --check`: the gate's verdict now, writing nothing. For the
+   * agent's Stop hook, so it doesn't end a session the gate would refuse.
+   */
+  async preview(issue: number): Promise<GatePreview> {
+    const loaded = await this.state.load(issue);
+    if (!loaded.ok) return { phase: null, gate: null };
+    const position = loaded.snapshot.closed ? null : loaded.snapshot.position;
+    if (position?.status !== DeliveryStatus.Working)
+      return { phase: position?.phase ?? null, gate: null };
+    const { gate } = await this.evaluate(issue, position.phase);
+    return { phase: position.phase, gate };
+  }
+
+  private async evaluate(issue: number, phase: Phase): Promise<Evaluated> {
+    const history = new DeliveryRecordHistory(
+      await this.records.list(issue),
+      this.runtime.now(),
+      this.runtime.runTtlMs,
+    );
+    const number = this.pullRequestNumber(phase, history);
+    const pullRequest = number ? await this.pullRequests.status(number) : null;
+    const gate = this.evaluator.evaluate(
+      phase,
+      history,
+      pullRequest,
+      number && pullRequest?.exists && pullRequest.active
+        ? await this.codeChanges.problems(
+            { issue, pullRequest: number },
+            this.reviewClaim(phase, history),
+          )
+        : [],
+    );
+    return { gate, history };
   }
 
   /** In review, the lenses the report names and the intake's risk. */

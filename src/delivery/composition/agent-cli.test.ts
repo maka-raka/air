@@ -15,6 +15,7 @@ import {
   readAgentConfig,
   render,
   renderLenses,
+  renderPreview,
   runAgent,
   templateArgs,
   initArgs,
@@ -480,6 +481,7 @@ describe("parseAgentArgs", () => {
     ["report", "42", "build", "--summary", "x", "--facts", "[1]"],
     ["gate"],
     ["gate", "42", "extra"],
+    ["gate", "42", "--check", "extra"],
     ["lenses"],
     ["lenses", "42", "extra"],
   ]) {
@@ -487,6 +489,42 @@ describe("parseAgentArgs", () => {
       assert.throws(() => parseAgentArgs(argv));
     });
   }
+});
+
+describe("air gate --check", () => {
+  it("parses the flag", () => {
+    assert.deepEqual(parseAgentArgs(["gate", "42", "--check"]), {
+      command: AgentCliCommand.Gate,
+      issue: 42,
+      check: true,
+    });
+    assert.deepEqual(parseAgentArgs(["gate", "42"]), {
+      command: AgentCliCommand.Gate,
+      issue: 42,
+    });
+  });
+
+  it("exits 2 only when the gate would refuse a working phase", () => {
+    const gate = (problems: readonly string[]) => ({
+      passed: problems.length === 0,
+      problems,
+      evidenceRevision: "run-1",
+      expectedRevision: "run-1",
+    });
+
+    assert.deepEqual(renderPreview({ phase: "build", gate: null }), {
+      text: "nothing to gate: build is not working",
+      exitCode: 0,
+    });
+    assert.deepEqual(renderPreview({ phase: "build", gate: gate([]) }), {
+      text: "would pass: build",
+      exitCode: 0,
+    });
+    assert.deepEqual(
+      renderPreview({ phase: "build", gate: gate(["No build report"]) }),
+      { text: "would reject: build\n  - No build report", exitCode: 2 },
+    );
+  });
 });
 
 describe("air lenses", () => {

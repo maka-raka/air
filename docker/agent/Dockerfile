@@ -24,8 +24,9 @@ RUN apt-get update \
 COPY managed-settings.json /etc/claude-code/managed-settings.json
 COPY entrypoint.sh /usr/local/bin/air-agent
 COPY check-branch.sh /usr/local/bin/air-check-branch
+COPY stop-hook.sh /usr/local/bin/air-stop-hook
 RUN chmod 0444 /etc/claude-code/managed-settings.json \
- && chmod 0555 /usr/local/bin/air-agent /usr/local/bin/air-check-branch \
+ && chmod 0555 /usr/local/bin/air-agent /usr/local/bin/air-check-branch /usr/local/bin/air-stop-hook \
  && mkdir -p /work /var/lib/air-audit \
  && chown node:node /work /var/lib/air-audit
 

@@ -17,6 +17,8 @@ Changes that affect projects using AIR. Versions follow semver; before 1.0 a min
 
 ### Added
 
+- **`air gate <issue> --check`** prints what the gate would say now, without moving state. It exits 2 only if the phase is working and the gate would refuse it.
+- **Docker agent: a Stop hook that asks the gate.** Before Claude Code ends a session, `air-stop-hook` runs `air gate --check`. If the gate would refuse the working phase, the agent gets the problems and carries on, at most `AIR_STOP_HOOK_MAX` times per run (default 3). Rebuild the agent image ([ADR-0011](docs/architecture/adr/0011-agent-execution.md) §5).
 - **`/air allow-protected <commit>`** lets an approver who reviewed a delivery's pull request at that commit let it change protected files ([ADR-0017](docs/architecture/adr/0017-protected-paths.md)). The operator records the decision, signed and bound to the pull request and the full head commit; a new push needs a new approval. The gate's message names the command with the current commit. The operator token needs no new permission.
 - **`air lenses <issue>`** prints the review lenses the gate will require for the delivery's pull request, and anything else that would keep it closed.
 - **`air init` writes `.github/air-policy.json`** with the default protected paths and lens rules. `air templates` never changes it. Demo mode writes none and uses the defaults.
