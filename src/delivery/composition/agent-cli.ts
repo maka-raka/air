@@ -4,6 +4,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { AgentCommands } from "../application/agent-commands.js";
 import { EvaluatePhaseGate } from "../application/phase-gate.js";
+import { ReadRequiredLenses } from "../application/read-required-lenses.js";
+import type { RequiredLenses } from "../application/code-change-check.js";
 import { ReadAgentContext } from "../application/agent-context.js";
 import { AgentContextRenderer } from "./agent-context-render.js";
 import { GitHubIssueTextAdapter } from "../adapters/github/issue-text-adapter.js";
@@ -56,7 +58,7 @@ import {
   labelStateStore,
   trustPolicy,
   trustedExecutor,
-  protectedChanges,
+  codeChanges,
   pullRequestStatus,
 } from "./trust.js";
 import { GitHubRepositoryHttpAdapter } from "../adapters/github/repository-http-adapter.js";
@@ -72,6 +74,8 @@ export const AgentCliCommand = {
   Block: "block",
   Report: "report",
   Gate: "gate",
+  /** Prints the review lenses the gate will require for the pull request. */
+  Lenses: "lenses",
   /** Prints a new record-signing key pair; needs no configuration. */
   Keygen: "keygen",
   /** Adds AIR's skill, review lenses, deploy workflow and env template. */
@@ -88,6 +92,7 @@ export type AgentInvocation =
   | Readonly<{ command: typeof AgentCliCommand.Context; issue: number }>
   | Readonly<{ command: typeof AgentCliCommand.Start; issue: number }>
   | Readonly<{ command: typeof AgentCliCommand.Gate; issue: number }>
+  | Readonly<{ command: typeof AgentCliCommand.Lenses; issue: number }>
   | Readonly<{
       command: typeof AgentCliCommand.Block;
       issue: number;
@@ -110,6 +115,7 @@ export const USAGE = `Usage:
   air block <issue> (--question <text> | --question-file <path>)
   air report <issue> <phase> (--summary <text> | --summary-file <path>) [--facts <json>]
   air gate <issue>
+  air lenses <issue>
   air keygen [agent|operator|deployer]
   air init [--lens <name,...|all>]
   air init --demo <owner>/<repo>   (throwaway repository only; not production-safe)
@@ -192,6 +198,17 @@ function parseGate(issue: string | undefined, rest: readonly string[]) {
   return { command: AgentCliCommand.Gate, issue: issueNumber(issue) } as const;
 }
 
+function parseLensesCommand(
+  issue: string | undefined,
+  rest: readonly string[],
+) {
+  if (rest.length > 0) throw new Error("lenses takes only an issue");
+  return {
+    command: AgentCliCommand.Lenses,
+    issue: issueNumber(issue),
+  } as const;
+}
+
 function parseBlock(issue: string | undefined, rest: readonly string[]) {
   return {
     command: AgentCliCommand.Block,
@@ -233,6 +250,7 @@ const parsers: Readonly<
   [AgentCliCommand.Block]: parseBlock,
   [AgentCliCommand.Report]: parseReport,
   [AgentCliCommand.Gate]: parseGate,
+  [AgentCliCommand.Lenses]: parseLensesCommand,
 };
 
 /** Pure argv parsing; throws with a message suitable for the user. */
@@ -310,6 +328,7 @@ export function readAgentConfig(
 export type AgentServices = Readonly<{
   commands: AgentCommands;
   gate: EvaluatePhaseGate;
+  lenses: ReadRequiredLenses;
   context: ReadAgentContext;
 }>;
 
@@ -383,10 +402,11 @@ export async function composeAgent(
       executor,
       records,
       pullRequestStatus(client, accounts, config.mode),
-      protectedChanges(client),
+      codeChanges(client),
       preflight,
       { now, runTtlMs: config.runTtlMs },
     ),
+    lenses: new ReadRequiredLenses(records, codeChanges(client)),
     context: new ReadAgentContext(
       new GitHubIssueTextAdapter(client, comments),
       new GitHubCollaboratorAccess(new GitHubRepositoryHttpAdapter(client)),
@@ -409,7 +429,9 @@ export type CliOutcome = Readonly<{
 /** Invocations that act on delivery state or records. */
 export type ActionInvocation = Exclude<
   AgentInvocation,
-  Readonly<{ command: typeof AgentCliCommand.Context }>
+  Readonly<{
+    command: typeof AgentCliCommand.Context | typeof AgentCliCommand.Lenses;
+  }>
 >;
 
 /** Executes one invocation. */
@@ -455,6 +477,15 @@ export function render({ result, problems = [] }: CliOutcome): string {
 }
 
 export const ExitCode = { Ok: 0, Error: 1, Rejected: 2 } as const;
+
+/** `air lenses`: the required lenses, then anything that blocks the gate. */
+export function renderLenses({ lenses, problems }: RequiredLenses): string {
+  const head = lenses.length > 0 ? [`required: ${lenses.join(", ")}`] : [];
+  const tail = problems.map((problem) => `  - ${problem}`);
+  return [...head, ...(tail.length > 0 ? ["rejected:", ...tail] : [])].join(
+    "\n",
+  );
+}
 
 const keyUse: Readonly<Record<KeyRole, string>> = {
   [KeyRole.Agent]:
@@ -590,6 +621,13 @@ async function main(): Promise<void> {
   if (invocation.command === AgentCliCommand.Context) {
     const context = await services.context.read(invocation.issue);
     console.log(new AgentContextRenderer().render(context));
+    return;
+  }
+  if (invocation.command === AgentCliCommand.Lenses) {
+    const required = await services.lenses.read(invocation.issue);
+    console.log(renderLenses(required));
+    process.exitCode =
+      required.problems.length > 0 ? ExitCode.Rejected : ExitCode.Ok;
     return;
   }
   const outcome = await runAgent(services, invocation);

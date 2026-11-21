@@ -1,7 +1,7 @@
 import type {
   DeliveryPolicy,
   DeliveryPolicyPort,
-} from "../../application/protected-changes.js";
+} from "../../application/code-change-check.js";
 import type { DeliveryPolicyCodec } from "../codec/delivery-policy-codec.js";
 import {
   GitHubApiError,

@@ -2,7 +2,7 @@
 
 Which `air-review-<lens>` subagents to run in the review phase. Edit this file to fit the project: AIR's `air templates` command never overwrites it once you changed it.
 
-Run every lens marked **always**, plus each lens whose trigger matches the diff or the issue. Run only lenses that are installed in `.claude/agents/`. A typical pull request needs two to four.
+Some lenses are **required**: `npx air lenses <issue>` prints them, from the `lenses` section of `.github/air-policy.json` (always, by changed path, by risk), and the review gate stays closed until the report names each one. Change that file to change what is required; this table can't. Run the required lenses, plus each lens below whose trigger matches the diff or the issue. Run only lenses that are installed in `.claude/agents/`. A typical pull request needs two to four.
 
 | Lens | Model | Run when |
 | --- | --- | --- |

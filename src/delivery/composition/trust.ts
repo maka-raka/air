@@ -31,7 +31,7 @@ import {
   DELIVERY_POLICY_PATH,
   deliveryPolicyCodec,
 } from "./delivery-policy.js";
-import { ProtectedChangeCheck } from "../application/protected-changes.js";
+import { CodeChangeCheck } from "../application/code-change-check.js";
 import { PROJECT_CHECK_CONTEXT } from "../application/project-check.js";
 import type { PullRequestStatusPort } from "../application/recorded-delivery-evidence.js";
 import { DeliveryMode } from "../domain/delivery-mode.js";
@@ -309,10 +309,8 @@ export function pullRequestStatus(
 }
 
 /** The gate's protected-path rule, with the policy from the default branch. */
-export function protectedChanges(
-  client: GitHubRestClient,
-): ProtectedChangeCheck {
-  return new ProtectedChangeCheck(
+export function codeChanges(client: GitHubRestClient): CodeChangeCheck {
+  return new CodeChangeCheck(
     new GitHubPullRequestFilesHttpAdapter(client),
     new GitHubDeliveryPolicyHttpAdapter(
       client,

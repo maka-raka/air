@@ -1,7 +1,7 @@
 import type {
   DeliveryPolicy,
   DeliveryPolicyPort,
-} from "../../application/protected-changes.js";
+} from "../../application/code-change-check.js";
 
 /** A policy fixed when the in-memory stack is composed. */
 export class MemoryDeliveryPolicy implements DeliveryPolicyPort {

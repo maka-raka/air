@@ -5,7 +5,16 @@ import { DeliveryPolicyCodec } from "./delivery-policy-codec.js";
 const codec = new DeliveryPolicyCodec({
   protectedPaths: [".github/**", ".claude/**"],
   alwaysProtected: [".github/air-policy.json"],
+  lenses: { always: ["code"], risk: { high: ["security"] } },
 });
+
+function required(
+  text: string,
+  paths: readonly string[],
+  risk = "low",
+): readonly string[] | null {
+  return codec.decode(text)?.lenses.required(paths, risk) ?? null;
+}
 
 function sources(text: string): readonly string[] | null {
   const policy = codec.decode(text);
@@ -58,14 +67,64 @@ describe("DeliveryPolicyCodec", () => {
       assert.equal(codec.decode(text), null);
     });
 
+  it("uses the default lens rules without a lenses section", () => {
+    assert.deepEqual(required("{}", ["a.ts"], "high"), ["code", "security"]);
+  });
+
+  it("replaces the default lens rules with the file's", () => {
+    const text = JSON.stringify({
+      lenses: {
+        always: ["tests"],
+        paths: { "db/**": ["data"] },
+        risk: { low: ["scope"] },
+      },
+    });
+
+    assert.deepEqual(required(text, ["db/1.sql"]), ["data", "scope", "tests"]);
+    assert.deepEqual(required(text, ["a.ts"], "high"), ["tests"]);
+  });
+
+  it("reads a partial lenses section as no rules for the rest", () => {
+    assert.deepEqual(
+      required('{"lenses":{"always":["ux"]}}', ["a.ts"], "high"),
+      ["ux"],
+    );
+  });
+
+  for (const [name, lenses] of [
+    ["an unknown lens key", { required: ["code"] }],
+    ["a lens list that isn't one", { always: "code" }],
+    ["a malformed lens name", { always: ["Code Review"] }],
+    ["a malformed path pattern", { paths: { "/abs": ["data"] } }],
+    ["an unknown risk", { risk: { critical: ["security"] } }],
+    [
+      "too many lenses",
+      { always: Array.from({ length: 33 }, (_, n) => `l${n}`) },
+    ],
+    ["a section that isn't an object", ["code"]],
+  ] as const)
+    it(`refuses ${name}`, () => {
+      assert.equal(codec.decode(JSON.stringify({ lenses })), null);
+    });
+
   it("refuses invalid defaults", () => {
     assert.throws(
       () =>
         new DeliveryPolicyCodec({
           protectedPaths: ["a//b"],
           alwaysProtected: [],
+          lenses: {},
         }),
-      /Invalid default/,
+      /Invalid policy defaults/,
+    );
+    assert.throws(
+      () =>
+        new DeliveryPolicyCodec({
+          protectedPaths: [],
+          alwaysProtected: [],
+          lenses: { always: ["Not A Lens"] },
+        }),
+      /Invalid policy defaults/,
     );
   });
 });
