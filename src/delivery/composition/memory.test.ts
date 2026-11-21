@@ -88,7 +88,8 @@ async function agentPhase(
   const { commands, gate } = services.agent;
   assert.equal((await commands.start(issue)).ok, true, `start ${phase}`);
   assert.equal(
-    (await commands.report(issue, phase, facts, `${phase} done.`)).ok,
+    (await commands.report(issue, phase, facts, `## Summary\n- ${phase} done.`))
+      .ok,
     true,
   );
   const outcome = await gate.run(issue);
@@ -264,7 +265,7 @@ describe("AIR on the memory tracker (ADR-0009)", () => {
       issue,
       DeliveryPhase.Requirements,
       { taskSize: DeliveryTaskSize.Small, miniDesign: true },
-      "Small.",
+      "## Summary\n- Small.",
     );
     const report = tracker.comments(issue).at(-1)!;
     tracker.edit(report.id, alice.id, "Small, trust me.");
@@ -302,7 +303,7 @@ describe("AIR on the memory tracker (ADR-0009)", () => {
         issue,
         DeliveryPhase.Build,
         { pullRequest: change },
-        "Built.",
+        "## Summary\n- Built.",
       );
       return { issue, change };
     }
@@ -380,14 +381,14 @@ describe("AIR on the memory tracker (ADR-0009)", () => {
         issue,
         DeliveryPhase.Review,
         { pullRequest: change, lenses: ["code", "tests", "scope"] },
-        "Reviewed.",
+        "## Summary\n- Reviewed.",
       );
       const refused = await services.agent.gate.run(issue);
       await services.agent.commands.report(
         issue,
         DeliveryPhase.Review,
         { pullRequest: change, lenses: [...required.lenses, "ux"] },
-        "Reviewed again.",
+        "## Summary\n- Reviewed again.",
       );
       const passed = await services.agent.gate.run(issue);
 

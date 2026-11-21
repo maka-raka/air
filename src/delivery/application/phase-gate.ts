@@ -61,6 +61,9 @@ export class PhaseGateEvaluator {
       ...(run ? [] : ["No active agent run"]),
       ...(report ? [] : [`No ${phase} report`]),
       ...(report && !current ? [`The ${phase} report predates this run`] : []),
+      ...(report && !report.facts.highlights
+        ? [`The ${phase} report has no \`## Summary\` bullets`]
+        : []),
       ...(report
         ? this.phaseProblems(phase, report, pullRequest, changeProblems)
         : []),

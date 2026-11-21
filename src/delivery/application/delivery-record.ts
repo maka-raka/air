@@ -44,6 +44,27 @@ export function isReviewLens(value: unknown): value is string {
   return typeof value === "string" && REVIEW_LENS.test(value);
 }
 
+/** At most this many highlights per report: the gist, not the report. */
+export const MAX_HIGHLIGHTS = 5;
+export const MAX_HIGHLIGHT_LENGTH = 200;
+/** One printable line; no markup that could break out of a list item. */
+const HIGHLIGHT = /^[^\x00-\x1f\x7f]+$/;
+
+export function isHighlight(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.trim() === value &&
+    value.length > 0 &&
+    value.length <= MAX_HIGHLIGHT_LENGTH &&
+    HIGHLIGHT.test(value)
+  );
+}
+
+export function areHighlights(value: unknown): value is readonly string[] {
+  if (!Array.isArray(value) || value.length > MAX_HIGHLIGHTS) return false;
+  return value.length > 0 && value.every(isHighlight);
+}
+
 /** Machine-readable phase facts. Prose belongs in the comment text. */
 export type ReportFacts = Readonly<{
   taskSize?: (typeof DeliveryTaskSize)[keyof typeof DeliveryTaskSize];
@@ -54,6 +75,8 @@ export type ReportFacts = Readonly<{
   recommendation?: IntakeRecommendation;
   risk?: DeliveryRisk;
   lenses?: readonly string[];
+  /** The report's `## Summary` bullets, for approvers and the console. */
+  highlights?: readonly string[];
 }>;
 
 export type DeliveryRecord =

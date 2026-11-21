@@ -175,6 +175,7 @@ td{padding:10px;border-bottom:1px solid #EEF0F3;vertical-align:top}
 .next-step{border:2px solid #2350C8}
 .facts{margin:0;display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;font-size:14px}
 .facts dt{color:#5B6472}.facts dd{margin:0}
+.highlights{margin:0 0 10px;padding-left:20px;font-size:14px;line-height:1.5}
 .timeline{list-style:none;margin:0;padding:0}
 .timeline li{display:grid;grid-template-columns:150px 1fr;gap:10px;padding:9px 0;border-top:1px solid #EEF0F3;font-size:14px}
 .flowbar{display:flex;height:12px;border-radius:999px;overflow:hidden;background:#EEF0F3}
@@ -331,7 +332,10 @@ ${detailLine}
           .filter((row): row is string[] => row !== null)
           .map(([name, value]) => `<dt>${name}</dt><dd>${value}</dd>`)
           .join("");
-        return `<div class="card"><div class="row"><h3>${PHASE_NAMES[report.phase]}</h3><span class="note">signed by the agent · ${time(report.at)} UTC</span></div>${rows ? `<dl class="facts">${rows}</dl>` : '<p class="empty">No facts recorded.</p>'}</div>`;
+        const gist = facts.highlights
+          ? `<ul class="highlights">${facts.highlights.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
+          : "";
+        return `<div class="card"><div class="row"><h3>${PHASE_NAMES[report.phase]}</h3><span class="note">signed by the agent · ${time(report.at)} UTC</span></div>${gist}${rows ? `<dl class="facts">${rows}</dl>` : '<p class="empty">No facts recorded.</p>'}</div>`;
       })
       .join("");
     return `<section aria-labelledby="reports" style="display:flex;flex-direction:column;gap:12px"><h2 id="reports">Phase reports</h2>${items}<p class="note">The report text is in the issue on GitHub.</p></section>`;

@@ -9,6 +9,20 @@ import { DeliveryPhase, DeliveryStatus } from "../../domain/state-machine.js";
 describe("DeliveryRecordCodec", () => {
   const codec = new DeliveryRecordCodec();
 
+  it("keeps highlights and refuses malformed ones", () => {
+    const report = (highlights: unknown) =>
+      JSON.stringify({
+        kind: DeliveryRecordKind.Report,
+        phase: DeliveryPhase.Build,
+        at: "2026-11-19T09:00:00.000Z",
+        facts: { highlights },
+      });
+
+    assert.ok(codec.decode(report(["Adds EUR prices."])));
+    for (const bad of [[], ["a\nb"], [" padded "], Array(6).fill("x"), "x"])
+      assert.equal(codec.decode(report(bad)), null, JSON.stringify(bad));
+  });
+
   it("round-trips a report", () => {
     const record: DeliveryRecord = {
       kind: DeliveryRecordKind.Report,

@@ -402,6 +402,7 @@ describe("ConsolePage intake and review facts", () => {
         recommendation: "reject",
         risk: "high",
         lenses: ["code", "security"],
+        highlights: ["Duplicate of #12.", "<b>not markup</b>"],
       },
     } as const;
     const html = page.issue(
@@ -428,6 +429,10 @@ describe("ConsolePage intake and review facts", () => {
     assert.match(html, /<dt>Recommendation<\/dt><dd>reject<\/dd>/);
     assert.match(html, /<dt>Risk<\/dt><dd>high<\/dd>/);
     assert.match(html, /<dt>Review lenses<\/dt><dd>code, security<\/dd>/);
+    assert.match(
+      html,
+      /<ul class="highlights"><li>Duplicate of #12\.<\/li><li>&lt;b&gt;not markup&lt;\/b&gt;<\/li><\/ul>/,
+    );
     assert.match(html, /advises not to build this/);
     assert.match(html, /value="\/air close"/);
     assert.doesNotMatch(html, /value="\/air advance/);

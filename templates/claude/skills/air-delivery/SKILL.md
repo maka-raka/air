@@ -30,6 +30,7 @@ You act as the **agent account**. Humans approve every phase change. You never c
 3. Do the phase work (see below).
 4. Record the report:
    `npx air report <n> <phase> --summary-file report.md --facts '<json>'`
+   Start `report.md` with `## Summary` and one to five bullets, one line each: what the approver must know first (the decision, the risk, what is left open). AIR records them as `highlights` and refuses a report without them. Put the details below.
 5. Close the phase: `npx air gate <n>`. If the gate lists problems, fix them, record a new report and run the gate again.
 6. If you cannot continue (an open question, a missing decision, or a `no-go` verdict):
    `npx air block <n> --question-file question.md`
