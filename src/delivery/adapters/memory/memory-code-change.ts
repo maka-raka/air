@@ -3,6 +3,10 @@ import type {
   PullRequestStatusPort,
 } from "../../application/recorded-delivery-evidence.js";
 import type {
+  CodeChangeFiles,
+  CodeChangeFilesPort,
+} from "../../application/protected-changes.js";
+import type {
   DeploymentEnvironment,
   DeploymentEvidencePort,
   MergedPullRequest,
@@ -17,7 +21,7 @@ const ABSENT: PullRequestStatus = {
 
 /** Code change, commit and deployment facts, read live from the tracker. */
 export class MemoryCodeChangeAdapter
-  implements PullRequestStatusPort, DeploymentEvidencePort
+  implements PullRequestStatusPort, CodeChangeFilesPort, DeploymentEvidencePort
 {
   constructor(private readonly tracker: MemoryTracker) {}
 
@@ -29,6 +33,12 @@ export class MemoryCodeChangeAdapter
       active: change.open || change.merged,
       checksGreen: change.checksGreen,
     };
+  }
+
+  /** The tracker has one branch to merge into, so every change targets it. */
+  async files(number: number): Promise<CodeChangeFiles> {
+    const change = this.tracker.change(number);
+    return { targetsDefaultBranch: true, paths: change?.paths ?? null };
   }
 
   async pullRequest(number: number): Promise<MergedPullRequest | null> {

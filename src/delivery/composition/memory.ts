@@ -37,6 +37,9 @@ import {
 } from "../adapters/memory/memory-account-access.js";
 import { MemoryAuditLines } from "../adapters/memory/memory-audit-lines.js";
 import { MemoryCodeChangeAdapter } from "../adapters/memory/memory-code-change.js";
+import { MemoryDeliveryPolicy } from "../adapters/memory/memory-delivery-policy.js";
+import { ProtectedChangeCheck } from "../application/protected-changes.js";
+import { deliveryPolicyCodec } from "./delivery-policy.js";
 import { MemoryCommandReplies } from "../adapters/memory/memory-command-reply.js";
 import { MemoryCommentIngress } from "../adapters/memory/memory-comment-ingress.js";
 import {
@@ -91,6 +94,8 @@ export type MemoryConfig = Readonly<{
   newRunId?: () => string;
   /** ADR-0011 step 3; absent: no agent run is ever requested. */
   launch?: MemoryLaunchConfig;
+  /** The project's policy file, as text; absent: the defaults (ADR-0017). */
+  policy?: string;
 }>;
 
 /** The read-only console's use cases over the memory tracker (ADR-0012). */
@@ -218,6 +223,7 @@ export class MemoryComposition {
         executor,
         records,
         new MemoryCodeChangeAdapter(this.tracker),
+        this.protectedChanges(),
         preflight,
         { now, runTtlMs },
       ),
@@ -300,6 +306,17 @@ export class MemoryComposition {
         now,
       ),
     };
+  }
+
+  private protectedChanges(): ProtectedChangeCheck {
+    const codec = deliveryPolicyCodec();
+    const policy = this.config.policy;
+    return new ProtectedChangeCheck(
+      new MemoryCodeChangeAdapter(this.tracker),
+      new MemoryDeliveryPolicy(
+        policy === undefined ? codec.fallback() : codec.decode(policy),
+      ),
+    );
   }
 
   /** Requests agent runs when the launch config says so (ADR-0011). */

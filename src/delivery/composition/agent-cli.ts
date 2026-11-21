@@ -56,6 +56,7 @@ import {
   labelStateStore,
   trustPolicy,
   trustedExecutor,
+  protectedChanges,
   pullRequestStatus,
 } from "./trust.js";
 import { GitHubRepositoryHttpAdapter } from "../adapters/github/repository-http-adapter.js";
@@ -382,6 +383,7 @@ export async function composeAgent(
       executor,
       records,
       pullRequestStatus(client, accounts, config.mode),
+      protectedChanges(client),
       preflight,
       { now, runTtlMs: config.runTtlMs },
     ),
