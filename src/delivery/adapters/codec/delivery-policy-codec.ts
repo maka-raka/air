@@ -10,15 +10,29 @@ import {
 
 /** More patterns or path rules than this is a list nobody reviews. */
 const MAX_PATTERNS = 100;
-const KEYS: readonly string[] = ["protected", "lenses"];
-const LENS_KEYS: readonly string[] = ["always", "paths", "risk"];
+
+/** Top-level keys of the policy file. */
+export const PolicyKey = {
+  Protected: "protected",
+  Lenses: "lenses",
+} as const;
+
+/** Keys of the policy file's `lenses` section. */
+export const LensRuleKey = {
+  Always: "always",
+  Paths: "paths",
+  Risk: "risk",
+} as const;
+
+const KEYS: readonly string[] = Object.values(PolicyKey);
+const LENS_KEYS: readonly string[] = Object.values(LensRuleKey);
 const RISKS: readonly string[] = Object.values(DeliveryRisk);
 
 /** The `lenses` section of a policy file, as written. */
 export type LensPolicySource = Readonly<{
-  always?: readonly string[];
-  paths?: Readonly<Record<string, readonly string[]>>;
-  risk?: Readonly<Record<string, readonly string[]>>;
+  [LensRuleKey.Always]?: readonly string[];
+  [LensRuleKey.Paths]?: Readonly<Record<string, readonly string[]>>;
+  [LensRuleKey.Risk]?: Readonly<Record<string, readonly string[]>>;
 }>;
 
 export type DeliveryPolicyDefaults = Readonly<{
@@ -88,10 +102,11 @@ function riskRules(value: unknown): Map<string, readonly string[]> | null {
 
 function lensRules(value: unknown): LensRules | null {
   if (!record(value) || !only(value, LENS_KEYS)) return null;
-  const always = value.always === undefined ? [] : lenses(value.always);
+  const listed = value[LensRuleKey.Always];
+  const always = listed === undefined ? [] : lenses(listed);
   if (!always) return null;
-  const byPath = pathRules(value.paths);
-  const byRisk = riskRules(value.risk);
+  const byPath = pathRules(value[LensRuleKey.Paths]);
+  const byRisk = riskRules(value[LensRuleKey.Risk]);
   return byPath && byRisk ? new LensRules(always, byPath, byRisk) : null;
 }
 
@@ -131,12 +146,14 @@ export class DeliveryPolicyCodec {
       return null;
     }
     if (!record(data) || !only(data, KEYS)) return null;
+    const protectedPaths = data[PolicyKey.Protected];
+    const lensSection = data[PolicyKey.Lenses];
     const listed =
-      data.protected === undefined
+      protectedPaths === undefined
         ? this.protectedPaths
-        : patterns(data.protected);
+        : patterns(protectedPaths);
     const rules =
-      data.lenses === undefined ? this.lenses : lensRules(data.lenses);
+      lensSection === undefined ? this.lenses : lensRules(lensSection);
     if (!listed || !rules) return null;
     return this.policy(listed, rules);
   }

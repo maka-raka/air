@@ -1,4 +1,8 @@
-import { DeliveryPolicyCodec } from "../adapters/codec/delivery-policy-codec.js";
+import {
+  DeliveryPolicyCodec,
+  LensRuleKey,
+} from "../adapters/codec/delivery-policy-codec.js";
+import { DeliveryRisk } from "../application/delivery-record.js";
 import type { LensPolicySource } from "../adapters/codec/delivery-policy-codec.js";
 
 /** Where AIR reads the project's delivery policy from (ADR-0017). */
@@ -16,13 +20,13 @@ export const DEFAULT_PROTECTED_PATHS = [".github/**", ".claude/**"] as const;
  * review gate closed.
  */
 export const DEFAULT_LENSES = {
-  always: ["code", "tests", "scope"],
-  paths: {
+  [LensRuleKey.Always]: ["code", "tests", "scope"],
+  [LensRuleKey.Paths]: {
     "**/package.json": ["deps"],
     "**/package-lock.json": ["deps"],
     "**/migrations/**": ["data"],
   },
-  risk: { high: ["security"] },
+  [LensRuleKey.Risk]: { [DeliveryRisk.High]: ["security"] },
 } as const satisfies LensPolicySource;
 
 /** Reads a policy file; the policy file itself is always protected. */

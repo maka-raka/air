@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_ENV_FILE } from "./config.js";
+import { PolicyKey } from "../adapters/codec/delivery-policy-codec.js";
 import {
   DEFAULT_LENSES,
   DEFAULT_PROTECTED_PATHS,
@@ -107,7 +108,10 @@ export const PROJECT_FILES: Readonly<Record<string, string>> =
  * template marker, so `air templates` never touches it (ADR-0017).
  */
 export function policyFile(): string {
-  const policy = { protected: DEFAULT_PROTECTED_PATHS, lenses: DEFAULT_LENSES };
+  const policy = {
+    [PolicyKey.Protected]: DEFAULT_PROTECTED_PATHS,
+    [PolicyKey.Lenses]: DEFAULT_LENSES,
+  };
   return `${JSON.stringify(policy, null, 2)}\n`;
 }
 
