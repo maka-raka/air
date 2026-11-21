@@ -62,6 +62,10 @@ Every file `air init` writes ends with a marker line naming its template and the
 
 An optional lens is updated once installed and never added unasked. `air templates --check` writes nothing and exits with code 2 when an update would change something, for CI. A project lens with another name is never touched.
 
+### 5. Report highlights (added 2026-11-21, #98)
+
+Every report starts with `## Summary` and one to five one-line bullets. `air report` reads them into a signed fact, `highlights` (at most 200 printable characters each), and refuses a report without them. The gate names a report that has none, which covers reports recorded before this change. The console shows them at the top of each phase report, so an approver gets the gist without opening the issue. Taken from the ZazenCodes software factory v2.
+
 ## Consequences
 
 - An intake can end in a clear "no" that a person confirms, instead of a forced size classification.
@@ -69,4 +73,4 @@ An optional lens is updated once installed and never added unasked. `air templat
 - Several review angles without breaking one run per issue; the approver sees which lenses ran.
 - Projects get template fixes with one command and keep their own edits; nothing is overwritten silently.
 - New facts are optional and validated: older reports stay valid; an unknown value makes the record malformed, as today.
-- Not covered: risk set by the approver (a command or a label) instead of the agent; enforcing lenses in the gate.
+- Not covered: risk set by the approver (a command or a label) instead of the agent. Lenses are enforced in the gate since [ADR-0017](0017-protected-paths.md).

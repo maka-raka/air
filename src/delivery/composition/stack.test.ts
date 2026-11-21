@@ -193,7 +193,10 @@ async function agentRun(
 ) {
   const { commands, gate } = s.services.agent;
   assert.equal((await commands.start(issue)).ok, true, `start ${phase}`);
-  assert.equal((await commands.report(issue, phase, facts, "Done.")).ok, true);
+  assert.equal(
+    (await commands.report(issue, phase, facts, "## Summary\n- Done.")).ok,
+    true,
+  );
   assert.equal((await gate.run(issue)).result.ok, true, `gate ${phase}`);
   s.docker.stop(issue);
 }

@@ -26,7 +26,12 @@ const report = (
   phase: Phase,
   facts: ReportFacts,
   at = "2026-11-11T11:30:00Z",
-): DeliveryRecord => ({ kind: DeliveryRecordKind.Report, phase, at, facts });
+): DeliveryRecord => ({
+  kind: DeliveryRecordKind.Report,
+  phase,
+  at,
+  facts: { highlights: ["Done."], ...facts },
+});
 const green: PullRequestStatus = {
   exists: true,
   active: true,
@@ -140,6 +145,22 @@ describe("PhaseGateEvaluator", () => {
     );
 
     assert.deepEqual(evaluated.problems, []);
+  });
+
+  it("rejects a report without summary bullets", () => {
+    const records = [
+      start,
+      {
+        kind: DeliveryRecordKind.Report,
+        phase: DeliveryPhase.Accept,
+        at: "2026-11-11T11:30:00Z",
+        facts: { verdict: "go" },
+      } as const,
+    ];
+
+    assert.deepEqual(gate(DeliveryPhase.Accept, records).problems, [
+      "The accept report has no `## Summary` bullets",
+    ]);
   });
 
   it("lets the policy reject a no-go verdict", () => {

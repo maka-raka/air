@@ -8,6 +8,7 @@ import {
 } from "./delivery-record.js";
 import type { DeliveryRecordPort, ReportFacts } from "./delivery-record.js";
 import { DeliveryFailure } from "./execute-delivery-command.js";
+import { ReportHighlights } from "./report-highlights.js";
 import type { DeliveryResult } from "./execute-delivery-command.js";
 
 /** Verifies the caller really is the configured agent identity. */
@@ -43,6 +44,7 @@ export class AgentCommands {
     private readonly records: DeliveryRecordPort,
     private readonly preflight: AgentPreflightPort,
     private readonly runtime: AgentRuntime,
+    private readonly highlights: ReportHighlights = new ReportHighlights(),
   ) {}
 
   async start(issue: number): Promise<DeliveryResult> {
@@ -85,11 +87,18 @@ export class AgentCommands {
     summary: string,
   ): Promise<RecordResult> {
     if (!summary.trim()) return rejected("A report summary is required");
+    const read = this.highlights.read(summary);
+    if (!read.ok) return rejected(read.problem);
     if (!(await this.preflight.check(issue)))
       return rejected("Agent preflight failed");
     await this.records.append(
       issue,
-      { kind: DeliveryRecordKind.Report, phase, at: this.at(), facts },
+      {
+        kind: DeliveryRecordKind.Report,
+        phase,
+        at: this.at(),
+        facts: { ...facts, highlights: read.highlights },
+      },
       summary.trim(),
     );
     return { ok: true };

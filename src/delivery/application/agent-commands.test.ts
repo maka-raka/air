@@ -213,7 +213,12 @@ describe("AgentCommands", () => {
     const { records, commands } = fixture({ preflight: false });
 
     const blocked = await commands.block(42, "Question");
-    const reported = await commands.report(42, DeliveryPhase.Build, {}, "Done");
+    const reported = await commands.report(
+      42,
+      DeliveryPhase.Build,
+      {},
+      "## Summary\n- Done",
+    );
 
     assert.equal(blocked.ok, false);
     assert.equal(reported.ok, false);
@@ -227,7 +232,7 @@ describe("AgentCommands", () => {
       42,
       DeliveryPhase.Requirements,
       { taskSize: "S", miniDesign: true },
-      "Criteria and mini-design.",
+      "## Summary\n- Criteria agreed.\n- Mini-design inline.\n\nDetails follow.",
     );
 
     assert.deepEqual(result, { ok: true });
@@ -238,10 +243,29 @@ describe("AgentCommands", () => {
           kind: DeliveryRecordKind.Report,
           phase: DeliveryPhase.Requirements,
           at: at(0),
-          facts: { taskSize: "S", miniDesign: true },
+          facts: {
+            taskSize: "S",
+            miniDesign: true,
+            highlights: ["Criteria agreed.", "Mini-design inline."],
+          },
         },
-        text: "Criteria and mini-design.",
+        text: "## Summary\n- Criteria agreed.\n- Mini-design inline.\n\nDetails follow.",
       },
     ]);
+  });
+
+  it("refuses a report without a summary section", async () => {
+    const { records, commands } = fixture();
+
+    const result = await commands.report(
+      42,
+      DeliveryPhase.Build,
+      {},
+      "Built it.",
+    );
+
+    assert.equal(result.ok, false);
+    assert.match((result as { detail?: string }).detail ?? "", /## Summary/);
+    assert.deepEqual(records.appended, []);
   });
 });
