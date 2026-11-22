@@ -62,21 +62,21 @@ export class GitHubTrustedPushEvidenceProvider implements TrustedPushEvidencePor
     );
     if (!object(comparison)) return null;
     if (comparison.status !== ComparisonStatus.Ahead) return null;
-    if (
-      comparison.base_commit === undefined ||
-      !object(comparison.base_commit)
-    ) return null;
-    if (comparison.base_commit.sha !== request.expectedHead) return null;
-    if (!object(comparison.merge_base_commit)) return null;
-    if (comparison.merge_base_commit.sha !== request.expectedHead)
-      return null;
-    if (!Array.isArray(comparison.files)) return null;
-    if (!Array.isArray(comparison.commits)) return null;
-    if (comparison.total_commits !== comparison.commits.length) return null;
-    if (comparison.files.length === 0 || comparison.files.length >= 300)
-      return null;
+    const baseCommit = comparison.base_commit;
+    if (!object(baseCommit)) return null;
+    if (baseCommit.sha !== request.expectedHead) return null;
+    const mergeBase = comparison.merge_base_commit;
+    if (!object(mergeBase)) return null;
+    if (mergeBase.sha !== request.expectedHead) return null;
+    const files = comparison.files;
+    if (!Array.isArray(files)) return null;
+    const commits = comparison.commits;
+    if (!Array.isArray(commits)) return null;
+    if (comparison.total_commits !== commits.length) return null;
+    if (files.length === 0) return null;
+    if (files.length >= 300) return null;
     const changedPaths: string[] = [];
-    for (const file of comparison.files) {
+    for (const file of files) {
       if (!object(file) || typeof file.filename !== "string") return null;
       changedPaths.push(file.filename);
       if (file.status !== FileStatus.Renamed) continue;
