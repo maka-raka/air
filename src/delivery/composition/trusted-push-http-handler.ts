@@ -18,9 +18,8 @@ const SHA = /^[a-f0-9]{40}$/;
 const BRANCH = /^refs\/heads\/air\/([1-9][0-9]*)-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function parsePushRequest(value: unknown): PushRequest | null {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
+  if (value === null || typeof value !== "object") return null;
+  if (Array.isArray(value)) return null;
   const fields = value as Record<string, unknown>;
   if (Object.keys(fields).sort().join(",") !== REQUEST_FIELDS) {
     return null;
