@@ -53,7 +53,9 @@ class Writer implements PrivilegedPushPort {
 test("trusted evidence permits an approved exact commit", async () => {
   const evidence = new Evidence();
   const writer = new Writer();
-  const decision = await new TrustedPushBroker(evidence, writer).execute(REQUEST);
+  const decision = await new TrustedPushBroker(evidence, writer).execute(
+    REQUEST,
+  );
   assert.deepEqual(decision, { allowed: true });
   assert.equal(writer.calls, 1);
 });
@@ -62,7 +64,9 @@ test("missing trusted evidence fails closed without writing", async () => {
   const evidence = new Evidence();
   evidence.available = false;
   const writer = new Writer();
-  const decision = await new TrustedPushBroker(evidence, writer).execute(REQUEST);
+  const decision = await new TrustedPushBroker(evidence, writer).execute(
+    REQUEST,
+  );
   assert.deepEqual(decision, {
     allowed: false,
     reason: BrokerDecisionReason.MissingEvidence,
@@ -74,7 +78,9 @@ test("unapproved commit fails closed without writing", async () => {
   const evidence = new Evidence();
   evidence.approvedCommit = OLD;
   const writer = new Writer();
-  const decision = await new TrustedPushBroker(evidence, writer).execute(REQUEST);
+  const decision = await new TrustedPushBroker(evidence, writer).execute(
+    REQUEST,
+  );
   assert.deepEqual(decision, {
     allowed: false,
     reason: PushDecisionReason.Unauthorized,
@@ -86,7 +92,9 @@ test("stale remote head fails closed without writing", async () => {
   const evidence = new Evidence();
   evidence.currentHead = NEW;
   const writer = new Writer();
-  const decision = await new TrustedPushBroker(evidence, writer).execute(REQUEST);
+  const decision = await new TrustedPushBroker(evidence, writer).execute(
+    REQUEST,
+  );
   assert.deepEqual(decision, {
     allowed: false,
     reason: PushDecisionReason.StaleHead,
@@ -98,7 +106,9 @@ test("protected paths fail closed without writing", async () => {
   const evidence = new Evidence();
   evidence.changedPaths = [".github/workflows/deploy.yml"];
   const writer = new Writer();
-  const decision = await new TrustedPushBroker(evidence, writer).execute(REQUEST);
+  const decision = await new TrustedPushBroker(evidence, writer).execute(
+    REQUEST,
+  );
   assert.deepEqual(decision, {
     allowed: false,
     reason: PushDecisionReason.ForbiddenPath,
@@ -110,7 +120,9 @@ test("writer rejection never reports success", async () => {
   const evidence = new Evidence();
   const writer = new Writer();
   writer.succeeds = false;
-  const decision = await new TrustedPushBroker(evidence, writer).execute(REQUEST);
+  const decision = await new TrustedPushBroker(evidence, writer).execute(
+    REQUEST,
+  );
   assert.deepEqual(decision, {
     allowed: false,
     reason: BrokerDecisionReason.PushRejected,
