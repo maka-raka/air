@@ -6,6 +6,7 @@ const exec = promisify(execFile);
 const Sha = /^[a-f0-9]{40}$/;
 const MaxOutputBytes = 64 * 1024;
 const TimeoutMs = 15_000;
+const GitBoolean = { True: "true" } as const;
 
 /**
  * Verifies an untrusted bundle in an operator-controlled Git repository.
@@ -28,7 +29,7 @@ export class QuarantinedGitBundleVerifier {
         ["--git-dir", quarantineRepository, "rev-parse", "--is-bare-repository"],
         { timeout: TimeoutMs, maxBuffer: MaxOutputBytes },
       );
-      if (bare.trim() !== "true") return false;
+      if (bare.trim() !== GitBoolean.True) return false;
       await exec(
         "git",
         ["--git-dir", quarantineRepository, "bundle", "verify", bundlePath],
