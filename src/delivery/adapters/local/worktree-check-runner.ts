@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { mkdir, mkdtemp, open, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -94,7 +94,6 @@ export const spawnShell: ShellRunner = async (command, options) => {
  * Runs untrusted checks in an isolated Docker container, never on the operator host.
  * A missing Docker daemon fails closed. No agent-controlled environment is forwarded.
  */
-const FILE_NOT_FOUND = "ENOENT";
 const CONTAINER_RUNNING = "true";
 
 export const spawnSandboxShell: ShellRunner = async (command, options) => {
@@ -102,12 +101,15 @@ export const spawnSandboxShell: ShellRunner = async (command, options) => {
     "node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54";
   const controlDir = await mkdtemp(join(tmpdir(), "air-sandbox-"));
   const cidFile = join(controlDir, "container.id");
+  const containerName = "air-check-" + controlDir.split("/").at(-1);
   const log = await open(options.logPath, "w", 0o600);
   const args = [
     "run",
     "--rm",
     "--cidfile",
     cidFile,
+    "--name",
+    containerName,
     "--pull",
     "never",
     "--network",
@@ -164,28 +166,22 @@ export const spawnSandboxShell: ShellRunner = async (command, options) => {
     });
   } finally {
     try {
-      const cid = await readFile(cidFile, "utf8").catch(
-        (error: NodeJS.ErrnoException) => {
-          if (error.code === FILE_NOT_FOUND) return null;
-          throw error;
-        },
-      );
-      if (cid !== null) {
-        await execFileAsync("docker", ["rm", "--force", cid.trim()], {
-          timeout: 15000,
-          env: { PATH: process.env.PATH },
-        }).catch(async () => {
-          const running = await execFileAsync(
-            "docker",
-            ["inspect", "--format", "{{.State.Running}}", cid.trim()],
-            { timeout: 15000, env: { PATH: process.env.PATH } },
-          ).then(
-            (result) => result.stdout.trim() === CONTAINER_RUNNING,
-            () => false,
-          );
-          assert.equal(running, false, "Sandbox container cleanup failed");
-        });
-      }
+      // A timeout can kill the Docker CLI before --cidfile is written.
+      // Always clean up by the independently assigned container name.
+      await execFileAsync("docker", ["rm", "--force", containerName], {
+        timeout: 15000,
+        env: { PATH: process.env.PATH },
+      }).catch(async () => {
+        const running = await execFileAsync(
+          "docker",
+          ["inspect", "--format", "{{.State.Running}}", containerName],
+          { timeout: 15000, env: { PATH: process.env.PATH } },
+        ).then(
+          (result) => result.stdout.trim() === CONTAINER_RUNNING,
+          () => false,
+        );
+        assert.equal(running, false, "Sandbox container cleanup failed");
+      });
     } finally {
       await log.close();
       await rm(controlDir, { recursive: true, force: true });
