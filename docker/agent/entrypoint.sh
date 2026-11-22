@@ -20,6 +20,22 @@ fi
 issue="${1:-}"
 [[ "$issue" =~ ^[1-9][0-9]*$ ]] || fail "usage: air-agent [--finish] <issue-number>"
 
+# Fail closed if broker/operator credentials are accidentally injected into the
+# untrusted agent container. AIR_AGENT_TOKEN remains a legacy write-capable
+# credential until broker transport replaces direct agent pushes.
+for name in \
+  AIR_GITHUB_TOKEN \
+  AIR_OPERATOR_SIGNING_KEY \
+  AIR_DEPLOY_TOKEN \
+  AIR_DEPLOY_SIGNING_KEY \
+  AIR_GITHUB_APP_PRIVATE_KEY \
+  AIR_GITHUB_APP_PRIVATE_KEY_PEM \
+  AIR_GITHUB_APP_INSTALLATION_TOKEN \
+  GITHUB_APP_PRIVATE_KEY \
+  GH_APP_PRIVATE_KEY; do
+  [[ -z "${!name:-}" ]] || fail "privileged credential $name must not enter the agent container"
+done
+
 for name in AIR_REPOSITORY AIR_AGENT_LOGIN AIR_AGENT_TOKEN AIR_AGENT_SIGNING_KEY; do
   [[ -n "${!name:-}" ]] || fail "set $name"
 done
