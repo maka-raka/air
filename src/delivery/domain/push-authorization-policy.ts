@@ -36,11 +36,7 @@ export type PushDecision =
 const SHA = /^[a-f0-9]{40}$/;
 const BRANCH = /^refs\/heads\/air\/([1-9][0-9]*)-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const PATH_SEGMENT = { Current: ".", Parent: ".." } as const;
-const PROTECTED = new Set([
-  ".gitmodules",
-  "CODEOWNERS",
-  ".github/CODEOWNERS",
-]);
+const PROTECTED = new Set([".gitmodules", "CODEOWNERS", ".github/CODEOWNERS"]);
 
 export class PushAuthorizationPolicy {
   authorize(proposal: PushProposal, evidence: PushEvidence): PushDecision {
