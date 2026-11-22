@@ -14,6 +14,7 @@ const REF_QUERY = `
       ref(qualifiedName: $ref) {
         id
         name
+        prefix
         target { oid }
       }
     }
@@ -82,7 +83,8 @@ export class GitHubGraphqlAtomicRefUpdater implements AtomicRefUpdater {
     if (!object(repository.ref)) return false;
     const ref = repository.ref;
     if (typeof ref.id !== "string" || !ref.id) return false;
-    if (ref.name !== request.ref) return false;
+    if (ref.prefix !== "refs/heads/") return false;
+    if (`${ref.prefix}${ref.name}` !== request.ref) return false;
     if (!object(ref.target)) return false;
     if (ref.target.oid !== request.expectedHead) return false;
 
