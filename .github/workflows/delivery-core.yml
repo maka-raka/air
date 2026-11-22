@@ -18,3 +18,24 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm run quality:check
+  sandbox-integration:
+    name: sandbox-integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Preload pinned sandbox image
+        run: docker pull node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54
+      - name: Docker sandbox integration tests
+        env:
+          AIR_SANDBOX_INTEGRATION: "1"
+        run: |
+          npm run build
+          node --test dist/src/delivery/adapters/local/worktree-check-runner.test.js
