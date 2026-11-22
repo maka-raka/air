@@ -21,7 +21,11 @@ const broker = new TrustedPushBroker(
       return null;
     },
   },
-  { async push() { throw new Error("unexpected push"); } },
+  {
+    async push() {
+      throw new Error("unexpected push");
+    },
+  },
 );
 const handler = new TrustedPushHttpHandler(broker);
 const server = createServer((request, response) => {
