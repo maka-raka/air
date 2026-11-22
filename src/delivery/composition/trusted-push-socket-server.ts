@@ -8,6 +8,8 @@ import { TrustedPushHttpHandler } from "./trusted-push-http-handler.js";
  * broker operator and inaccessible to untrusted agent containers.
  * Never publish this socket via a TCP proxy or mount it into an agent.
  */
+const FileError = { NotFound: "ENOENT" } as const;
+
 export class TrustedPushSocketServer {
   private server: Server | null = null;
 
@@ -51,7 +53,7 @@ export class TrustedPushSocketServer {
       const info = await lstat(this.socketPath);
       if (info.isSocket()) await unlink(this.socketPath);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      if ((error as NodeJS.ErrnoException).code !== FileError.NotFound) throw error;
     }
   }
 }
