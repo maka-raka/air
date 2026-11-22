@@ -18,6 +18,8 @@ export interface TrustedPushApprovalPort {
   approved(request: PushRequest): Promise<PushApproval | null>;
 }
 
+const ComparisonStatus = { Ahead: "ahead" } as const;
+const FileStatus = { Renamed: "renamed" } as const;
 const SHA = /^[a-f0-9]{40}$/;
 const BRANCH = /^refs\/heads\/air\/([1-9][0-9]*)-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -59,7 +61,7 @@ export class GitHubTrustedPushEvidenceProvider implements TrustedPushEvidencePor
       `/compare/${request.expectedHead}...${request.newHead}`,
     );
     if (!object(comparison)) return null;
-    if (comparison.status !== "ahead") return null;
+    if (comparison.status !== ComparisonStatus.Ahead) return null;
     if (comparison.base_commit === undefined || !object(comparison.base_commit)) return null;
     if (comparison.base_commit.sha !== request.expectedHead) return null;
     if (!object(comparison.merge_base_commit)) return null;
@@ -72,10 +74,9 @@ export class GitHubTrustedPushEvidenceProvider implements TrustedPushEvidencePor
     for (const file of comparison.files) {
       if (!object(file) || typeof file.filename !== "string") return null;
       changedPaths.push(file.filename);
-      if (file.status === "renamed") {
-        if (typeof file.previous_filename !== "string") return null;
-        changedPaths.push(file.previous_filename);
-      }
+      if (file.status !== FileStatus.Renamed) continue;
+      if (typeof file.previous_filename !== "string") return null;
+      changedPaths.push(file.previous_filename);
     }
     return {
       evidence: {
