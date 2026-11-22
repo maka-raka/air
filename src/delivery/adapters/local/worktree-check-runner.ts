@@ -236,8 +236,13 @@ export const spawnSandboxShell: ShellRunner = async (command, options) => {
       options.timeoutMs,
     );
     if (prepared) {
-      args.splice(args.indexOf(image), 0, "--mount",
-        "type=volume,source=" + volumeName + ",target=/workspace/node_modules,readonly",
+      args.splice(
+        args.indexOf(image),
+        0,
+        "--mount",
+        "type=volume,source=" +
+          volumeName +
+          ",target=/workspace/node_modules,readonly",
       );
     }
     return await new Promise<ShellExit>((resolve, reject) => {
