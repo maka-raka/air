@@ -1,5 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { PushRequest, TrustedPushBroker } from "../adapters/github/trusted-push-broker.js";
+import type {
+  PushRequest,
+  TrustedPushBroker,
+} from "../adapters/github/trusted-push-broker.js";
 
 const Method = { Post: "POST" } as const;
 const Status = {
@@ -52,7 +55,10 @@ function reply(response: ServerResponse, status: number): void {
 export class TrustedPushHttpHandler {
   constructor(private readonly broker: TrustedPushBroker) {}
 
-  async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  async handle(
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> {
     if (request.method !== Method.Post) {
       reply(response, Status.MethodNotAllowed);
       return;
@@ -73,7 +79,9 @@ export class TrustedPushHttpHandler {
         }
         chunks.push(chunk);
       }
-      const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      const parsed: unknown = JSON.parse(
+        Buffer.concat(chunks).toString("utf8"),
+      );
       const proposal = parsePushRequest(parsed);
       if (proposal === null) {
         reply(response, Status.BadRequest);
