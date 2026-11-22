@@ -14,6 +14,7 @@ import {
   checkEnvironment,
   execGit,
   spawnShell,
+  spawnSandboxShell,
   WorktreeCheckRunner,
 } from "./worktree-check-runner.js";
 import type { ShellRunner } from "./worktree-check-runner.js";
@@ -211,5 +212,43 @@ describe("spawnShell", () => {
 
     assert.deepEqual(exit, { exitCode: null });
     assert.ok(Date.now() - started < 5000);
+  });
+});
+
+/**
+ * Run with AIR_SANDBOX_INTEGRATION=1 after preloading the pinned Node image.
+ * CI without Docker must not silently pretend it tested the sandbox.
+ */
+describe("Docker sandbox integration", { skip: process.env.AIR_SANDBOX_INTEGRATION !== "1" }, () => {
+  it("executes checks without exposing operator files or write access", async () => {
+    const worktree = await mkdtemp(join(dir, "sandbox-worktree-"));
+    const secret = join(dir, "operator-secret");
+    await writeFile(secret, "canary");
+    await writeFile(join(worktree, "package.json"), "{}");
+    const result = await spawnSandboxShell(
+      "test -f /workspace/package.json && test ! -e " +
+        secret +
+        " && test ! -w /workspace && test ! -e /root/.config/gh/hosts.yml",
+      {
+        cwd: worktree,
+        env: { AIR_GITHUB_TOKEN: "canary", GH_TOKEN: "canary" },
+        timeoutMs: 10000,
+        logPath: join(dir, "sandbox-isolation.log"),
+      },
+    );
+    assert.deepEqual(result, { exitCode: 0 });
+  });
+
+  it("terminates long-running checks at the timeout", async () => {
+    const worktree = await mkdtemp(join(dir, "sandbox-timeout-"));
+    const started = Date.now();
+    const result = await spawnSandboxShell("sleep 30", {
+      cwd: worktree,
+      env: {},
+      timeoutMs: 500,
+      logPath: join(dir, "sandbox-timeout.log"),
+    });
+    assert.deepEqual(result, { exitCode: null });
+    assert.ok(Date.now() - started < 20000);
   });
 });
