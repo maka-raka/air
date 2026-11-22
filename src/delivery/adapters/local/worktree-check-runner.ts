@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { mkdir, mkdtemp, open, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -147,8 +148,7 @@ export const spawnSandboxShell: ShellRunner = async (command, options) => {
             "inspect", "--format", "{{.State.Running}}", cid.trim(),
           ], { timeout: 15000, env: { PATH: process.env.PATH } })
             .then((result) => result.stdout.trim() === CONTAINER_RUNNING, () => false);
-          if (!running) return;
-          throw new Error("Sandbox container cleanup failed");
+          assert.equal(running, false, "Sandbox container cleanup failed");
         });
       }
     } finally {
