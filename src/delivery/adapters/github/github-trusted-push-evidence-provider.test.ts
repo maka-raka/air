@@ -5,10 +5,7 @@ import {
   type PushApproval,
   type TrustedPushApprovalPort,
 } from "./github-trusted-push-evidence-provider.js";
-import {
-  GitHubRestClient,
-  type HttpRequest,
-} from "./github-rest-client.js";
+import { GitHubRestClient, type HttpRequest } from "./github-rest-client.js";
 import type { PushRequest } from "./trusted-push-broker.js";
 
 const OLD = "a".repeat(40);
@@ -111,11 +108,13 @@ test("stale GitHub head fails before diff retrieval", async () => {
 
 test("renamed protected path includes original filename", async () => {
   const { github, provider } = setup();
-  github.paths = [{
-    filename: "src/safe.ts",
-    previous_filename: ".github/workflows/build.yml",
-    status: "renamed",
-  }];
+  github.paths = [
+    {
+      filename: "src/safe.ts",
+      previous_filename: ".github/workflows/build.yml",
+      status: "renamed",
+    },
+  ];
   const result = await provider.resolve(REQUEST);
   assert.deepEqual(result?.changedPaths, [
     "src/safe.ts",
