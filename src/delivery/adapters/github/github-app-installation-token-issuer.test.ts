@@ -6,10 +6,12 @@ import type { HttpRequest } from "./github-rest-client.js";
 
 const NOW = 1_800_000_000_000;
 const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
-const privateKeyPem = keys.privateKey.export({
-  type: "pkcs8",
-  format: "pem",
-}).toString();
+const privateKeyPem = keys.privateKey
+  .export({
+    type: "pkcs8",
+    format: "pem",
+  })
+  .toString();
 
 function setup(responseBody: Record<string, unknown>, status = 201) {
   const requests: Array<{
