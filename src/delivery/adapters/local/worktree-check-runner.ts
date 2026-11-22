@@ -103,6 +103,7 @@ async function prepareDependencies(
   cwd: string,
   controlDir: string,
   volumeName: string,
+  preparationName: string,
   timeoutMs: number,
 ): Promise<boolean> {
   const manifestPath = join(cwd, "package.json");
@@ -138,6 +139,8 @@ async function prepareDependencies(
     [
       "run",
       "--rm",
+      "--name",
+      preparationName,
       "--pull",
       "never",
       "--cap-drop",
@@ -188,12 +191,46 @@ async function prepareDependencies(
   return true;
 }
 
+async function removeSandboxContainer(name: string): Promise<void> {
+  await execFileAsync("docker", ["rm", "--force", name], {
+    timeout: 15000,
+    env: { PATH: process.env.PATH },
+  }).catch(async () => {
+    const inspection = await execFileAsync(
+      "docker",
+      ["container", "inspect", "--format", "{{.State.Running}}", name],
+      { timeout: 15000, env: { PATH: process.env.PATH } },
+    ).then(
+      (result) => result.stdout.trim(),
+      () => null,
+    );
+    assert.notEqual(inspection, CONTAINER_RUNNING, "Sandbox cleanup failed");
+  });
+}
+
+async function removeDependencyVolume(name: string): Promise<void> {
+  await execFileAsync("docker", ["volume", "rm", "--force", name], {
+    timeout: 15000,
+    env: { PATH: process.env.PATH },
+  }).catch(async () => {
+    const exists = await execFileAsync("docker", ["volume", "inspect", name], {
+      timeout: 15000,
+      env: { PATH: process.env.PATH },
+    }).then(
+      () => true,
+      () => false,
+    );
+    assert.equal(exists, false, "Sandbox dependency volume cleanup failed");
+  });
+}
+
 export const spawnSandboxShell: ShellRunner = async (command, options) => {
   const image = SANDBOX_IMAGE;
   const controlDir = await mkdtemp(join(tmpdir(), "air-sandbox-"));
   const cidFile = join(controlDir, "container.id");
   const containerName = "air-check-" + controlDir.split("/").at(-1);
   const volumeName = containerName + "-deps";
+  const preparationName = containerName + "-prepare";
   const log = await open(options.logPath, "w", 0o600);
   const args = [
     "run",
@@ -241,6 +278,7 @@ export const spawnSandboxShell: ShellRunner = async (command, options) => {
       options.cwd,
       controlDir,
       volumeName,
+      preparationName,
       options.timeoutMs,
     );
     if (prepared) {
@@ -274,27 +312,15 @@ export const spawnSandboxShell: ShellRunner = async (command, options) => {
     });
   } finally {
     try {
-      // A timeout can kill the Docker CLI before --cidfile is written.
-      // Always clean up by the independently assigned container name.
-      await execFileAsync("docker", ["rm", "--force", containerName], {
-        timeout: 15000,
-        env: { PATH: process.env.PATH },
-      }).catch(async () => {
-        const running = await execFileAsync(
-          "docker",
-          ["inspect", "--format", "{{.State.Running}}", containerName],
-          { timeout: 15000, env: { PATH: process.env.PATH } },
-        ).then(
-          (result) => result.stdout.trim() === CONTAINER_RUNNING,
-          () => false,
-        );
-        assert.equal(running, false, "Sandbox container cleanup failed");
-      });
+      // Docker CLI termination does not guarantee container termination.
+      // Both containers have deterministic names so they can be removed
+      // even if Docker never writes a cidfile.
+      await Promise.all([
+        removeSandboxContainer(containerName),
+        removeSandboxContainer(preparationName),
+      ]);
+      await removeDependencyVolume(volumeName);
     } finally {
-      await execFileAsync("docker", ["volume", "rm", "--force", volumeName], {
-        timeout: 15000,
-        env: { PATH: process.env.PATH },
-      }).catch(() => undefined);
       await log.close();
       await rm(controlDir, { recursive: true, force: true });
     }
