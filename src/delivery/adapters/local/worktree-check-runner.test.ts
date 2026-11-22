@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import {
   mkdir,
   mkdtemp,
@@ -9,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { after, describe, it } from "node:test";
 import {
   checkEnvironment,
@@ -271,6 +273,41 @@ describe(
         },
       );
       assert.deepEqual(result, { exitCode: 0 });
+    });
+
+    it("removes dependency volumes and containers after successful checks", async () => {
+      const exec = promisify(execFile);
+      const snapshot = async () => {
+        const containers = await exec("docker", [
+          "ps",
+          "--all",
+          "--format",
+          "{{.Names}}",
+          "--filter",
+          "name=air-check-air-sandbox-",
+        ]);
+        const volumes = await exec("docker", [
+          "volume",
+          "ls",
+          "--format",
+          "{{.Name}}",
+          "--filter",
+          "name=air-check-air-sandbox-",
+        ]);
+        return {
+          containers: containers.stdout.trim(),
+          volumes: volumes.stdout.trim(),
+        };
+      };
+      const before = await snapshot();
+      const result = await spawnSandboxShell("true", {
+        cwd: process.cwd(),
+        env: {},
+        timeoutMs: 120000,
+        logPath: join(dir, "sandbox-cleanup.log"),
+      });
+      assert.deepEqual(result, { exitCode: 0 });
+      assert.deepEqual(await snapshot(), before);
     });
 
     it("terminates long-running checks at the timeout", async () => {
