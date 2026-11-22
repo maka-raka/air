@@ -1,8 +1,4 @@
-import {
-  GitHubRestClient,
-  HttpMethod,
-  object,
-} from "./github-rest-client.js";
+import { GitHubRestClient, HttpMethod, object } from "./github-rest-client.js";
 import type {
   PushRequest,
   TrustedPushEvidencePort,
