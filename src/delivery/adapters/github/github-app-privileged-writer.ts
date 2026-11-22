@@ -1,7 +1,4 @@
-import type {
-  PrivilegedPushPort,
-  PushRequest,
-} from "./trusted-push-broker.js";
+import type { PrivilegedPushPort, PushRequest } from "./trusted-push-broker.js";
 
 export type InstallationToken = Readonly<{
   token: string;
@@ -64,10 +61,6 @@ export class GitHubAppPrivilegedWriter implements PrivilegedPushPort {
       return false;
     }
 
-    return this.updater.compareAndSwap(
-      request,
-      credential.token,
-      this.repositoryId,
-    );
+    return this.updater.compareAndSwap(request, credential.token, this.repositoryId);
   }
 }
