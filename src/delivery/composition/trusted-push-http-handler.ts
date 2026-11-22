@@ -52,10 +52,7 @@ function reply(response: ServerResponse, status: number): void {
 export class TrustedPushHttpHandler {
   constructor(private readonly broker: TrustedPushBroker) {}
 
-  async handle(
-    request: IncomingMessage,
-    response: ServerResponse,
-  ): Promise<void> {
+  async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     if (request.method !== Method.Post) {
       reply(response, Status.MethodNotAllowed);
       return;
