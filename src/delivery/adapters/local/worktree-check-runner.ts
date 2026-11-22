@@ -155,9 +155,13 @@ async function prepareDependencies(
       "--tmpfs",
       "/deps:rw,nosuid,nodev,size=64m",
       "--mount",
-      "type=bind,source=" + join(manifestsDir, "package.json") + ",target=/deps/package.json,readonly",
+      "type=bind,source=" +
+        join(manifestsDir, "package.json") +
+        ",target=/deps/package.json,readonly",
       "--mount",
-      "type=bind,source=" + join(manifestsDir, "package-lock.json") + ",target=/deps/package-lock.json,readonly",
+      "type=bind,source=" +
+        join(manifestsDir, "package-lock.json") +
+        ",target=/deps/package-lock.json,readonly",
       "--mount",
       "type=volume,source=" + volumeName + ",target=/deps/node_modules",
       "--tmpfs",
