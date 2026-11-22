@@ -105,7 +105,7 @@ async function prepareDependencies(
   timeoutMs: number,
 ): Promise<boolean> {
   const manifestPath = join(cwd, "package.json");
-  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+  const manifestText = await readFile(manifestPath, "utf8").catch(\n    (error: NodeJS.ErrnoException) => {\n      if (error.code === "ENOENT") return "{}";\n      throw error;\n    },\n  );\n  const manifest = JSON.parse(manifestText) as {
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
   };
