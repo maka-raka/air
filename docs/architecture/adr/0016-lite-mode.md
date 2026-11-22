@@ -40,8 +40,8 @@ A separate command that uses the operator's token (`AIR_GITHUB_TOKEN`, checked a
 
 1. takes the pull request from the delivery's latest trusted Build report, the same one the review gate reads;
 2. refuses a missing or closed pull request, or one whose head is in another repository;
-3. sets `air/check` to `pending`, fetches the head commit, and runs `AIR_CHECK_COMMAND` with `/bin/sh` on a detached `git worktree` in a temporary directory, never in the project's own checkout;
-4. strips `AIR_*`, `GH_TOKEN`, `GITHUB_TOKEN` and `GH_ENTERPRISE_TOKEN` from the environment of the command **and of every git call**, and stops the command's whole process group after `AIR_CHECK_TIMEOUT_MS` (30 minutes by default);
+3. sets `air/check` to `pending`, fetches the head commit, and runs `AIR_CHECK_COMMAND` in a network-disabled Docker sandbox on a detached `git worktree` in a temporary directory, never in the project's own checkout;
+4. strips `AIR_*`, `GH_TOKEN`, `GITHUB_TOKEN` and `GH_ENTERPRISE_TOKEN` from the environment of the command **and of every git call**, and forcibly removes the Docker container on timeout (`AIR_CHECK_TIMEOUT_MS`, 30 minutes by default);
 5. runs git with `core.hooksPath=/dev/null` and `core.fsmonitor=false`. Git takes hooks from the project's checkout (a husky-style `core.hooksPath` too), and `git worktree add` runs `post-checkout`. The agent can write to that checkout, so without this a hook it planted would run with the operator's token in its environment;
 6. writes the output to `.air/checks/<sha>.log`, sets `air/check` to `success` or `failure` (or `error` if the check couldn't run), and records the outcome in `.air/audit-check.jsonl`.
 
@@ -65,3 +65,17 @@ The agent must never run `air-check`. The command uses a token the agent doesn't
 - The checked code is the agent's code, and it runs as that same user. Stripping the environment keeps tokens in memory out of reach, not files: the code can read `.env.air`, the owner's `gh` login (`~/.config/gh/hosts.yml`, an admin token for the repository) and SSH keys. With those it could push, change repository settings or close the watchdog's alert. A process that leaves the process group (`setsid`, a double fork) also outlives the timeout. Running the agent and `air-check` in containers without the owner's credentials (the Docker runtime) is the planned way to close this; until then, treat a `lite` check as no stronger than the agent itself.
 - On a repository owned by a personal account, a bot collaborator can't use a fine-grained token, only a classic one, and a classic token for a private repository has full `repo` access, code included. "Read-only agent" (step 2) needs GitHub App tokens (#91) or an organization-owned repository.
 - Switching from `lite` to `standard` means applying the branch rules and setting `AIR_MODE=standard`. No accounts or keys change.
+
+## Dependency preparation for sandboxed checks (design under review)
+
+The current sandbox intentionally mounts the source tree read-only and runs without network access. A Node.js project requiring `node_modules` cannot be checked successfully with this image alone. Never solve this by running `npm install` on the operator host or by exposing its home directory, npm credentials, SSH keys, or Docker socket to untrusted code.
+
+The proposed implementation is a two-stage, fail-closed pipeline:
+
+1. **Prepare** an ephemeral Docker build context from the exact detached commit SHA. Use an AIR-owned Dockerfile, never a Dockerfile from the PR. Copy only the package manifest and committed lockfile. Require `package-lock.json` and run `npm ci --ignore-scripts --no-audit --no-fund` with no credentials, no host mounts, and no access to the operator's Docker socket. Use an explicitly pinned base image.
+2. **Check** using a separate ephemeral container with `--network none`, `--read-only`, no privileges, and only the prepared dependencies. Keep the source tree read-only; if build output is required, copy sources into a bounded container-local scratch directory. Never expose dependency preparation's network to the checked command.
+3. **Clean up** the build image, scratch volumes, and check container on success, failure, timeout, and process interruption. Reject missing Docker, missing lockfiles, failed installs, and cleanup failures.
+4. **Verify** that the dependency tree belongs to the exact lockfile of the checked commit. Do not reuse a cache across untrusted commits unless it is keyed by the lockfile digest and independently verified.
+5. **Test** against a real dependency-bearing TypeScript fixture and negative cases: lifecycle scripts, malicious `.npmrc`, outbound network requests, secret-file probes, process detachment, and failed Docker operations.
+
+This design is **not yet implemented**. The `sandbox-integration` job tests the existing container boundary, not dependency installation. The Docker daemon itself is privileged: run this pipeline on an isolated worker, not a workstation containing operator credentials. Do not declare issue #110 complete until these conditions have executable tests.
