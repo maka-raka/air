@@ -40,12 +40,7 @@ class Updater implements AtomicRefUpdater {
 function setup() {
   const issuer = new Issuer();
   const updater = new Updater();
-  const writer = new GitHubAppPrivilegedWriter(
-    42,
-    issuer,
-    updater,
-    () => 0,
-  );
+  const writer = new GitHubAppPrivilegedWriter(42, issuer, updater, () => 0);
   return { issuer, updater, writer };
 }
 
