@@ -73,7 +73,7 @@ jobs:
           FILE: ${{ needs.build.outputs.file }}
         run: |
           set -euo pipefail
-          [[ "$FILE" =~ ^air-delivery-core-[0-9]+\.[0-9]+\.[0-9]+\.tgz$ ]] || { echo "Unexpected file: $FILE" >&2; exit 1; }
+          [[ "$FILE" =~ ^air-delivery-core-[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?\.tgz$ ]] || { echo "Unexpected file: $FILE" >&2; exit 1; }
           [[ "$(wc -l < SHA256SUMS)" -eq 1 ]] || { echo "SHA256SUMS must name one file" >&2; exit 1; }
           sha256sum --check --strict SHA256SUMS
 
