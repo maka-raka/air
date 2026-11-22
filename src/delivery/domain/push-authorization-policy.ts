@@ -35,6 +35,7 @@ export type PushDecision =
 
 const SHA = /^[a-f0-9]{40}$/;
 const BRANCH = /^refs\/heads\/air\/([1-9][0-9]*)-[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const PATH_SEGMENT = { Current: ".", Parent: ".." } as const;
 const PROTECTED = new Set([
   ".gitmodules",
   "CODEOWNERS",
@@ -59,12 +60,7 @@ export class PushAuthorizationPolicy {
     if (evidence.currentHead !== proposal.expectedHead) {
       return { allowed: false, reason: PushDecisionReason.StaleHead };
     }
-    if (
-      !evidence.authorized ||
-      evidence.issue !== proposal.issue ||
-      evidence.ref !== proposal.ref ||
-      evidence.approvedCommit !== proposal.newHead
-    ) {
+    if (!this.matchesAuthorization(proposal, evidence)) {
       return { allowed: false, reason: PushDecisionReason.Unauthorized };
     }
     if (proposal.changedPaths.some((path) => this.isProtectedPath(path))) {
@@ -73,12 +69,24 @@ export class PushAuthorizationPolicy {
     return { allowed: true };
   }
 
+  private matchesAuthorization(
+    proposal: PushProposal,
+    evidence: PushEvidence,
+  ): boolean {
+    if (!evidence.authorized) return false;
+    if (evidence.issue !== proposal.issue) return false;
+    if (evidence.ref !== proposal.ref) return false;
+    return evidence.approvedCommit === proposal.newHead;
+  }
+
   private isProtectedPath(path: string): boolean {
+    if (path.length === 0 || path.startsWith("/")) return true;
+    if (path.includes("\\")) return true;
+    const segments = path.split("/");
     if (
-      path.length === 0 ||
-      path.startsWith("/") ||
-      path.includes("\\") ||
-      path.split("/").some((part) => part === ".." || part === ".")
+      segments.some(
+        (part) => part === PATH_SEGMENT.Parent || part === PATH_SEGMENT.Current,
+      )
     ) {
       return true;
     }
