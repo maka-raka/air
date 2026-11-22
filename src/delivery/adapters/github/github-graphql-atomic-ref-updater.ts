@@ -5,6 +5,7 @@ import type { PushRequest } from "./trusted-push-broker.js";
 
 const Http = { Post: "POST" } as const;
 const SHA = /^[a-f0-9]{40}$/;
+const HEADS_PREFIX = "refs/heads/";
 const BRANCH = /^refs\/heads\/air\/([1-9][0-9]*)-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 const REF_QUERY = `
@@ -83,7 +84,7 @@ export class GitHubGraphqlAtomicRefUpdater implements AtomicRefUpdater {
     if (!object(repository.ref)) return false;
     const ref = repository.ref;
     if (typeof ref.id !== "string" || !ref.id) return false;
-    if (ref.prefix !== "refs/heads/") return false;
+    if (ref.prefix !== HEADS_PREFIX) return false;
     if (`${ref.prefix}${ref.name}` !== request.ref) return false;
     if (!object(ref.target)) return false;
     if (ref.target.oid !== request.expectedHead) return false;
