@@ -1,8 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type {
-  PushRequest,
-  TrustedPushBroker,
-} from "../adapters/github/trusted-push-broker.js";
+import type { PushRequest, TrustedPushBroker } from "../adapters/github/trusted-push-broker.js";
 
 const Method = { Post: "POST" } as const;
 const Status = {
