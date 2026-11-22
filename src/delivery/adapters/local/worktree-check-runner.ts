@@ -103,7 +103,10 @@ const SANDBOX_IMAGE =
 export function validateDependencyLockfile(lockfileText: string): void {
   const lockfile = JSON.parse(lockfileText) as {
     lockfileVersion?: number;
-    packages?: Record<string, { resolved?: string; integrity?: string; link?: boolean }>;
+    packages?: Record<
+      string,
+      { resolved?: string; integrity?: string; link?: boolean }
+    >;
   };
   assert.equal(lockfile.lockfileVersion, 3, "Unsupported npm lockfile version");
   assert.ok(lockfile.packages, "Missing npm lockfile packages");
@@ -117,7 +120,10 @@ export function validateDependencyLockfile(lockfileText: string): void {
     assert.equal(url.port, "", "Nonstandard registry port");
     assert.equal(url.username, "", "Registry credentials are not allowed");
     assert.equal(url.password, "", "Registry credentials are not allowed");
-    assert.ok(entry.integrity?.startsWith("sha512-"), "Missing SHA-512 integrity");
+    assert.ok(
+      entry.integrity?.startsWith("sha512-"),
+      "Missing SHA-512 integrity",
+    );
   }
 }
 
