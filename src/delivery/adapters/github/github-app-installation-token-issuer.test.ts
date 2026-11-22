@@ -11,10 +11,7 @@ const privateKeyPem = keys.privateKey.export({
   format: "pem",
 }).toString();
 
-function setup(
-  responseBody: Record<string, unknown>,
-  status = 201,
-) {
+function setup(responseBody: Record<string, unknown>, status = 201) {
   const requests: Array<{
     url: string;
     init: Parameters<HttpRequest>[1];
