@@ -99,6 +99,28 @@ const FILE_NOT_FOUND = "ENOENT";
 const SANDBOX_IMAGE =
   "node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54";
 
+/** Restrict npm tarball sources before granting dependency preparation network access. */
+export function validateDependencyLockfile(lockfileText: string): void {
+  const lockfile = JSON.parse(lockfileText) as {
+    lockfileVersion?: number;
+    packages?: Record<string, { resolved?: string; integrity?: string; link?: boolean }>;
+  };
+  assert.equal(lockfile.lockfileVersion, 3, "Unsupported npm lockfile version");
+  assert.ok(lockfile.packages, "Missing npm lockfile packages");
+  for (const [name, entry] of Object.entries(lockfile.packages ?? {})) {
+    if (name === "") continue;
+    assert.equal(entry.link, undefined, "Linked dependencies are not allowed");
+    assert.ok(entry.resolved, "Dependency must have a resolved registry URL");
+    const url = new URL(entry.resolved ?? "");
+    assert.equal(url.protocol, "https:", "Dependency URL must use HTTPS");
+    assert.equal(url.hostname, "registry.npmjs.org", "Unapproved npm registry");
+    assert.equal(url.port, "", "Nonstandard registry port");
+    assert.equal(url.username, "", "Registry credentials are not allowed");
+    assert.equal(url.password, "", "Registry credentials are not allowed");
+    assert.ok(entry.integrity?.startsWith("sha512-"), "Missing SHA-512 integrity");
+  }
+}
+
 async function prepareDependencies(
   cwd: string,
   controlDir: string,
@@ -126,10 +148,9 @@ async function prepareDependencies(
   await mkdir(manifestsDir, { mode: 0o700 });
   await copyFile(manifestPath, join(manifestsDir, "package.json"));
   // Missing lockfiles fail closed. Never copy a project-controlled .npmrc.
-  await copyFile(
-    join(cwd, "package-lock.json"),
-    join(manifestsDir, "package-lock.json"),
-  );
+  const lockfilePath = join(cwd, "package-lock.json");
+  validateDependencyLockfile(await readFile(lockfilePath, "utf8"));
+  await copyFile(lockfilePath, join(manifestsDir, "package-lock.json"));
   await execFileAsync("docker", ["volume", "create", volumeName], {
     timeout: 15000,
     env: { PATH: process.env.PATH },
