@@ -228,7 +228,7 @@ describe("Docker sandbox integration", { skip: process.env.AIR_SANDBOX_INTEGRATI
     const result = await spawnSandboxShell(
       "test -f /workspace/package.json && test ! -e " +
         secret +
-        " && test ! -w /workspace && test ! -e /root/.config/gh/hosts.yml",
+        " && ! touch /workspace/should-not-write && test ! -e /root/.config/gh/hosts.yml",
       {
         cwd: worktree,
         env: { AIR_GITHUB_TOKEN: "canary", GH_TOKEN: "canary" },
