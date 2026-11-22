@@ -180,14 +180,12 @@ async function prepareDependencies(
   return true;
 }
 
-
 export const spawnSandboxShell: ShellRunner = async (command, options) => {
   const image = SANDBOX_IMAGE;
   const controlDir = await mkdtemp(join(tmpdir(), "air-sandbox-"));
   const cidFile = join(controlDir, "container.id");
   const containerName = "air-check-" + controlDir.split("/").at(-1);
   const volumeName = containerName + "-deps";
-  let dependenciesPrepared = false;
   const log = await open(options.logPath, "w", 0o600);
   const args = [
     "run",
@@ -231,6 +229,17 @@ export const spawnSandboxShell: ShellRunner = async (command, options) => {
     command,
   ];
   try {
+    const prepared = await prepareDependencies(
+      options.cwd,
+      controlDir,
+      volumeName,
+      options.timeoutMs,
+    );
+    if (prepared) {
+      args.splice(args.indexOf(image), 0, "--mount",
+        "type=volume,source=" + volumeName + ",target=/workspace/node_modules,readonly",
+      );
+    }
     return await new Promise<ShellExit>((resolve, reject) => {
       const child = spawn("docker", args, {
         env: { PATH: process.env.PATH },
@@ -269,6 +278,10 @@ export const spawnSandboxShell: ShellRunner = async (command, options) => {
         assert.equal(running, false, "Sandbox container cleanup failed");
       });
     } finally {
+      await execFileAsync("docker", ["volume", "rm", "--force", volumeName], {
+        timeout: 15000,
+        env: { PATH: process.env.PATH },
+      }).catch(() => undefined);
       await log.close();
       await rm(controlDir, { recursive: true, force: true });
     }
