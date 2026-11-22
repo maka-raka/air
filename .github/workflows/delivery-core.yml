@@ -17,6 +17,10 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Diagnose formatting
+        run: |
+          ./node_modules/.bin/prettier --write src/delivery/composition/trusted-push-http-handler.ts
+          git diff -- src/delivery/composition/trusted-push-http-handler.ts
       - run: npm run quality:check
   sandbox-integration:
     name: sandbox-integration
