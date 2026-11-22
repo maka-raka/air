@@ -242,6 +242,24 @@ describe(
       assert.deepEqual(result, { exitCode: 0 });
     });
 
+    it("does not forward operator secrets into the sandbox", async () => {
+      const worktree = await mkdtemp(join(dir, "sandbox-env-"));
+      const result = await spawnSandboxShell(
+        "test -z \"\$AIR_GITHUB_TOKEN\" && test -z \"\$GH_TOKEN\" && test -z \"\$GITHUB_TOKEN\"",
+        {
+          cwd: worktree,
+          env: {
+            AIR_GITHUB_TOKEN: "secret",
+            GH_TOKEN: "secret",
+            GITHUB_TOKEN: "secret",
+          },
+          timeoutMs: 10000,
+          logPath: join(dir, "sandbox-env.log"),
+        },
+      );
+      assert.deepEqual(result, { exitCode: 0 });
+    });
+
     it("terminates long-running checks at the timeout", async () => {
       const worktree = await mkdtemp(join(dir, "sandbox-timeout-"));
       const started = Date.now();
