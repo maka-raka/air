@@ -53,7 +53,9 @@ export class TrustedPushSocketServer {
       const info = await lstat(this.socketPath);
       if (info.isSocket()) await unlink(this.socketPath);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== FileError.NotFound) throw error;
+      if ((error as NodeJS.ErrnoException).code !== FileError.NotFound) {
+        throw error;
+      }
     }
   }
 }
