@@ -83,13 +83,8 @@ export class PushAuthorizationPolicy {
     if (path.length === 0 || path.startsWith("/")) return true;
     if (path.includes("\\")) return true;
     const segments = path.split("/");
-    if (
-      segments.some(
-        (part) => part === PATH_SEGMENT.Parent || part === PATH_SEGMENT.Current,
-      )
-    ) {
-      return true;
-    }
+    if (segments.includes(PATH_SEGMENT.Parent)) return true;
+    if (segments.includes(PATH_SEGMENT.Current)) return true;
     return path.startsWith(".github/workflows/") || PROTECTED.has(path);
   }
 }
