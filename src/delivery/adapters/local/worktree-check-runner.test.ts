@@ -260,6 +260,19 @@ describe(
       assert.deepEqual(result, { exitCode: 0 });
     });
 
+    it("prepares locked dependencies for a real Node.js project", async () => {
+      const result = await spawnSandboxShell(
+        "node -e \"require('typescript')\"",
+        {
+          cwd: process.cwd(),
+          env: {},
+          timeoutMs: 120000,
+          logPath: join(dir, "sandbox-dependencies.log"),
+        },
+      );
+      assert.deepEqual(result, { exitCode: 0 });
+    });
+
     it("terminates long-running checks at the timeout", async () => {
       const worktree = await mkdtemp(join(dir, "sandbox-timeout-"));
       const started = Date.now();
