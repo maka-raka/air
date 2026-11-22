@@ -1,4 +1,8 @@
-import { GitHubRestClient, HttpMethod, object } from "./github-rest-client.js";
+import {
+  GitHubRestClient,
+  HttpMethod,
+  object,
+} from "./github-rest-client.js";
 import type {
   PushRequest,
   TrustedPushEvidencePort,
@@ -62,14 +66,19 @@ export class GitHubTrustedPushEvidenceProvider implements TrustedPushEvidencePor
     );
     if (!object(comparison)) return null;
     if (comparison.status !== ComparisonStatus.Ahead) return null;
-    if (comparison.base_commit === undefined || !object(comparison.base_commit)) return null;
+    if (
+      comparison.base_commit === undefined ||
+      !object(comparison.base_commit)
+    )
+      return null;
     if (comparison.base_commit.sha !== request.expectedHead) return null;
     if (!object(comparison.merge_base_commit)) return null;
     if (comparison.merge_base_commit.sha !== request.expectedHead) return null;
     if (!Array.isArray(comparison.files)) return null;
     if (!Array.isArray(comparison.commits)) return null;
     if (comparison.total_commits !== comparison.commits.length) return null;
-    if (comparison.files.length === 0 || comparison.files.length >= 300) return null;
+    if (comparison.files.length === 0 || comparison.files.length >= 300)
+      return null;
     const changedPaths: string[] = [];
     for (const file of comparison.files) {
       if (!object(file) || typeof file.filename !== "string") return null;
