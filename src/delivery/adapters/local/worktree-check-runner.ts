@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
-import { mkdir, mkdtemp, open, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, open, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -95,13 +95,105 @@ export const spawnShell: ShellRunner = async (command, options) => {
  * A missing Docker daemon fails closed. No agent-controlled environment is forwarded.
  */
 const CONTAINER_RUNNING = "true";
+const FILE_NOT_FOUND = "ENOENT";
+const SANDBOX_IMAGE =
+  "node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54";
+
+async function prepareDependencies(
+  cwd: string,
+  controlDir: string,
+  volumeName: string,
+  timeoutMs: number,
+): Promise<boolean> {
+  const manifestPath = join(cwd, "package.json");
+  const manifestText = await readFile(manifestPath, "utf8").catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === FILE_NOT_FOUND) return "{}";
+      throw error;
+    },
+  );
+  const manifest = JSON.parse(manifestText) as {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+  const hasDependencies =
+    Object.keys(manifest.dependencies ?? {}).length > 0 ||
+    Object.keys(manifest.devDependencies ?? {}).length > 0;
+  if (!hasDependencies) return false;
+
+  const manifestsDir = join(controlDir, "manifests");
+  await mkdir(manifestsDir, { mode: 0o700 });
+  await copyFile(manifestPath, join(manifestsDir, "package.json"));
+  // Missing lockfiles fail closed. Never copy a project-controlled .npmrc.
+  await copyFile(
+    join(cwd, "package-lock.json"),
+    join(manifestsDir, "package-lock.json"),
+  );
+  await execFileAsync("docker", ["volume", "create", volumeName], {
+    timeout: 15000,
+    env: { PATH: process.env.PATH },
+  });
+  await execFileAsync(
+    "docker",
+    [
+      "run",
+      "--rm",
+      "--pull",
+      "never",
+      "--cap-drop",
+      "ALL",
+      "--security-opt",
+      "no-new-privileges",
+      "--pids-limit",
+      "128",
+      "--memory",
+      "1g",
+      "--cpus",
+      "2",
+      "--workdir",
+      "/deps",
+      "--tmpfs",
+      "/deps:rw,nosuid,nodev,size=64m",
+      "--mount",
+      "type=bind,source=" +
+        join(manifestsDir, "package.json") +
+        ",target=/deps/package.json,readonly",
+      "--mount",
+      "type=bind,source=" +
+        join(manifestsDir, "package-lock.json") +
+        ",target=/deps/package-lock.json,readonly",
+      "--mount",
+      "type=volume,source=" + volumeName + ",target=/deps/node_modules",
+      "--tmpfs",
+      "/tmp:rw,nosuid,nodev,size=128m",
+      "--env",
+      "HOME=/tmp",
+      "--env",
+      "npm_config_cache=/tmp/npm-cache",
+      "--env",
+      "npm_config_userconfig=/dev/null",
+      SANDBOX_IMAGE,
+      "npm",
+      "ci",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+    ],
+    {
+      timeout: timeoutMs,
+      maxBuffer: 1024 * 1024,
+      env: { PATH: process.env.PATH },
+    },
+  );
+  return true;
+}
 
 export const spawnSandboxShell: ShellRunner = async (command, options) => {
-  const image =
-    "node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54";
+  const image = SANDBOX_IMAGE;
   const controlDir = await mkdtemp(join(tmpdir(), "air-sandbox-"));
   const cidFile = join(controlDir, "container.id");
   const containerName = "air-check-" + controlDir.split("/").at(-1);
+  const volumeName = containerName + "-deps";
   const log = await open(options.logPath, "w", 0o600);
   const args = [
     "run",
@@ -145,6 +237,22 @@ export const spawnSandboxShell: ShellRunner = async (command, options) => {
     command,
   ];
   try {
+    const prepared = await prepareDependencies(
+      options.cwd,
+      controlDir,
+      volumeName,
+      options.timeoutMs,
+    );
+    if (prepared) {
+      args.splice(
+        args.indexOf(image),
+        0,
+        "--mount",
+        "type=volume,source=" +
+          volumeName +
+          ",target=/workspace/node_modules,readonly",
+      );
+    }
     return await new Promise<ShellExit>((resolve, reject) => {
       const child = spawn("docker", args, {
         env: { PATH: process.env.PATH },
@@ -183,6 +291,10 @@ export const spawnSandboxShell: ShellRunner = async (command, options) => {
         assert.equal(running, false, "Sandbox container cleanup failed");
       });
     } finally {
+      await execFileAsync("docker", ["volume", "rm", "--force", volumeName], {
+        timeout: 15000,
+        env: { PATH: process.env.PATH },
+      }).catch(() => undefined);
       await log.close();
       await rm(controlDir, { recursive: true, force: true });
     }
