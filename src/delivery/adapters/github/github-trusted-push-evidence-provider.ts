@@ -65,11 +65,11 @@ export class GitHubTrustedPushEvidenceProvider implements TrustedPushEvidencePor
     if (
       comparison.base_commit === undefined ||
       !object(comparison.base_commit)
-    )
-      return null;
+    ) return null;
     if (comparison.base_commit.sha !== request.expectedHead) return null;
     if (!object(comparison.merge_base_commit)) return null;
-    if (comparison.merge_base_commit.sha !== request.expectedHead) return null;
+    if (comparison.merge_base_commit.sha !== request.expectedHead)
+      return null;
     if (!Array.isArray(comparison.files)) return null;
     if (!Array.isArray(comparison.commits)) return null;
     if (comparison.total_commits !== comparison.commits.length) return null;
