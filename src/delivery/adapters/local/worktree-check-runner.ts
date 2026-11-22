@@ -95,6 +95,7 @@ export const spawnShell: ShellRunner = async (command, options) => {
  * A missing Docker daemon fails closed. No agent-controlled environment is forwarded.
  */
 const CONTAINER_RUNNING = "true";
+const FILE_NOT_FOUND = "ENOENT";
 const SANDBOX_IMAGE =
   "node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54";
 
@@ -107,7 +108,7 @@ async function prepareDependencies(
   const manifestPath = join(cwd, "package.json");
   const manifestText = await readFile(manifestPath, "utf8").catch(
     (error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") return "{}";
+      if (error.code === FILE_NOT_FOUND) return "{}";
       throw error;
     },
   );
