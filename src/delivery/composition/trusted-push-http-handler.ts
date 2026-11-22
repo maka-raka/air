@@ -1,5 +1,4 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { BrokerDecisionReason } from "../adapters/github/trusted-push-broker.js";
 import type {
   PushRequest,
   TrustedPushBroker,
@@ -14,6 +13,7 @@ const Status = {
   InternalError: 500,
 } as const;
 const MAX_BODY_BYTES = 2048;
+const REQUEST_FIELDS = "expectedHead,issue,newHead,ref";
 const SHA = /^[a-f0-9]{40}$/;
 const BRANCH = /^refs\/heads\/air\/([1-9][0-9]*)-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -23,7 +23,7 @@ function parsePushRequest(value: unknown): PushRequest | null {
   }
   const fields = value as Record<string, unknown>;
   if (Object.keys(fields).sort().join(",") !==
-    "expectedHead,issue,newHead,ref") {
+    REQUEST_FIELDS) {
     return null;
   }
   const { issue, ref, expectedHead, newHead } = fields;
