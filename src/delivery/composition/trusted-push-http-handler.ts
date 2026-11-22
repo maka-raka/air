@@ -22,8 +22,7 @@ function parsePushRequest(value: unknown): PushRequest | null {
     return null;
   }
   const fields = value as Record<string, unknown>;
-  if (Object.keys(fields).sort().join(",") !==
-    REQUEST_FIELDS) {
+  if (Object.keys(fields).sort().join(",") !== REQUEST_FIELDS) {
     return null;
   }
   const { issue, ref, expectedHead, newHead } = fields;
