@@ -44,7 +44,8 @@ export class GitHubAppInstallationTokenIssuer implements GitHubAppTokenIssuer {
     if (!Number.isSafeInteger(repositoryId) || repositoryId <= 0) {
       throw new Error("Invalid repository ID");
     }
-    if (!privateKeyPem.trim()) throw new Error("Missing GitHub App private key");
+    if (!privateKeyPem.trim())
+      throw new Error("Missing GitHub App private key");
     this.request = credentials.request ?? ((url, init) => fetch(url, init));
     this.now = credentials.now ?? Date.now;
     this.apiUrl = (credentials.apiUrl ?? "https://api.github.com").replace(
