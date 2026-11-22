@@ -245,7 +245,7 @@ describe(
     it("does not forward operator secrets into the sandbox", async () => {
       const worktree = await mkdtemp(join(dir, "sandbox-env-"));
       const result = await spawnSandboxShell(
-        "test -z \"\$AIR_GITHUB_TOKEN\" && test -z \"\$GH_TOKEN\" && test -z \"\$GITHUB_TOKEN\"",
+        'test -z "$AIR_GITHUB_TOKEN" && test -z "$GH_TOKEN" && test -z "$GITHUB_TOKEN"',
         {
           cwd: worktree,
           env: {
