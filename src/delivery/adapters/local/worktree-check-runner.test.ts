@@ -17,6 +17,7 @@ import {
   execGit,
   spawnShell,
   spawnSandboxShell,
+  validateDependencyLockfile,
   WorktreeCheckRunner,
 } from "./worktree-check-runner.js";
 import type { ShellRunner } from "./worktree-check-runner.js";
@@ -25,6 +26,53 @@ const dir = await mkdtemp(join(tmpdir(), "air-check-test-"));
 after(() => rm(dir, { recursive: true, force: true }));
 
 const SHA = "c".repeat(40);
+
+describe("validateDependencyLockfile", () => {
+  const lockfile = (resolved: string, integrity = "sha512-abc") =>
+    JSON.stringify({
+      lockfileVersion: 3,
+      packages: {
+        "": { name: "test" },
+        "node_modules/example": { resolved, integrity },
+      },
+    });
+
+  it("accepts pinned HTTPS npm registry tarballs", () => {
+    assert.doesNotThrow(() =>
+      validateDependencyLockfile(
+        lockfile("https://registry.npmjs.org/example/-/example-1.0.0.tgz"),
+      ),
+    );
+  });
+
+  it("rejects non-registry, HTTP and credential-bearing sources", () => {
+    for (const source of [
+      "https://attacker.example/package.tgz",
+      "http://registry.npmjs.org/example.tgz",
+      "https://user:pass@registry.npmjs.org/example.tgz",
+      "file:///tmp/package.tgz",
+      "git+https://github.com/example/repo",
+    ]) {
+      assert.throws(() => validateDependencyLockfile(lockfile(source)));
+    }
+  });
+
+  it("rejects missing integrity and linked dependencies", () => {
+    assert.throws(() =>
+      validateDependencyLockfile(
+        lockfile("https://registry.npmjs.org/example.tgz", ""),
+      ),
+    );
+    assert.throws(() =>
+      validateDependencyLockfile(
+        JSON.stringify({
+          lockfileVersion: 3,
+          packages: { "": {}, "node_modules/example": { link: true } },
+        }),
+      ),
+    );
+  });
+});
 
 describe("checkEnvironment", () => {
   it("drops AIR settings and GitHub tokens, keeps the rest", () => {
