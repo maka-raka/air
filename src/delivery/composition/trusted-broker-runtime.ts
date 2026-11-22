@@ -30,10 +30,16 @@ export class TrustedBrokerRuntime {
   readonly listener: TrustedPushSocketServer;
 
   constructor(options: TrustedBrokerRuntimeOptions) {
-    if (!Number.isSafeInteger(options.repositoryId) || options.repositoryId <= 0) {
+    if (
+      !Number.isSafeInteger(options.repositoryId) ||
+      options.repositoryId <= 0
+    ) {
       throw new Error("Invalid repository ID");
     }
-    if (!options.socketPath.startsWith("/") || !options.socketPath.endsWith(".sock")) {
+    if (
+      !options.socketPath.startsWith("/") ||
+      !options.socketPath.endsWith(".sock")
+    ) {
       throw new Error("Broker socket must use an absolute .sock path");
     }
     const github = new GitHubRestClient({
