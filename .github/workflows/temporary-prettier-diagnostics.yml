@@ -1,8 +1,6 @@
 name: Temporary Prettier diagnostics
 on:
-  push:
-    branches:
-      - security/124-github-app-token-issuer
+  pull_request:
 jobs:
   format-diff:
     runs-on: ubuntu-latest
