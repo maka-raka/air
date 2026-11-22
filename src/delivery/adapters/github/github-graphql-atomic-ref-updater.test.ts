@@ -13,9 +13,7 @@ const proposal = {
   newHead: NEW,
 };
 
-function setup(
-  replies: readonly unknown[],
-) {
+function setup(replies: readonly unknown[]) {
   const calls: Array<Record<string, unknown>> = [];
   const request: HttpRequest = async (_url, init) => {
     calls.push(JSON.parse(init.body ?? ""));
