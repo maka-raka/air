@@ -219,7 +219,10 @@ describe("spawnShell", () => {
  * Run with AIR_SANDBOX_INTEGRATION=1 after preloading the pinned Node image.
  * CI without Docker must not silently pretend it tested the sandbox.
  */
-describe("Docker sandbox integration", { skip: process.env.AIR_SANDBOX_INTEGRATION !== "1" }, () => {
+describe(
+  "Docker sandbox integration",
+  { skip: process.env.AIR_SANDBOX_INTEGRATION !== "1" },
+  () => {
   it("executes checks without exposing operator files or write access", async () => {
     const worktree = await mkdtemp(join(dir, "sandbox-worktree-"));
     const secret = join(dir, "operator-secret");
@@ -251,4 +254,5 @@ describe("Docker sandbox integration", { skip: process.env.AIR_SANDBOX_INTEGRATI
     assert.deepEqual(result, { exitCode: null });
     assert.ok(Date.now() - started < 20000);
   });
-});
+  },
+);
