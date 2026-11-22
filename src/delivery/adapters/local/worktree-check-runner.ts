@@ -103,7 +103,7 @@ export const spawnSandboxShell: ShellRunner = async (command, options) => {
     "run", "--rm", "--cidfile", cidFile, "--pull", "never",
     "--network", "none", "--read-only", "--cap-drop", "ALL",
     "--security-opt", "no-new-privileges", "--pids-limit", "128",
-    "--memory", "1g", "--cpus", "2", "--user", "65534:65534",
+    "--memory", "1g", "--cpus", "2", "--user", String(process.getuid?.() ?? 65534) + ":" + String(process.getgid?.() ?? 65534),
     "--workdir", "/workspace", "--tmpfs", "/tmp:rw,nosuid,nodev,size=128m",
     "--mount", "type=bind,source=" + options.cwd + ",target=/workspace,readonly",
     "--env", "HOME=/tmp", "--env", "PATH=/usr/local/bin:/usr/bin:/bin",
