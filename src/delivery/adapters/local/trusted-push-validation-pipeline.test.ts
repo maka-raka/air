@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { PushAuthorizationPolicy, PushDecisionReason } from "../github/push-authorization-policy.js";
+import {
+  PushAuthorizationPolicy,
+  PushDecisionReason,
+} from "../github/push-authorization-policy.js";
 import { QuarantinedChangedPathsReader } from "./quarantined-changed-paths-reader.js";
 import { QuarantinedCommitAncestryVerifier } from "./quarantined-commit-ancestry-verifier.js";
 import { QuarantinedGitBundleImporter } from "./quarantined-git-bundle-importer.js";
