@@ -58,13 +58,7 @@ export class QuarantinedGitBundleImporter {
       );
       const { stdout: type } = await run(
         "git",
-        [
-          "--git-dir",
-          quarantineRepository,
-          "cat-file",
-          "-t",
-          expectedCommit,
-        ],
+        ["--git-dir", quarantineRepository, "cat-file", "-t", expectedCommit],
         options,
       );
       if (type.trim() !== GitObjectType.Commit) return false;
