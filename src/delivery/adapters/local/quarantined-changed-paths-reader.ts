@@ -53,7 +53,8 @@ export class QuarantinedChangedPathsReader {
       const fields = stdout.toString("utf8").split("\0");
       if (fields.pop() !== "") return null;
       const paths: string[] = [];
-      for (let index = 0; index < fields.length; ) {
+      let index = 0;
+      while (index < fields.length) {
         const status = fields[index++];
         if (!/^[ACDMRTUXB][0-9]*$/.test(status)) return null;
         const count = RenameStatus.test(status) ? 2 : 1;
