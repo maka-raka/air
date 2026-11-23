@@ -9,7 +9,10 @@ const Commit = "a".repeat(40);
 
 test("rejects invalid commit identity without executing git", async () => {
   const verifier = new QuarantinedGitBundleVerifier();
-  assert.equal(await verifier.verify("/nonexistent", "/nonexistent", "bad"), false);
+  assert.equal(
+    await verifier.verify("/nonexistent", "/nonexistent", "bad"),
+    false,
+  );
 });
 
 test("rejects a forged bundle header", async () => {
