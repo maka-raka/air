@@ -13,9 +13,7 @@ const GitObjectType = { Commit: "commit" } as const;
  * This does not authorize or publish a commit to GitHub.
  */
 export class QuarantinedGitBundleImporter {
-  constructor(
-    private readonly verifier = new QuarantinedGitBundleVerifier(),
-  ) {}
+  constructor(private readonly verifier = new QuarantinedGitBundleVerifier()) {}
 
   async import(
     bundlePath: string,
