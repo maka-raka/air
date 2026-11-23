@@ -19,8 +19,7 @@ export type ValidationFailure =
   (typeof ValidationFailure)[keyof typeof ValidationFailure];
 
 export type TrustedValidationDecision =
-  | PushDecision
-  | Readonly<{ allowed: false; reason: ValidationFailure }>;
+  PushDecision | Readonly<{ allowed: false; reason: ValidationFailure }>;
 
 /**
  * Produces a policy decision, not a GitHub write authorization token.
