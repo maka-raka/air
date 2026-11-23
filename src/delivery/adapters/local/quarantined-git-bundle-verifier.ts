@@ -26,7 +26,12 @@ export class QuarantinedGitBundleVerifier {
     try {
       const { stdout: bare } = await exec(
         "git",
-        ["--git-dir", quarantineRepository, "rev-parse", "--is-bare-repository"],
+        [
+          "--git-dir",
+          quarantineRepository,
+          "rev-parse",
+          "--is-bare-repository",
+        ],
         { timeout: TimeoutMs, maxBuffer: MaxOutputBytes },
       );
       if (bare.trim() !== GitBoolean.True) return false;
@@ -37,7 +42,13 @@ export class QuarantinedGitBundleVerifier {
       );
       const { stdout: heads } = await exec(
         "git",
-        ["--git-dir", quarantineRepository, "bundle", "list-heads", bundlePath],
+        [
+          "--git-dir",
+          quarantineRepository,
+          "bundle",
+          "list-heads",
+          bundlePath,
+        ],
         { timeout: TimeoutMs, maxBuffer: MaxOutputBytes },
       );
       const advertised = heads
