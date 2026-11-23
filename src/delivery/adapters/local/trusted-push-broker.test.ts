@@ -4,9 +4,7 @@ import type {
   PushEvidence,
   PushProposal,
 } from "../github/push-authorization-policy.js";
-import {
-  TrustedPushValidationPipeline,
-} from "./trusted-push-validation-pipeline.js";
+import { TrustedPushValidationPipeline } from "./trusted-push-validation-pipeline.js";
 import {
   BrokerFailure,
   TrustedPushBroker,
