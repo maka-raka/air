@@ -37,24 +37,12 @@ export class QuarantinedGitBundleVerifier {
       if (bare.trim() !== GitBoolean.True) return false;
       await exec(
         "git",
-        [
-          "--git-dir",
-          quarantineRepository,
-          "bundle",
-          "verify",
-          bundlePath,
-        ],
+        ["--git-dir", quarantineRepository, "bundle", "verify", bundlePath],
         { timeout: TimeoutMs, maxBuffer: MaxOutputBytes },
       );
       const { stdout: heads } = await exec(
         "git",
-        [
-          "--git-dir",
-          quarantineRepository,
-          "bundle",
-          "list-heads",
-          bundlePath,
-        ],
+        ["--git-dir", quarantineRepository, "bundle", "list-heads", bundlePath],
         { timeout: TimeoutMs, maxBuffer: MaxOutputBytes },
       );
       const advertised = heads
