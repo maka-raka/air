@@ -6,7 +6,10 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { promisify } from "node:util";
 import { PushDecisionReason } from "../github/push-authorization-policy.js";
-import { TrustedPushValidationPipeline, ValidationFailure } from "./trusted-push-validation-pipeline.js";
+import {
+  TrustedPushValidationPipeline,
+  ValidationFailure,
+} from "./trusted-push-validation-pipeline.js";
 
 const execute = promisify(execFile);
 const Ref = "refs/heads/air/42-security";
@@ -30,7 +33,13 @@ class GitFixture {
     );
     await fixture.git(["init", fixture.source]);
     await fixture.git(["init", "--bare", fixture.quarantine]);
-    await fixture.git(["-C", fixture.source, "config", "user.email", "ci@example.invalid"]);
+    await fixture.git([
+      "-C",
+      fixture.source,
+      "config",
+      "user.email",
+      "ci@example.invalid",
+    ]);
     await fixture.git(["-C", fixture.source, "config", "user.name", "CI"]);
     return fixture;
   }
@@ -71,7 +80,14 @@ class GitFixture {
   }
 
   async pack(): Promise<void> {
-    await this.git(["-C", this.source, "bundle", "create", this.bundle, "--all"]);
+    await this.git([
+      "-C",
+      this.source,
+      "bundle",
+      "create",
+      this.bundle,
+      "--all",
+    ]);
   }
 
   async dispose(): Promise<void> {
@@ -122,7 +138,10 @@ test("real Git objects reject a protected workflow change", async () => {
   const fixture = await GitFixture.create();
   try {
     const base = await fixture.commit("README.md", "base");
-    const head = await fixture.commit(".github/workflows/ci.yml", "name: unsafe");
+    const head = await fixture.commit(
+      ".github/workflows/ci.yml",
+      "name: unsafe",
+    );
     await fixture.seed(base);
     await fixture.pack();
     const decision = await new TrustedPushValidationPipeline().validate(
