@@ -45,22 +45,20 @@ export class TrustedPushValidationPipeline {
     if (evidence.currentHead !== proposal.expectedHead) {
       return { allowed: false, reason: PushDecisionReason.StaleHead };
     }
-    if (
-      !(await this.importer.import(
-        bundlePath,
-        quarantineRepository,
-        proposal.newHead,
-      ))
-    ) {
+    const imported = await this.importer.import(
+      bundlePath,
+      quarantineRepository,
+      proposal.newHead,
+    );
+    if (!imported) {
       return { allowed: false, reason: ValidationFailure.Import };
     }
-    if (
-      !(await this.ancestry.verify(
-        quarantineRepository,
-        proposal.expectedHead,
-        proposal.newHead,
-      ))
-    ) {
+    const validAncestry = await this.ancestry.verify(
+      quarantineRepository,
+      proposal.expectedHead,
+      proposal.newHead,
+    );
+    if (!validAncestry) {
       return { allowed: false, reason: ValidationFailure.Ancestry };
     }
     const changedPaths = await this.paths.read(
