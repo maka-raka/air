@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-  PushAuthorizationPolicy,
-  PushDecisionReason,
-} from "../github/push-authorization-policy.js";
+import { PushAuthorizationPolicy, PushDecisionReason } from "../github/push-authorization-policy.js";
 import { QuarantinedChangedPathsReader } from "./quarantined-changed-paths-reader.js";
 import { QuarantinedCommitAncestryVerifier } from "./quarantined-commit-ancestry-verifier.js";
 import { QuarantinedGitBundleImporter } from "./quarantined-git-bundle-importer.js";
@@ -104,12 +101,9 @@ test("fails closed at each Git validation boundary", async () => {
 });
 
 test("uses Git-derived paths instead of agent-supplied paths", async () => {
-  const result = await pipeline(true, true, [".github/workflows/ci.yml"]).validate(
-    "/bundle",
-    "/quarantine",
-    Proposal,
-    Evidence,
-  );
+  const result = await pipeline(true, true, [
+    ".github/workflows/ci.yml",
+  ]).validate("/bundle", "/quarantine", Proposal, Evidence);
   assert.deepEqual(result, {
     allowed: false,
     reason: PushDecisionReason.ForbiddenPath,
