@@ -144,6 +144,7 @@ test("real Git objects reject a non-descendant commit", async () => {
   const fixture = await GitFixture.create();
   try {
     const base = await fixture.commit("README.md", "base");
+    await fixture.git(["-C", fixture.source, "branch", "base-ref", base]);
     const head = await fixture.commit("src/safe.ts", "safe");
     await fixture.seed(head);
     await fixture.pack();
