@@ -101,9 +101,14 @@ test("fails closed at each Git validation boundary", async () => {
 });
 
 test("uses Git-derived paths instead of agent-supplied paths", async () => {
-  const result = await pipeline(true, true, [
-    ".github/workflows/ci.yml",
-  ]).validate("/bundle", "/quarantine", Proposal, Evidence);
+  const forbiddenPaths = [".github/workflows/ci.yml"];
+  const validator = pipeline(true, true, forbiddenPaths);
+  const result = await validator.validate(
+    "/bundle",
+    "/quarantine",
+    Proposal,
+    Evidence,
+  );
   assert.deepEqual(result, {
     allowed: false,
     reason: PushDecisionReason.ForbiddenPath,
