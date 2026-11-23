@@ -6,6 +6,7 @@ const run = promisify(execFile);
 const Sha = /^[a-f0-9]{40}$/;
 const TimeoutMs = 30_000;
 const MaxBuffer = 64 * 1024;
+const GitObjectType = { Commit: "commit" } as const;
 
 /**
  * Imports objects only into a disposable, trusted bare repository.
@@ -68,7 +69,7 @@ export class QuarantinedGitBundleImporter {
         ],
         options,
       );
-      if (type.trim() !== "commit") return false;
+      if (type.trim() !== GitObjectType.Commit) return false;
       await run(
         "git",
         ["--git-dir", quarantineRepository, "fsck", "--full", "--no-reflogs"],
