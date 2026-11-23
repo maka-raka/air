@@ -18,10 +18,7 @@ test("fails closed when commits are absent from quarantine", async () => {
   const directory = await mkdtemp(join(tmpdir(), "air-ancestry-"));
   try {
     const verifier = new QuarantinedCommitAncestryVerifier();
-    assert.equal(
-      await verifier.verify(directory, Commit, OtherCommit),
-      false,
-    );
+    assert.equal(await verifier.verify(directory, Commit, OtherCommit), false);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
