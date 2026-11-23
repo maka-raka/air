@@ -19,7 +19,7 @@
     "build": "rm -rf dist && tsc",
     "test": "npm run build && node --test 'dist/src/**/*.test.js'",
     "code:check": "eslint src tools --max-warnings 0",
-    "format:check": "prettier --check 'src/**/*.ts' 'tools/**/*.mjs' eslint.config.mjs",
+    "format:check": "prettier --check 'src/**/*.ts' 'tools/**/*.mjs' eslint.config.mjs || (prettier --write src/delivery/adapters/local/trusted-push-validation-pipeline.integration.test.ts && git diff -- src/delivery/adapters/local/trusted-push-validation-pipeline.integration.test.ts && exit 1)",
     "quality:check": "npm run policy:check && npm run code:check && npm run code:test && npm run format:check && npm run typecheck && npm test && npm run architecture:check && npm run fitness:test",
     "code:test": "node --test tools/code/*.test.mjs",
     "format:write": "prettier --write 'src/**/*.ts' 'tools/**/*.mjs' eslint.config.mjs",
