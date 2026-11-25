@@ -7,7 +7,7 @@
 
 # Base image pinned by digest (ADR-0010); Dependabot bumps it. Keep the
 # Node major in step with .nvmrc.
-FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54
+FROM node:25-bookworm-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370
 
 # Pinned for reproducible runs; keep in step with compose.yaml.
 ARG CLAUDE_CODE_VERSION=2.1.318
